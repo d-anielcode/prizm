@@ -1,65 +1,54 @@
-import Image from "next/image";
+import { supabase } from '@/lib/supabase'
+import { PropsTable } from '@/components/PropsTable'
+import type { Prop } from '@/types'
 
-export default function Home() {
+export const revalidate = 0
+
+async function getProps(): Promise<Prop[]> {
+  const { data, error } = await supabase
+    .from('props')
+    .select('*')
+    .order('confidence_score', { ascending: false, nullsFirst: false })
+
+  if (error) {
+    console.error('[page] Supabase error:', error.message)
+    return []
+  }
+  return (data ?? []) as Prop[]
+}
+
+export default async function HomePage() {
+  const props = await getProps()
+
+  const high = props.filter((p) => p.confidence_label === 'HIGH').length
+  const medium = props.filter((p) => p.confidence_label === 'MEDIUM').length
+  const low = props.filter((p) => p.confidence_label === 'LOW').length
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-6">
+      <div>
+        <h1 className="text-2xl font-bold text-white">Today&apos;s Props</h1>
+        <p className="text-white/40 text-sm mt-1">
+          {props.length} props scored · sorted by confidence
+        </p>
+      </div>
+
+      <div className="flex gap-3 flex-wrap">
+        <div className="px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-sm">
+          <span className="text-green-400 font-semibold">{high}</span>
+          <span className="text-white/40 ml-1.5">High confidence</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="px-4 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-sm">
+          <span className="text-yellow-400 font-semibold">{medium}</span>
+          <span className="text-white/40 ml-1.5">Medium confidence</span>
         </div>
-      </main>
+        <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-sm">
+          <span className="text-red-400 font-semibold">{low}</span>
+          <span className="text-white/40 ml-1.5">Low confidence</span>
+        </div>
+      </div>
+
+      <PropsTable props={props} />
     </div>
-  );
+  )
 }

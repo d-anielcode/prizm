@@ -8,7 +8,7 @@ const supabaseKey =
 export const supabase = createClient(supabaseUrl, supabaseKey)
 
 // Cache TTL: 2 hours in milliseconds
-export const CACHE_TTL_MS = 2 * 60 * 60 * 1000
+export const CACHE_TTL_MS = 1 * 60 * 60 * 1000 // 1 hour — matches odds-api.io rate limit window
 
 export function isCacheStale(cachedAt: string): boolean {
   const age = Date.now() - new Date(cachedAt).getTime()

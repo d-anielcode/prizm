@@ -14,6 +14,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export async function POST() {
   try {
+    // Debug: confirm which key is loaded
+    const keyUsed = process.env.SUPABASE_SERVICE_KEY ? 'service_role' : 'anon'
+    console.log('[/api/enrich] Supabase key in use:', keyUsed)
+
     // 1. Load all props from Supabase
     const { data: props, error } = await supabase
       .from('props')

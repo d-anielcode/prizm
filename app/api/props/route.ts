@@ -3,7 +3,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase, isCacheStale } from '@/lib/supabase'
-import { fetchTodaysNBAEvents, fetchPropsForEvent, parsePropsFromEvent } from '@/lib/odds-api'
+import { fetchTodaysNBAEvents, fetchAllPropsForEvents } from '@/lib/odds-api'
 import type { Prop } from '@/types'
 
 export async function GET() {
@@ -44,23 +44,14 @@ export async function GET() {
       })
     }
 
-    // 3. Fetch props for each game (rate-limit aware: sequential)
-    const allProps: Prop[] = []
-    for (const event of events) {
-      try {
-        const eventWithProps = await fetchPropsForEvent(event.id)
-        const props = parsePropsFromEvent(eventWithProps)
+    // 3. Fetch all props in batches of 10 (uses /odds/multi — ceil(N/10) requests)
+    const allProps: Prop[] = await fetchAllPropsForEvents(events)
 
-        // Attach home/away teams to props
-        for (const prop of props) {
-          prop.opponent = event.home_team === 'TBD' ? event.away_team : event.home_team
-        }
-
-        allProps.push(...props)
-      } catch {
-        // Skip individual event failures — don't break the whole response
-        console.warn(`[/api/props] Skipped event ${event.id}`)
-      }
+    // Attach opponent info from events map
+    const eventMap = Object.fromEntries(events.map((e) => [e.id, e]))
+    for (const prop of allProps) {
+      const event = eventMap[prop.game_id]
+      if (event) prop.opponent = event.away_team === prop.team ? event.home_team : event.away_team
     }
 
     // 4. Deduplicate by (player_name + stat_type + line + direction)
@@ -72,16 +63,17 @@ export async function GET() {
       return true
     })
 
-    // 5. Upsert to Supabase (clear old, insert new)
+    // 5. Upsert to Supabase in batches of 500 (clear old, insert new)
     if (deduped.length > 0) {
       await supabase.from('props').delete().neq('id', '00000000-0000-0000-0000-000000000000')
 
-      const { error: insertError } = await supabase.from('props').insert(
-        deduped.map((p) => ({ ...p, cached_at: new Date().toISOString() }))
-      )
-
-      if (insertError) {
-        console.error('[/api/props] Supabase insert error:', insertError.message)
+      const rows = deduped.map((p) => ({ ...p, cached_at: new Date().toISOString() }))
+      const BATCH = 500
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const { error: insertError } = await supabase.from('props').insert(rows.slice(i, i + BATCH))
+        if (insertError) {
+          console.error(`[/api/props] Supabase insert error (batch ${i / BATCH + 1}):`, insertError.message)
+        }
       }
     }
 
