@@ -35,22 +35,20 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python scripts/fetch_nba_stats.py
 
-      - name: Refresh props from odds-api.io
+      - name: Refresh props + AI enrichment (only if app is deployed)
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
         run: |
-          echo "Refreshing props..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$VERCEL_APP_URL/api/props?refresh=true")
-          echo "Props refresh status: $STATUS"
-          sleep 5
-
-      - name: Run AI enrichment
-        env:
-          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
-        run: |
-          echo "Running AI enrichment..."
-          RESULT=$(curl -s "$VERCEL_APP_URL/api/enrich?force=true")
-          echo "Enrichment result: $RESULT"
+          if [ -z "$VERCEL_APP_URL" ]; then
+            echo "No VERCEL_APP_URL set — skipping remote API calls (stats saved to Supabase)"
+            echo "When you're ready to deploy, add VERCEL_APP_URL to GitHub Secrets."
+          else
+            echo "Refreshing props at $VERCEL_APP_URL..."
+            curl -s "$VERCEL_APP_URL/api/props?refresh=true" | head -c 200
+            sleep 5
+            echo "Running AI enrichment..."
+            curl -s "$VERCEL_APP_URL/api/enrich?force=true" | head -c 200
+          fi
 
       - name: Done
         run: echo "NBA IQ daily refresh complete"
