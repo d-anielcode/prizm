@@ -5,13 +5,23 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { searchPlayer, fetchPlayerRecentStats, fetchSeasonAverages, parseBDLStats } from '@/lib/nba-api'
+import { resolvePlayerIds, fetchSeasonAveragesBatch, buildSeasonAvgMap } from '@/lib/nba-api'
 import { scoreProps } from '@/lib/confidence'
-import type { Prop, PlayerStat, StatType } from '@/types'
+import type { Prop, StatType } from '@/types'
 
-async function runEnrichment() {
+async function runEnrichment(force = false) {
   const keyUsed = process.env.SUPABASE_SERVICE_KEY ? 'service_role' : 'anon'
-  console.log('[/api/enrich] Supabase key in use:', keyUsed)
+  console.log('[/api/enrich] Supabase key in use:', keyUsed, force ? '(force re-score)' : '')
+
+  // If force mode, clear all existing scores so we re-score with the latest engine
+  if (force) {
+    await supabase.from('props').update({
+      confidence_score: null,
+      confidence_label: null,
+      risk_tier: null,
+      confidence_reason: null,
+    }).not('id', 'is', null)
+  }
 
   // 1. Load all unscored props from Supabase (max 500 per run — we only surface top 500)
   const { data: props, error } = await supabase
@@ -25,64 +35,42 @@ async function runEnrichment() {
     return { message: 'No props to enrich', enriched: 0, total: 0 }
   }
 
-  // 2. Try to fetch NBA stats for unique players (best-effort — skip if unavailable)
+  // 2. Fetch season averages for all unique players via BallDontLie (free tier)
+  //    Step A: Resolve name → BDL id (sequential, 150ms gap, uses in-memory cache)
+  //    Step B: ONE batch request for all season averages
   const uniqueNames = [...new Set((props as Prop[]).map((p) => p.player_name))]
-  const statsMap = new Map<string, PlayerStat[]>()
   const seasonMap = new Map<string, Record<StatType, number> | null>()
 
-  // Attempt NBA stats with a tight timeout so we don't stall Vercel cron
-  const NBA_TIMEOUT_MS = 5000
-  for (const name of uniqueNames) {
-    try {
-      const playerPromise = searchPlayer(name)
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), NBA_TIMEOUT_MS))
-      const player = await Promise.race([playerPromise, timeoutPromise])
+  console.log(`[/api/enrich] Resolving ${uniqueNames.length} player IDs via BDL...`)
+  const nameToId = await resolvePlayerIds(uniqueNames)
+  console.log(`[/api/enrich] Found ${nameToId.size}/${uniqueNames.length} player IDs`)
 
-      if (!player) {
-        statsMap.set(name, [])
-        seasonMap.set(name, null)
-        continue
-      }
+  // Step B: batch season averages — just ONE request for all players
+  const allIds = [...nameToId.values()]
+  const avgById = await fetchSeasonAveragesBatch(allIds)
+  console.log(`[/api/enrich] Season averages returned for ${avgById.size}/${allIds.length} players`)
 
-      const [recentEntries, seasonAvg] = await Promise.all([
-        fetchPlayerRecentStats(player.id, 10).catch(() => []),
-        fetchSeasonAverages(player.id).catch(() => null),
-      ])
-
-      statsMap.set(name, parseBDLStats(recentEntries))
-      seasonMap.set(name, seasonAvg ? {
-        points: seasonAvg.pts,
-        rebounds: seasonAvg.reb,
-        assists: seasonAvg.ast,
-        steals: seasonAvg.stl,
-        blocks: seasonAvg.blk,
-        three_pointers: seasonAvg.fg3m,
-        pra: seasonAvg.pts + seasonAvg.reb + seasonAvg.ast,
-      } : null)
-    } catch {
-      statsMap.set(name, [])
-      seasonMap.set(name, null)
-    }
+  // Build name → season avg map
+  for (const [name, id] of nameToId) {
+    const avg = avgById.get(id)
+    seasonMap.set(name, avg ? buildSeasonAvgMap(avg) : null)
   }
 
-  // 3. Score every prop using real computed factors only
+  const withData = [...seasonMap.values()].filter(Boolean).length
+  console.log(`[/api/enrich] Season data found for ${withData}/${uniqueNames.length} players`)
+
+  // 3. Score every prop (empty recentStats — v3 engine doesn't need game logs)
   const updates = (props as Prop[]).map((prop) => {
-    const recentStats = statsMap.get(prop.player_name) ?? []
     const seasonAvg = seasonMap.get(prop.player_name) ?? null
-    return scoreProps(prop, recentStats, seasonAvg)
+    return scoreProps(prop, [], seasonAvg)
   })
 
   // 4. Batch-upsert scores to Supabase (500 at a time)
+  // Send full prop objects so upsert never tries to INSERT with null required fields
   let enriched = 0
   const BATCH = 500
   for (let i = 0; i < updates.length; i += BATCH) {
-    const batch = updates.slice(i, i + BATCH).map((s) => ({
-      id: s.id,
-      confidence_score: s.confidence_score,
-      confidence_label: s.confidence_label,
-      risk_tier: s.risk_tier,
-      confidence_reason: s.confidence_reason,
-    }))
+    const batch = updates.slice(i, i + BATCH)
     const { error: upsertError } = await supabase
       .from('props')
       .upsert(batch, { onConflict: 'id' })
@@ -97,10 +85,11 @@ async function runEnrichment() {
   }
 }
 
-// GET — called by Vercel cron (and usable in browser)
-export async function GET() {
+// GET — called by Vercel cron (and usable in browser); pass ?force=true to re-score all
+export async function GET(req: Request) {
   try {
-    const result = await runEnrichment()
+    const force = new URL(req.url).searchParams.get('force') === 'true'
+    const result = await runEnrichment(force)
     return NextResponse.json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -109,10 +98,11 @@ export async function GET() {
   }
 }
 
-// POST — for manual triggers
-export async function POST() {
+// POST — for manual triggers; pass ?force=true to re-score all
+export async function POST(req: Request) {
   try {
-    const result = await runEnrichment()
+    const force = new URL(req.url).searchParams.get('force') === 'true'
+    const result = await runEnrichment(force)
     return NextResponse.json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'

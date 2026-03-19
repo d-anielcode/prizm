@@ -1,178 +1,156 @@
-// NBA Stats API (unofficial) — free, no API key required
-// Server-side only: NBA.com blocks browser requests (CORS).
-// Requires specific headers to avoid 403.
+// NBA Stats — BallDontLie API (free tier)
+// Free tier: 60 req/min. Strategy:
+//   1. Search players one-at-a-time with 150ms gaps (sequential, not concurrent)
+//   2. Batch ALL season averages in a single request
+//   3. Cache player name→id in memory so searches only happen once per server session
 
-import type { BDLPlayer, BDLStatEntry, BDLSeasonAverage, PlayerStat } from '@/types'
+import type { BDLPlayer, BDLSeasonAverage, StatType } from '@/types'
 
-const NBA_BASE = 'https://stats.nba.com/stats'
+const BDL_BASE = 'https://api.balldontlie.io/v1'
+const BDL_KEY  = process.env.BALLDONTLIE_API_KEY ?? ''
 
-const NBA_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Referer': 'https://www.nba.com/',
-  'Accept': 'application/json, text/plain, */*',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'x-nba-stats-origin': 'stats',
-  'x-nba-stats-token': 'true',
-  'Origin': 'https://www.nba.com',
-}
+const BDL_HEADERS = { Authorization: BDL_KEY }
 
-// Helper: current NBA season string e.g. "2025-26"
-export function getCurrentSeason(): string {
-  const year = new Date().getMonth() >= 9 ? new Date().getFullYear() : new Date().getFullYear() - 1
-  return `${year}-${String(year + 1).slice(2)}`
-}
+// In-memory player name → BDL id cache (reset on server restart — fine, 24h revalidate)
+const _playerIdCache = new Map<string, number | null>() // null = "not found"
 
-// Helper: parse NBA.com resultSet by name into array of row objects
-type ResultSet = { name: string; headers: string[]; rowSet: unknown[][] }
-function parseResultSet(resultSets: ResultSet[], name: string): Record<string, unknown>[] {
-  const rs = resultSets.find((r) => r.name === name)
-  if (!rs || !rs.rowSet.length) return []
-  return rs.rowSet.map((row) =>
-    Object.fromEntries(rs.headers.map((h, i) => [h, row[i]]))
-  )
-}
-
-// In-memory player list cache (reset on server restart — that's fine, 24h revalidate handles CDN)
-let _playerCache: Record<string, unknown>[] | null = null
-
-async function getAllPlayers(): Promise<Record<string, unknown>[]> {
-  if (_playerCache) return _playerCache
-  const res = await fetch(
-    `${NBA_BASE}/commonallplayers?LeagueID=00&Season=${getCurrentSeason()}&IsOnlyCurrentSeason=1`,
-    { headers: NBA_HEADERS, next: { revalidate: 86400 } }
-  )
-  if (!res.ok) return []
-  const data = await res.json() as { resultSets: ResultSet[] }
-  _playerCache = parseResultSet(data.resultSets, 'CommonAllPlayers')
-  return _playerCache
-}
-
-// Normalize a name for comparison: lowercase, strip punctuation
 function normalizeName(name: string): string {
   return name.toLowerCase().replace(/[^a-z\s]/g, '').trim()
 }
 
-// Search for a player by name — returns first match
-export async function searchPlayer(name: string): Promise<BDLPlayer | null> {
-  try {
-    const players = await getAllPlayers()
-    const query = normalizeName(name)
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms))
+}
 
-    // Try exact match first, then partial
-    const match = players.find((p) => normalizeName(p['DISPLAY_FIRST_LAST'] as string) === query)
-      ?? players.find((p) => {
-        const n = normalizeName(p['DISPLAY_FIRST_LAST'] as string)
-        const queryWords = query.split(' ')
-        return queryWords.every((w) => n.includes(w))
+// Search for one player by display name, returning their BDL numeric id.
+// Uses in-memory cache to avoid repeat lookups.
+async function resolvePlayerId(name: string): Promise<number | null> {
+  const key = normalizeName(name)
+  if (_playerIdCache.has(key)) return _playerIdCache.get(key) ?? null
+
+  try {
+    // Search by last name (most unique fragment)
+    const lastName = name.split(' ').pop() ?? name
+    const url = `${BDL_BASE}/players?search=${encodeURIComponent(lastName)}&per_page=25`
+    const res = await fetch(url, { headers: BDL_HEADERS })
+
+    if (res.status === 429) {
+      console.warn('[BDL] rate limited during player search — skipping', name)
+      _playerIdCache.set(key, null)
+      return null
+    }
+    if (!res.ok) {
+      _playerIdCache.set(key, null)
+      return null
+    }
+
+    const data = await res.json() as { data: BDLPlayer[] }
+    const players = data.data ?? []
+
+    const match =
+      players.find((p) => normalizeName(`${p.first_name} ${p.last_name}`) === key) ??
+      players.find((p) => {
+        const full = normalizeName(`${p.first_name} ${p.last_name}`)
+        return key.split(' ').every((w) => full.includes(w))
       })
 
-    if (!match) return null
-
-    const fullName = (match['DISPLAY_FIRST_LAST'] as string).trim()
-    const spaceIdx = fullName.indexOf(' ')
-
-    return {
-      id: match['PERSON_ID'] as number,
-      first_name: spaceIdx > -1 ? fullName.slice(0, spaceIdx) : fullName,
-      last_name: spaceIdx > -1 ? fullName.slice(spaceIdx + 1) : '',
-      team: {
-        abbreviation: (match['TEAM_ABBREVIATION'] as string) || 'UNK',
-        full_name: `${match['TEAM_CITY'] ?? ''} ${match['TEAM_NAME'] ?? ''}`.trim(),
-      },
-    }
+    const id = match?.id ?? null
+    _playerIdCache.set(key, id)
+    return id
   } catch {
+    _playerIdCache.set(key, null)
     return null
   }
 }
 
-// Fetch last N game stats for a player (current season)
-export async function fetchPlayerRecentStats(
-  playerId: number,
-  limit = 10
-): Promise<BDLStatEntry[]> {
-  const res = await fetch(
-    `${NBA_BASE}/playergamelog?PlayerID=${playerId}&Season=${getCurrentSeason()}&SeasonType=Regular%20Season`,
-    { headers: NBA_HEADERS, next: { revalidate: 3600 } }
-  )
-  if (!res.ok) throw new Error(`NBA game log failed for player ${playerId}: ${res.status}`)
+// Resolve a list of player names → BDL ids, sequentially with a 150ms gap
+// to stay within the 60 req/min free tier limit.
+export async function resolvePlayerIds(
+  names: string[],
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
 
-  const data = await res.json() as { resultSets: ResultSet[] }
-  const rows = parseResultSet(data.resultSets, 'PlayerGameLog').slice(0, limit)
+  for (const name of names) {
+    // Skip if already cached
+    if (!_playerIdCache.has(normalizeName(name))) {
+      await sleep(150)
+    }
+    const id = await resolvePlayerId(name)
+    if (id !== null) result.set(name, id)
+  }
 
-  return rows.map((row, idx) => ({
-    id: idx,
-    date: row['GAME_DATE'] as string,
-    season: new Date().getFullYear(),
-    player: {
-      id: playerId,
-      first_name: '',
-      last_name: '',
-      team: { abbreviation: '', full_name: '' },
-    },
-    team: { abbreviation: String(row['MATCHUP'] ?? '').split(' ')[0] },
-    pts: (row['PTS'] as number) ?? null,
-    reb: (row['REB'] as number) ?? null,
-    ast: (row['AST'] as number) ?? null,
-    stl: (row['STL'] as number) ?? null,
-    blk: (row['BLK'] as number) ?? null,
-    fg3m: (row['FG3M'] as number) ?? null,
-    min: String(row['MIN'] ?? ''),
-  }))
+  return result
 }
 
-// Fetch season averages for a player
-export async function fetchSeasonAverages(playerId: number): Promise<BDLSeasonAverage | null> {
+// Fetch season averages for multiple players in ONE request (free tier supports this)
+// Returns a map of BDL player_id → averages
+export async function fetchSeasonAveragesBatch(
+  playerIds: number[],
+): Promise<Map<number, BDLSeasonAverage>> {
+  const result = new Map<number, BDLSeasonAverage>()
+  if (playerIds.length === 0) return result
+
   try {
-    const res = await fetch(
-      `${NBA_BASE}/playercareerstats?PlayerID=${playerId}&PerMode=PerGame`,
-      { headers: NBA_HEADERS, next: { revalidate: 3600 } }
-    )
-    if (!res.ok) return null
+    const season = getCurrentSeason()
+    const idParams = playerIds.map((id) => `player_ids[]=${id}`).join('&')
+    const url = `${BDL_BASE}/season_averages?season=${season}&${idParams}`
+    const res = await fetch(url, {
+      headers: BDL_HEADERS,
+      next: { revalidate: 3600 },
+    })
 
-    const data = await res.json() as { resultSets: ResultSet[] }
-    const rows = parseResultSet(data.resultSets, 'SeasonTotalsRegularSeason')
-    // Last row = most recent season
-    const current = rows[rows.length - 1]
-    if (!current) return null
-
-    return {
-      player_id: playerId,
-      season: new Date().getFullYear(),
-      pts: (current['PTS'] as number) ?? 0,
-      reb: (current['REB'] as number) ?? 0,
-      ast: (current['AST'] as number) ?? 0,
-      stl: (current['STL'] as number) ?? 0,
-      blk: (current['BLK'] as number) ?? 0,
-      fg3m: (current['FG3M'] as number) ?? 0,
-      min: String(current['MIN'] ?? '0'),
+    if (res.status === 429) {
+      console.warn('[BDL] rate limited on season_averages batch')
+      return result
     }
-  } catch {
-    return null
+    if (!res.ok) {
+      console.error(`[BDL] season_averages batch failed: ${res.status}`)
+      return result
+    }
+
+    const data = await res.json() as {
+      data: Array<{
+        player_id: number; season: number
+        pts: number; reb: number; ast: number
+        stl: number; blk: number; fg3m: number; min: string
+      }>
+    }
+
+    for (const avg of data.data ?? []) {
+      result.set(avg.player_id, {
+        player_id: avg.player_id,
+        season: avg.season,
+        pts:  avg.pts  ?? 0,
+        reb:  avg.reb  ?? 0,
+        ast:  avg.ast  ?? 0,
+        stl:  avg.stl  ?? 0,
+        blk:  avg.blk  ?? 0,
+        fg3m: avg.fg3m ?? 0,
+        min:  avg.min  ?? '0',
+      })
+    }
+  } catch (err) {
+    console.error('[BDL] fetchSeasonAveragesBatch error:', err)
   }
+
+  return result
 }
 
-// Convert stat entries to our PlayerStat format
-export function parseBDLStats(entries: BDLStatEntry[]): PlayerStat[] {
-  return entries.map((entry) => ({
-    player_id: entry.player.id,
-    player_name: `${entry.player.first_name} ${entry.player.last_name}`.trim(),
-    team: entry.team.abbreviation,
-    game_date: entry.date,
-    points: entry.pts ?? 0,
-    rebounds: entry.reb ?? 0,
-    assists: entry.ast ?? 0,
-    steals: entry.stl ?? 0,
-    blocks: entry.blk ?? 0,
-    three_pointers: entry.fg3m ?? 0,
-    minutes_played: parseMinutes(entry.min),
-    cached_at: new Date().toISOString(),
-  }))
+// Current NBA season as start year (BDL uses 2025 for the 2025-26 season)
+export function getCurrentSeason(): number {
+  const now = new Date()
+  return now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1
 }
 
-function parseMinutes(min: string | null): number {
-  if (!min) return 0
-  const parts = min.split(':')
-  return parts.length === 2
-    ? parseInt(parts[0], 10) + parseInt(parts[1], 10) / 60
-    : parseFloat(min) || 0
+// Map a BDLSeasonAverage → StatType keyed record for use in scoring
+export function buildSeasonAvgMap(avg: BDLSeasonAverage): Record<StatType, number> {
+  return {
+    points:         avg.pts,
+    rebounds:       avg.reb,
+    assists:        avg.ast,
+    steals:         avg.stl,
+    blocks:         avg.blk,
+    three_pointers: avg.fg3m,
+    pra:            avg.pts + avg.reb + avg.ast,
+  }
 }
