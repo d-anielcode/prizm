@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-03-19T23:52:56.920022Z",
+  "mode": "Synthetic Lines (rolling avg as proxy, 10+ prior games required)",
+  "n_test_cases": 9226,
+  "cv_accuracy": 0.5506,
+  "baseline_accuracy": 0.528,
+  "suggested_weights": {
+    "last10HitRate": 0.153,
+    "matchupEdge": 0.329,
+    "seasonCushion": 0.12,
+    "vsOpponent": 0.001,
+    "homeAway": 0.03,
+    "trend": 0.133,
+    "last20HitRate": 0.233,
+    "consistency": 0.0,
+    "blowout": 0.0,
+    "newsInjury": 0.0
+  },
+  "current_weights": {
+    "last10HitRate": 0.2,
+    "matchupEdge": 0.16,
+    "seasonCushion": 0.13,
+    "vsOpponent": 0.12,
+    "homeAway": 0.09,
+    "trend": 0.09,
+    "last20HitRate": 0.06,
+    "consistency": 0.02,
+    "bookOdds": 0.01,
+    "blowout": 0.07,
+    "newsInjury": 0.05
+  }
+}

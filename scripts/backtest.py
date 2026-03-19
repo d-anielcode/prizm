@@ -37,7 +37,8 @@ try:
             line = line.strip()
             if line and not line.startswith('#') and '=' in line:
                 k, v = line.split('=', 1)
-                env[k.strip()] = v.strip()
+                v = v.strip().strip('"').strip("'")
+                env[k.strip()] = v
 except FileNotFoundError:
     pass
 
@@ -187,6 +188,36 @@ def factor_home_away(prior, stat_type, line, direction, is_home):
     hits = sum(1 for g in filtered if (get_stat(g, stat_type) > line if direction == 'over' else get_stat(g, stat_type) < line))
     return hits / len(filtered)
 
+def factor_blowout(spread):
+    """
+    Blowout risk based on point spread. Large spreads mean starters may sit
+    early in the 4th quarter, reducing counting stat opportunities for both teams.
+
+    In the backtester we don't have historical spread data, so this defaults
+    to 0.5 (neutral). In production the enrich route fetches live spreads from
+    the ESPN scoreboard API. The backtester still includes this factor column
+    so it appears in the weight comparison output.
+    """
+    if spread is None:
+        return 0.5
+    if spread <= 3:  return 0.50
+    if spread <= 6:  return 0.47
+    if spread <= 9:  return 0.44
+    if spread <= 12: return 0.41
+    return 0.37
+
+def factor_news_injury(player_status, injured_teammates_boost):
+    """
+    Real-time injury/news context. Cannot be backtested historically — we don't
+    have injury report snapshots for past games. Returns 0.5 (neutral) in the
+    backtester. In production the enrich route fetches the ESPN injury API and
+    computes boosts from injured teammates and penalties for a questionable player.
+    """
+    if player_status == 'out':          return 0.05
+    if player_status == 'doubtful':     return 0.25
+    if player_status == 'questionable': return 0.42
+    return min(0.95, 0.50 + injured_teammates_boost)
+
 # ── Build test cases ──────────────────────────────────────────────────────────
 def build_test_cases_synthetic(logs_by_player, def_stats_map, stat_types, min_prior_games=10):
     """
@@ -241,9 +272,12 @@ def build_test_cases_synthetic(logs_by_player, def_stats_map, stat_types, min_pr
                 f_matchup = factor_matchup(def_stats_map, opp_abbr, stat, direction)
                 f_vs_opp, vs_n = factor_vs_opponent(prior, stat, line, direction, opp_abbr)
                 f_home    = factor_home_away(prior, stat, line, direction, is_home)
+                # blowout and newsInjury: 0.5 neutral (no historical spread/injury data)
+                f_blowout     = factor_blowout(None)
+                f_news_injury = factor_news_injury(None, 0.0)
 
                 cases.append({
-                    'features': [f_l10, f_matchup, f_cushion, f_vs_opp, f_home, f_trend, f_l20, f_consist],
+                    'features': [f_l10, f_matchup, f_cushion, f_vs_opp, f_home, f_trend, f_l20, f_consist, f_blowout, f_news_injury],
                     'label':    label,
                     'meta': {
                         'player': player,
@@ -307,9 +341,11 @@ def build_test_cases_real_lines(real_props, logs_by_player, def_stats_map):
         f_matchup = factor_matchup(def_stats_map, opp_abbr, stat, direction)
         f_vs_opp, vs_n = factor_vs_opponent(prior, stat, line, direction, opp_abbr)
         f_home    = factor_home_away(prior, stat, line, direction, is_home)
+        f_blowout     = factor_blowout(None)
+        f_news_injury = factor_news_injury(None, 0.0)
 
         cases.append({
-            'features': [f_l10, f_matchup, f_cushion, f_vs_opp, f_home, f_trend, f_l20, f_consist],
+            'features': [f_l10, f_matchup, f_cushion, f_vs_opp, f_home, f_trend, f_l20, f_consist, f_blowout, f_news_injury],
             'label':    label,
             'meta': {
                 'player': player,
@@ -335,6 +371,11 @@ FACTOR_NAMES = [
     'trend',
     'last20HitRate',
     'consistency',
+    # blowout and newsInjury are fixed at 0.5 in the backtester (no historical data).
+    # They appear here so the comparison table includes them and logistic regression
+    # can confirm they carry ~0 predictive weight in synthetic mode (expected).
+    'blowout',
+    'newsInjury',
 ]
 
 def analyze(cases, label=''):
@@ -391,28 +432,31 @@ def analyze(cases, label=''):
         print(f"  {'-'*42}")
 
         for name, coef, w in sorted(zip(FACTOR_NAMES, coefs, weights), key=lambda x: -x[1]):
-            direction_marker = '↑' if coef > 0 else '↓'
+            direction_marker = '+' if coef > 0 else '-'
             print(f"  {name:<20} {coef:>+9.4f} {direction_marker}  {w:>6.1%}")
 
-        # Current weights for comparison
+        # Current weights for comparison (v3 — includes blowout + newsInjury)
         current_weights = {
-            'last10HitRate': 0.22,
-            'matchupEdge':   0.18,
-            'seasonCushion': 0.15,
-            'vsOpponent':    0.14,
-            'homeAway':      0.10,
-            'trend':         0.10,
-            'last20HitRate': 0.07,
+            'last10HitRate': 0.20,
+            'matchupEdge':   0.16,
+            'seasonCushion': 0.13,
+            'vsOpponent':    0.12,
+            'homeAway':      0.09,
+            'trend':         0.09,
+            'last20HitRate': 0.06,
             'consistency':   0.02,
+            'bookOdds':      0.01,
+            'blowout':       0.07,   # real-time only, 0.5 neutral in backtest
+            'newsInjury':    0.05,   # real-time only, 0.5 neutral in backtest
         }
 
         print(f"\n  Comparison — current vs. data-driven weights:")
-        print(f"  {'Factor':<20} {'Current':>9} {'Suggested':>10} {'Δ':>8}")
+        print(f"  {'Factor':<20} {'Current':>9} {'Suggested':>10} {'Delta':>8}")
         print(f"  {'-'*52}")
         for name, w in zip(FACTOR_NAMES, weights):
             curr = current_weights.get(name, 0)
             delta = w - curr
-            marker = '▲' if delta > 0.02 else ('▼' if delta < -0.02 else ' ')
+            marker = '^' if delta > 0.02 else ('v' if delta < -0.02 else ' ')
             print(f"  {name:<20} {curr:>8.1%}  {w:>9.1%}  {delta:>+7.1%} {marker}")
 
         print(f"\n  Model accuracy with data-driven weights:")
@@ -434,7 +478,7 @@ def analyze(cases, label=''):
         out_path = os.path.join(os.path.dirname(__file__), '..', 'backtest_results.json')
         with open(out_path, 'w') as f:
             json.dump(output, f, indent=2)
-        print(f"\n  Results saved → backtest_results.json")
+        print(f"\n  Results saved -> backtest_results.json")
 
     except ImportError:
         print("\n  [!] scikit-learn not installed — skipping logistic regression.")

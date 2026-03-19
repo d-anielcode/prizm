@@ -2,17 +2,157 @@
 // Uses real NBA game logs from player_game_logs + team_defense_stats tables.
 // Run scripts/fetch_nba_stats.py first to populate those tables.
 // Falls back to book-odds scoring if game log data isn't available.
+//
+// New in v3: fetches spreads (ESPN scoreboard) and injury reports (ESPN API)
+// for blowout risk and news/injury factors. Both are best-effort — if ESPN
+// is unreachable, those factors simply default to 0.50 (neutral).
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { scoreProps, type GameLog, type TeamDefenseStats, type ScoringContext } from '@/lib/confidence'
+import {
+  scoreProps,
+  type GameLog,
+  type TeamDefenseStats,
+  type ScoringContext,
+  type InjuredTeammate,
+} from '@/lib/confidence'
 import type { Prop, StatType } from '@/types'
 
+// ── ESPN free APIs ─────────────────────────────────────────────────────────────
+// Both are undocumented but widely stable — wrapped in try/catch so failures
+// just return empty maps and the model falls back to neutral factor values.
+
+interface EspnInjury {
+  playerName: string
+  teamAbbr:   string
+  status:     'active' | 'questionable' | 'doubtful' | 'out'
+}
+
+/** Fetch today's NBA injury report from ESPN. */
+async function fetchEspnInjuries(): Promise<Map<string, EspnInjury>> {
+  const map = new Map<string, EspnInjury>()
+  try {
+    const res = await fetch(
+      'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries',
+      { next: { revalidate: 3600 } }
+    )
+    if (!res.ok) return map
+
+    const data = await res.json() as {
+      injuries?: Array<{
+        athlete?: { displayName?: string; team?: { abbreviation?: string } }
+        type?:    { description?: string }
+        status?:  string
+      }>
+    }
+
+    for (const item of data.injuries ?? []) {
+      const name   = item.athlete?.displayName?.trim()
+      const team   = item.athlete?.team?.abbreviation?.trim().toUpperCase()
+      const rawStatus = (item.type?.description ?? item.status ?? '').toLowerCase()
+      if (!name || !team) continue
+
+      let status: EspnInjury['status'] = 'active'
+      if (rawStatus.includes('out'))          status = 'out'
+      else if (rawStatus.includes('doubtful')) status = 'doubtful'
+      else if (rawStatus.includes('question')) status = 'questionable'
+      else continue  // probable / day-to-day → treat as active, skip
+
+      map.set(name, { playerName: name, teamAbbr: team, status })
+    }
+  } catch {
+    // ESPN unreachable — return empty map, all players treated as active
+  }
+  return map
+}
+
+/** Fetch today's game spreads from ESPN scoreboard. Returns Map<homeAbbr+awayAbbr, absSpread>. */
+async function fetchEspnSpreads(): Promise<Map<string, number>> {
+  const map = new Map<string, number>()
+  try {
+    const res = await fetch(
+      'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard',
+      { next: { revalidate: 3600 } }
+    )
+    if (!res.ok) return map
+
+    const data = await res.json() as {
+      events?: Array<{
+        competitions?: Array<{
+          competitors?: Array<{ homeAway?: string; team?: { abbreviation?: string } }>
+          odds?: Array<{ details?: string }>
+        }>
+      }>
+    }
+
+    for (const event of data.events ?? []) {
+      for (const comp of event.competitions ?? []) {
+        const home = comp.competitors?.find((c) => c.homeAway === 'home')?.team?.abbreviation
+        const away = comp.competitors?.find((c) => c.homeAway === 'away')?.team?.abbreviation
+        if (!home || !away) continue
+
+        const details = comp.odds?.[0]?.details ?? ''
+        // ESPN details format: "-7.5", "MIL -7.5", "EVEN", etc.
+        const match = details.match(/-?\d+(\.\d+)?/)
+        if (!match) continue
+
+        const spread = Math.abs(parseFloat(match[0]))
+        if (!isNaN(spread)) {
+          map.set(`${home}|${away}`, spread)
+          map.set(`${away}|${home}`, spread)  // index both directions
+        }
+      }
+    }
+  } catch {
+    // ESPN unreachable — return empty map
+  }
+  return map
+}
+
+// ── Team name → abbreviation lookup ──────────────────────────────────────────
+const TEAM_ABBR: Record<string, string> = {
+  'Atlanta Hawks': 'ATL', 'Boston Celtics': 'BOS', 'Brooklyn Nets': 'BKN',
+  'Charlotte Hornets': 'CHA', 'Chicago Bulls': 'CHI', 'Cleveland Cavaliers': 'CLE',
+  'Dallas Mavericks': 'DAL', 'Denver Nuggets': 'DEN', 'Detroit Pistons': 'DET',
+  'Golden State Warriors': 'GSW', 'Houston Rockets': 'HOU', 'Indiana Pacers': 'IND',
+  'Los Angeles Clippers': 'LAC', 'Los Angeles Lakers': 'LAL', 'Memphis Grizzlies': 'MEM',
+  'Miami Heat': 'MIA', 'Milwaukee Bucks': 'MIL', 'Minnesota Timberwolves': 'MIN',
+  'New Orleans Pelicans': 'NOP', 'New York Knicks': 'NYK', 'Oklahoma City Thunder': 'OKC',
+  'Orlando Magic': 'ORL', 'Philadelphia 76ers': 'PHI', 'Phoenix Suns': 'PHX',
+  'Portland Trail Blazers': 'POR', 'Sacramento Kings': 'SAC', 'San Antonio Spurs': 'SAS',
+  'Toronto Raptors': 'TOR', 'Utah Jazz': 'UTA', 'Washington Wizards': 'WAS',
+}
+
+// ── Derive opponent abbreviation + home/away + player team from prop + logs ───
+function deriveMatchupContext(
+  prop: Prop,
+  logs: GameLog[],
+): { isHome: boolean | null; opponentAbbr: string | null; playerTeamAbbr: string | null } {
+  if (logs.length === 0) return { isHome: null, opponentAbbr: null, playerTeamAbbr: null }
+
+  const latestMatchup = logs[0]?.matchup ?? ''
+  const matchParts = latestMatchup.split(/\s+vs\.\s+|\s+@\s+/)
+  const playerTeamAbbr = matchParts[0]?.trim().toUpperCase() ?? null
+  if (!playerTeamAbbr) return { isHome: null, opponentAbbr: null, playerTeamAbbr: null }
+
+  const homeAbbr = prop.home_team ? (TEAM_ABBR[prop.home_team] ?? null) : null
+  const awayAbbr = prop.away_team ? (TEAM_ABBR[prop.away_team] ?? null) : null
+
+  if (homeAbbr && playerTeamAbbr === homeAbbr) {
+    return { isHome: true,  opponentAbbr: awayAbbr,  playerTeamAbbr }
+  }
+  if (awayAbbr && playerTeamAbbr === awayAbbr) {
+    return { isHome: false, opponentAbbr: homeAbbr, playerTeamAbbr }
+  }
+
+  return { isHome: null, opponentAbbr: null, playerTeamAbbr }
+}
+
+// ── Main enrichment logic ─────────────────────────────────────────────────────
 async function runEnrichment(force = false) {
   const keyUsed = process.env.SUPABASE_SERVICE_KEY ? 'service_role' : 'anon'
   console.log('[/api/enrich] key:', keyUsed, force ? '(force)' : '')
 
-  // Clear existing scores if forcing full re-score
   if (force) {
     await supabase.from('props').update({
       confidence_score: null,
@@ -22,7 +162,7 @@ async function runEnrichment(force = false) {
     }).not('id', 'is', null)
   }
 
-  // Load ALL unscored props via pagination (Supabase caps at 1000 per request)
+  // Load ALL unscored props via pagination
   const props: Prop[] = []
   let from = 0
   const PAGE = 1000
@@ -42,8 +182,16 @@ async function runEnrichment(force = false) {
     return { message: 'No props to enrich', enriched: 0, total: 0 }
   }
 
+  // ── Fetch real-time data (spreads + injuries) in parallel ─────────────────
+  console.log('[/api/enrich] Fetching ESPN spreads + injury report...')
+  const [spreadMap, injuryMap] = await Promise.all([
+    fetchEspnSpreads(),
+    fetchEspnInjuries(),
+  ])
+  console.log(`[/api/enrich] ESPN: ${spreadMap.size} game spreads, ${injuryMap.size} injured players`)
+
   // ── Load game logs from Supabase ──────────────────────────────────────────
-  const uniqueNames = [...new Set((props as Prop[]).map((p) => p.player_name))]
+  const uniqueNames = [...new Set(props.map((p) => p.player_name))]
   console.log(`[/api/enrich] Loading game logs for ${uniqueNames.length} players...`)
 
   const { data: logRows } = await supabase
@@ -52,7 +200,6 @@ async function runEnrichment(force = false) {
     .in('player_name', uniqueNames)
     .order('game_date', { ascending: false })
 
-  // Group logs by player_name
   const logsMap = new Map<string, GameLog[]>()
   for (const row of logRows ?? []) {
     const name = row.player_name as string
@@ -73,34 +220,79 @@ async function runEnrichment(force = false) {
   }
 
   const playersWithLogs = [...logsMap.values()].filter((l) => l.length >= 3).length
-  console.log(`[/api/enrich] Game log data available for ${playersWithLogs}/${uniqueNames.length} players`)
+  console.log(`[/api/enrich] Game logs: ${playersWithLogs}/${uniqueNames.length} players`)
 
   // ── Load team defensive rankings ──────────────────────────────────────────
-  const { data: defRows } = await supabase
-    .from('team_defense_stats')
-    .select('*')
-
+  const { data: defRows } = await supabase.from('team_defense_stats').select('*')
   const defMap = new Map<string, TeamDefenseStats>()
   for (const row of defRows ?? []) {
     defMap.set(row.team_abbreviation as string, row as TeamDefenseStats)
   }
-  console.log(`[/api/enrich] Team defense stats loaded for ${defMap.size} teams`)
+  console.log(`[/api/enrich] Team defense stats: ${defMap.size} teams`)
+
+  // ── Build a map of team → prop players (for injured teammate detection) ────
+  // We identify prop players on each team so we can flag injured teammates who
+  // are relevant enough to have their own props set (= meaningful usage).
+  const teamToPropPlayers = new Map<string, string[]>()  // teamAbbr → player names
+  for (const prop of props) {
+    const logs = logsMap.get(prop.player_name) ?? []
+    const { playerTeamAbbr } = deriveMatchupContext(prop, logs)
+    if (!playerTeamAbbr) continue
+    if (!teamToPropPlayers.has(playerTeamAbbr)) teamToPropPlayers.set(playerTeamAbbr, [])
+    const team = teamToPropPlayers.get(playerTeamAbbr)!
+    if (!team.includes(prop.player_name)) team.push(prop.player_name)
+  }
 
   // ── Score every prop ──────────────────────────────────────────────────────
-  const updates = (props as Prop[]).map((prop) => {
+  const updates = props.map((prop) => {
     const logs = logsMap.get(prop.player_name) ?? []
-
-    // Derive opponent + home/away from prop's team fields + player's game logs
-    const { isHome, opponentAbbr } = deriveMatchupContext(prop, logs)
+    const { isHome, opponentAbbr, playerTeamAbbr } = deriveMatchupContext(prop, logs)
     const defStats = opponentAbbr ? (defMap.get(opponentAbbr) ?? null) : null
 
-    const ctx: ScoringContext = { defStats, isHome, opponentAbbr }
+    // Spread: match by home|away team abbreviation pair
+    const homeAbbr = prop.home_team ? (TEAM_ABBR[prop.home_team] ?? null) : null
+    const awayAbbr = prop.away_team ? (TEAM_ABBR[prop.away_team] ?? null) : null
+    const spreadKey = homeAbbr && awayAbbr ? `${homeAbbr}|${awayAbbr}` : null
+    const spread = spreadKey ? (spreadMap.get(spreadKey) ?? null) : null
+
+    // Player's own injury status
+    const injuryEntry = injuryMap.get(prop.player_name)
+    const playerStatus = injuryEntry?.status ?? 'active'
+
+    // Injured teammates: other prop-listed players on same team who are in injury report
+    const injuredTeammates: InjuredTeammate[] = []
+    if (playerTeamAbbr) {
+      const teammates = (teamToPropPlayers.get(playerTeamAbbr) ?? [])
+        .filter((name) => name !== prop.player_name)
+
+      for (const tName of teammates) {
+        const tInjury = injuryMap.get(tName)
+        if (!tInjury || tInjury.status === 'active') continue
+        // Impact = 1 / (total prop players on team) — spreads the "vacated usage" equally
+        const teamSize = Math.max(teammates.length + 1, 1)
+        injuredTeammates.push({
+          name:        tName,
+          status:      tInjury.status,
+          impactScore: 1 / teamSize,
+        })
+      }
+    }
+
+    const ctx: ScoringContext = {
+      defStats,
+      isHome,
+      opponentAbbr,
+      spread,
+      playerStatus,
+      injuredTeammates,
+    }
+
     return scoreProps(prop, logs, null, ctx)
   })
 
   // ── Batch-upsert to Supabase ──────────────────────────────────────────────
   let enriched = 0
-  const BATCH = 200  // smaller batches to avoid payload limits
+  const BATCH = 200
   for (let i = 0; i < updates.length; i += BATCH) {
     const batch = updates.slice(i, i + BATCH)
     const { error: upsertError } = await supabase
@@ -110,61 +302,17 @@ async function runEnrichment(force = false) {
     else console.error('[/api/enrich] Upsert error:', upsertError.message)
   }
 
+  const injuredCount = [...injuryMap.values()].filter((i) => i.status !== 'active').length
+
   return {
     message: `Enriched ${enriched} props with AI confidence scores`,
     enriched,
     total: props.length,
     playersWithGameLogs: playersWithLogs,
     teamsWithDefenseData: defMap.size,
+    espnSpreadsLoaded: spreadMap.size,
+    espnInjuriesLoaded: injuredCount,
   }
-}
-
-// ── Team name → abbreviation lookup ──────────────────────────────────────────
-const TEAM_ABBR: Record<string, string> = {
-  'Atlanta Hawks': 'ATL', 'Boston Celtics': 'BOS', 'Brooklyn Nets': 'BKN',
-  'Charlotte Hornets': 'CHA', 'Chicago Bulls': 'CHI', 'Cleveland Cavaliers': 'CLE',
-  'Dallas Mavericks': 'DAL', 'Denver Nuggets': 'DEN', 'Detroit Pistons': 'DET',
-  'Golden State Warriors': 'GSW', 'Houston Rockets': 'HOU', 'Indiana Pacers': 'IND',
-  'Los Angeles Clippers': 'LAC', 'Los Angeles Lakers': 'LAL', 'Memphis Grizzlies': 'MEM',
-  'Miami Heat': 'MIA', 'Milwaukee Bucks': 'MIL', 'Minnesota Timberwolves': 'MIN',
-  'New Orleans Pelicans': 'NOP', 'New York Knicks': 'NYK', 'Oklahoma City Thunder': 'OKC',
-  'Orlando Magic': 'ORL', 'Philadelphia 76ers': 'PHI', 'Phoenix Suns': 'PHX',
-  'Portland Trail Blazers': 'POR', 'Sacramento Kings': 'SAC', 'San Antonio Spurs': 'SAS',
-  'Toronto Raptors': 'TOR', 'Utah Jazz': 'UTA', 'Washington Wizards': 'WAS',
-}
-
-function getTeamAbbr(fullName: string): string | null {
-  return TEAM_ABBR[fullName] ?? null
-}
-
-// ── Derive opponent abbreviation + home/away from prop + game logs ────────────
-// Game log matchup format: "LAL vs. DEN" (home) or "LAL @ MIL" (away)
-// The player's team is always the first token.
-function deriveMatchupContext(
-  prop: Prop,
-  logs: GameLog[],
-): { isHome: boolean | null; opponentAbbr: string | null } {
-  if (logs.length === 0) return { isHome: null, opponentAbbr: null }
-
-  // Extract player's team from most recent log
-  const latestMatchup = logs[0]?.matchup ?? ''
-  const matchParts = latestMatchup.split(/\s+vs\.\s+|\s+@\s+/)
-  const playerTeamAbbr = matchParts[0]?.trim().toUpperCase()
-  if (!playerTeamAbbr) return { isHome: null, opponentAbbr: null }
-
-  // Convert prop's full team names → abbreviations
-  const homeAbbr = prop.home_team ? (TEAM_ABBR[prop.home_team] ?? null) : null
-  const awayAbbr = prop.away_team ? (TEAM_ABBR[prop.away_team] ?? null) : null
-
-  if (homeAbbr && playerTeamAbbr === homeAbbr) {
-    return { isHome: true,  opponentAbbr: awayAbbr }
-  }
-  if (awayAbbr && playerTeamAbbr === awayAbbr) {
-    return { isHome: false, opponentAbbr: homeAbbr }
-  }
-
-  // Couldn't match — return neutral
-  return { isHome: null, opponentAbbr: null }
 }
 
 // ── Route handlers ────────────────────────────────────────────────────────────
