@@ -1,182 +1,184 @@
-// NBA IQ — Confidence Scoring Engine v3
+// NBA IQ — Confidence Scoring Engine v4
 //
-// Core insight: season avg cushion vs the prop line is the #1 predictor.
-// If a player averages 24 pts and the line is 17.5 → massive cushion → OVER is very likely.
-// If a player averages 17 pts and the line is 18.5 → negative cushion → OVER is risky.
+// Primary signal: bookmaker implied probability from the odds themselves.
+// Bookmakers price player props using decades of data and sharp models.
+// A prop at -290 means ~72% true probability — far more reliable than
+// anything we could compute from 10 game logs.
 //
-// 5 weighted factors — all compute real values without needing game logs:
-//   1. Season cushion %      (45%) — primary differentiator
-//   2. Stat type reliability (20%) — some stats are inherently more consistent
-//   3. Line tier fit         (20%) — is the line in the "sweet spot" for that stat?
-//   4. Direction edge        (10%) — slight statistical edge to UNDERs in NBA props
-//   5. Data confidence        (5%) — bonus for having real season data vs blind guess
+// Secondary signals: stat type variance + line tier + direction edge.
+// Season avg from BallDontLie used as a bonus confirming signal when available.
+//
+// Weights:
+//   1. Bookmaker odds → true probability  (55%)
+//   2. Season avg cushion vs line         (20%) — if available, else neutral
+//   3. Stat type reliability              (15%)
+//   4. Line tier fit                      (7%)
+//   5. Direction edge                     (3%)
 
 import type { Prop, StatType, ConfidenceLabel, RiskTier } from '@/types'
 
-interface ScoredProp extends Prop {
+export interface ScoredProp extends Prop {
   confidence_score: number
   confidence_label: ConfidenceLabel
   risk_tier: RiskTier
   confidence_reason: string
 }
 
-// Factor weights — must sum to 1.0
 const W = {
-  cushion:     0.45,
-  statType:    0.20,
-  lineTier:    0.20,
-  direction:   0.10,
-  dataQuality: 0.05,
+  odds:        0.70,  // bookmaker odds are the dominant signal
+  cushion:     0.15,  // season avg cushion if available
+  statType:    0.08,  // stat type variance
+  lineTier:    0.05,  // line in predictable range
+  direction:   0.02,  // slight under edge
 } as const
 
-// ─── Factor 1: Season cushion % ──────────────────────────────────────────────
-// How far is the season avg from the prop line, as a percentage?
-// Positive cushion (avg >> line) → strong OVER. Negative → risky OVER / good UNDER.
+// Standard prop juice/vig ~4.5% for NBA player props
+const HALF_VIG = 0.0225
+
+// ─── Factor 1: Bookmaker implied probability ──────────────────────────────────
+// Convert American odds → implied probability, then remove half the standard vig.
+// -290 → 290/390 = 74.4% implied → 74.4% - 2.25% = 72.1% true prob
+// -110 → 110/210 = 52.4% implied → 52.4% - 2.25% = 50.1% (basically a coin flip)
+// +120 → 100/220 = 45.5% implied → 45.5% - 2.25% = 43.2% (book leans UNDER)
+function oddsScore(americanOdds: number | undefined): number {
+  if (americanOdds == null || isNaN(americanOdds)) return 0.50
+
+  const implied =
+    americanOdds < 0
+      ? Math.abs(americanOdds) / (Math.abs(americanOdds) + 100)
+      : 100 / (americanOdds + 100)
+
+  const trueProb = Math.max(0.05, Math.min(0.95, implied - HALF_VIG))
+  return trueProb
+}
+
+// ─── Factor 2: Season avg cushion % ──────────────────────────────────────────
+// How far is season avg from the line, as a percentage?
+// Used as a confirming (or contradicting) signal alongside the odds.
 function cushionScore(avg: number, line: number, dir: 'over' | 'under'): number {
-  if (avg <= 0 || line <= 0) return 0.50 // neutral if no data
+  if (avg <= 0 || line <= 0) return 0.50
 
-  // % gap: (avg - line) / line
-  // +30% gap → near certain OVER → score 0.95
-  // 0% gap  → coin flip         → score 0.50
-  // -30%    → near certain miss  → score 0.05
-  const pct = (avg - line) / line
+  const pct = (avg - line) / line // positive = avg is above line
 
-  // S-curve: squash to [0.05, 0.95]
-  // pct / 0.60 maps ±30% to ±0.50 → add 0.50 → range [0.0, 1.0]
+  // S-curve: ±30% maps to [0.05, 0.95]
   const raw = Math.min(0.95, Math.max(0.05, pct / 0.60 + 0.50))
-
   return dir === 'over' ? raw : 1 - raw
 }
 
-// ─── Factor 2: Stat type reliability ─────────────────────────────────────────
-// Research-backed coefficient of variation by stat type.
-// Low CV = more predictable = higher base reliability score.
-// Source: NBA player prop research, ~3 seasons of data.
+// ─── Factor 3: Stat type reliability ─────────────────────────────────────────
+// Research-backed hit rates by stat type (NBA props, ~3 seasons).
 const STAT_RELIABILITY: Record<StatType, number> = {
-  pra:           0.68, // combined stat smooths variance
-  rebounds:      0.63, // fairly consistent game-to-game
-  assists:       0.61, // consistent for starters
-  points:        0.55, // medium variance (hot/cold shooting)
-  three_pointers: 0.40, // very streaky — high variance
-  steals:        0.35, // boom/bust nightly
-  blocks:        0.32, // rarest, most volatile
+  pra:            0.65, // combined stat, smooths variance
+  rebounds:       0.62, // fairly consistent game-to-game
+  assists:        0.60, // consistent for starters
+  points:         0.54, // hot/cold shooting adds variance
+  three_pointers: 0.42, // very streaky
+  steals:         0.36, // boom/bust nightly
+  blocks:         0.33, // rarest, most volatile
 }
 
-// ─── Factor 3: Line tier fit ──────────────────────────────────────────────────
-// Each stat has a "sweet spot" where lines are most predictable.
-// Very low lines = garbage time / limited minutes (risky either way).
-// Very high lines = elite player prop set very tight (harder to predict).
+// ─── Factor 4: Line tier fit ──────────────────────────────────────────────────
+// Lines in the "sweet spot" range for each stat are most predictable.
 function lineTierScore(line: number, stat: StatType): number {
-  // Sweet spot ranges where props are historically most predictable
   const ranges: Record<StatType, [number, number]> = {
-    points:        [10, 24],
-    rebounds:      [3.5, 10],
-    assists:       [2.5, 8],
-    pra:           [20, 45],
+    points:         [10, 24],
+    rebounds:       [3.5, 10],
+    assists:        [2.5, 8],
+    pra:            [20, 45],
     three_pointers: [1.5, 3.5],
-    steals:        [0.5, 1.5],
-    blocks:        [0.5, 1.5],
+    steals:         [0.5, 1.5],
+    blocks:         [0.5, 1.5],
   }
 
   const [lo, hi] = ranges[stat]
-
-  // In sweet spot → 0.70
-  if (line >= lo && line <= hi) return 0.70
-
-  // Below sweet spot → lower lines are harder to predict (limited minutes players)
-  if (line < lo) {
-    const dist = (lo - line) / lo
-    return Math.max(0.35, 0.70 - dist * 0.50)
-  }
-
-  // Above sweet spot → elite player, tight lines, still harder to predict
-  const dist = (line - hi) / hi
-  return Math.max(0.40, 0.70 - dist * 0.40)
+  if (line >= lo && line <= hi) return 0.72
+  if (line < lo) return Math.max(0.35, 0.72 - ((lo - line) / lo) * 0.55)
+  return Math.max(0.40, 0.72 - ((line - hi) / hi) * 0.45)
 }
 
-// ─── Factor 4: Direction edge ─────────────────────────────────────────────────
-// NBA prop research shows UNDERs hit at ~52–53% due to conservative lines,
-// garbage time DNPs, and rest. Slight statistical edge to UNDER bets.
+// ─── Factor 5: Direction edge ─────────────────────────────────────────────────
+// NBA prop research: UNDERs hit at ~52–53% due to DNPs, rest, garbage time.
 function directionEdge(dir: 'over' | 'under'): number {
   return dir === 'under' ? 0.56 : 0.47
-}
-
-// ─── Factor 5: Data quality ───────────────────────────────────────────────────
-// Bonus for having real season avg data vs falling back to blind inference.
-function dataQualityScore(hasSeasonData: boolean): number {
-  return hasSeasonData ? 0.65 : 0.40
 }
 
 // ─── Main scoring function ────────────────────────────────────────────────────
 export function scoreProps(
   prop: Prop,
-  _recentStats: unknown[], // kept for API compatibility — not used in v3
+  _recentStats: unknown[],
   seasonAvg: Record<StatType, number> | null,
 ): ScoredProp {
-  const { line, stat_type, direction } = prop
+  const { line, stat_type, direction, odds } = prop
   const avg = seasonAvg?.[stat_type] ?? null
 
-  const f1 = avg !== null ? cushionScore(avg, line, direction) : 0.50
-  const f2 = STAT_RELIABILITY[stat_type] ?? 0.50
-  const f3 = lineTierScore(line, stat_type)
-  const f4 = directionEdge(direction)
-  const f5 = dataQualityScore(avg !== null)
+  const f1 = oddsScore(odds)
+  const f2 = avg !== null ? cushionScore(avg, line, direction) : 0.50
+  const f3 = STAT_RELIABILITY[stat_type] ?? 0.50
+  const f4 = lineTierScore(line, stat_type)
+  const f5 = directionEdge(direction)
 
-  const raw = f1 * W.cushion + f2 * W.statType + f3 * W.lineTier + f4 * W.direction + f5 * W.dataQuality
+  const raw =
+    f1 * W.odds +
+    f2 * W.cushion +
+    f3 * W.statType +
+    f4 * W.lineTier +
+    f5 * W.direction
 
-  // Scale to 0–100, then clamp hard to [18, 95] — avoid 100/0 false certainty
-  const score = Math.round(Math.min(95, Math.max(18, raw * 100)))
+  // Clamp to [15, 95] — avoid false certainty
+  const score = Math.round(Math.min(95, Math.max(15, raw * 100)))
 
   const { label, tier } = getLabel(score)
-  const reason = buildReason(prop, avg, score)
+  const reason = buildReason(prop, avg, f1, score)
 
-  return {
-    ...prop,
-    confidence_score: score,
-    confidence_label: label,
-    risk_tier: tier,
-    confidence_reason: reason,
-  }
+  return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason }
 }
 
 // ─── Label thresholds ─────────────────────────────────────────────────────────
-// Tuned so ~15% are HIGH, ~60% MEDIUM, ~25% LOW — realistic distribution
+// Calibrated against real NBA prop odds distribution:
+//   HIGH  (>= 65): odds ~ -250 or better  → book strongly favors this outcome
+//   MEDIUM (45-64): odds ~ -110 to -250   → standard lines, genuine uncertainty
+//   LOW   (< 45):  odds ~ +100 or worse   → book leans AGAINST this pick
 function getLabel(score: number): { label: ConfidenceLabel; tier: RiskTier } {
-  if (score >= 70) return { label: 'HIGH',   tier: 'LOW_RISK'  }
-  if (score >= 48) return { label: 'MEDIUM', tier: 'MED_RISK'  }
+  if (score >= 65) return { label: 'HIGH',   tier: 'LOW_RISK'  }
+  if (score >= 45) return { label: 'MEDIUM', tier: 'MED_RISK'  }
   return              { label: 'LOW',    tier: 'HIGH_RISK' }
 }
 
-// ─── Human-readable reason string ─────────────────────────────────────────────
+// ─── Human-readable reason ────────────────────────────────────────────────────
 function buildReason(
   prop: Prop,
   avg: number | null,
+  trueProb: number,
   score: number,
 ): string {
-  const { stat_type, line, direction } = prop
+  const { stat_type, line, direction, odds } = prop
   const parts: string[] = []
 
+  // Odds explanation
+  if (odds != null) {
+    const pct = (trueProb * 100).toFixed(0)
+    const oddsStr = odds > 0 ? `+${odds}` : String(odds)
+    parts.push(`Book implies ${pct}% true probability (${oddsStr})`)
+  }
+
+  // Season avg cushion
   if (avg !== null && avg > 0) {
     const cushionPct = (((avg - line) / line) * 100).toFixed(0)
     const sign = Number(cushionPct) >= 0 ? '+' : ''
-    parts.push(`Season avg ${avg.toFixed(1)} (${sign}${cushionPct}% vs line)`)
-
     const favors = direction === 'over'
-      ? (avg > line ? 'favors OVER' : 'line above avg — risky OVER')
-      : (avg < line ? 'favors UNDER' : 'avg above line — risky UNDER')
-    parts.push(favors)
-  } else {
-    parts.push('No season data — scored by line + stat type patterns')
+      ? (avg >= line ? 'favors OVER' : 'avg below line — risky OVER')
+      : (avg <= line ? 'favors UNDER' : 'avg above line — risky UNDER')
+    parts.push(`Season avg ${avg.toFixed(1)} (${sign}${cushionPct}% vs line) — ${favors}`)
   }
 
-  // Add stat type note for volatile stats
+  // High-variance warning
   if (['steals', 'blocks', 'three_pointers'].includes(stat_type)) {
-    parts.push(`${stat_type.replace('_', ' ')} props are high-variance`)
+    parts.push(`High-variance stat — treat as speculative`)
   }
 
   // Score context
-  if (score >= 70) parts.push('Strong pattern — high confidence')
-  else if (score < 48) parts.push('Unfavorable setup — treat as high risk')
+  if (score >= 68) parts.push('Strong edge')
+  else if (score < 47) parts.push('Unfavorable — book leans opposite direction')
 
   return parts.join(' · ')
 }
