@@ -5,7 +5,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { scoreProps, type GameLog, type TeamDefenseStats } from '@/lib/confidence'
+import { scoreProps, type GameLog, type TeamDefenseStats, type ScoringContext } from '@/lib/confidence'
 import type { Prop, StatType } from '@/types'
 
 async function runEnrichment(force = false) {
@@ -22,14 +22,22 @@ async function runEnrichment(force = false) {
     }).not('id', 'is', null)
   }
 
-  // Load unscored props (top 500 by insertion order)
-  const { data: props, error } = await supabase
-    .from('props')
-    .select('*')
-    .is('confidence_score', null)
-    .limit(500)
-
-  if (error) throw new Error(`Supabase read error: ${error.message}`)
+  // Load ALL unscored props via pagination (Supabase caps at 1000 per request)
+  const props: Prop[] = []
+  let from = 0
+  const PAGE = 1000
+  while (true) {
+    const { data: page, error: pageError } = await supabase
+      .from('props')
+      .select('*')
+      .is('confidence_score', null)
+      .range(from, from + PAGE - 1)
+    if (pageError) throw new Error(`Supabase read error: ${pageError.message}`)
+    if (!page || page.length === 0) break
+    props.push(...(page as Prop[]))
+    if (page.length < PAGE) break
+    from += PAGE
+  }
   if (!props || props.length === 0) {
     return { message: 'No props to enrich', enriched: 0, total: 0 }
   }
@@ -82,18 +90,17 @@ async function runEnrichment(force = false) {
   const updates = (props as Prop[]).map((prop) => {
     const logs = logsMap.get(prop.player_name) ?? []
 
-    // Find opponent team abbreviation from game logs or prop data
-    // Matchup format: "LAL vs. DEN" (home) or "LAL @ DEN" (away)
-    // opponent field on prop is often 'TBD' — try to infer from prop data
-    const oppTeam = prop.opponent !== 'TBD' ? getTeamAbbr(prop.opponent) : null
-    const defStats = oppTeam ? (defMap.get(oppTeam) ?? null) : null
+    // Derive opponent + home/away from prop's team fields + player's game logs
+    const { isHome, opponentAbbr } = deriveMatchupContext(prop, logs)
+    const defStats = opponentAbbr ? (defMap.get(opponentAbbr) ?? null) : null
 
-    return scoreProps(prop, logs, null, defStats)
+    const ctx: ScoringContext = { defStats, isHome, opponentAbbr }
+    return scoreProps(prop, logs, null, ctx)
   })
 
   // ── Batch-upsert to Supabase ──────────────────────────────────────────────
   let enriched = 0
-  const BATCH = 500
+  const BATCH = 200  // smaller batches to avoid payload limits
   for (let i = 0; i < updates.length; i += BATCH) {
     const batch = updates.slice(i, i + BATCH)
     const { error: upsertError } = await supabase
@@ -128,6 +135,36 @@ const TEAM_ABBR: Record<string, string> = {
 
 function getTeamAbbr(fullName: string): string | null {
   return TEAM_ABBR[fullName] ?? null
+}
+
+// ── Derive opponent abbreviation + home/away from prop + game logs ────────────
+// Game log matchup format: "LAL vs. DEN" (home) or "LAL @ MIL" (away)
+// The player's team is always the first token.
+function deriveMatchupContext(
+  prop: Prop,
+  logs: GameLog[],
+): { isHome: boolean | null; opponentAbbr: string | null } {
+  if (logs.length === 0) return { isHome: null, opponentAbbr: null }
+
+  // Extract player's team from most recent log
+  const latestMatchup = logs[0]?.matchup ?? ''
+  const matchParts = latestMatchup.split(/\s+vs\.\s+|\s+@\s+/)
+  const playerTeamAbbr = matchParts[0]?.trim().toUpperCase()
+  if (!playerTeamAbbr) return { isHome: null, opponentAbbr: null }
+
+  // Convert prop's full team names → abbreviations
+  const homeAbbr = prop.home_team ? (TEAM_ABBR[prop.home_team] ?? null) : null
+  const awayAbbr = prop.away_team ? (TEAM_ABBR[prop.away_team] ?? null) : null
+
+  if (homeAbbr && playerTeamAbbr === homeAbbr) {
+    return { isHome: true,  opponentAbbr: awayAbbr }
+  }
+  if (awayAbbr && playerTeamAbbr === awayAbbr) {
+    return { isHome: false, opponentAbbr: homeAbbr }
+  }
+
+  // Couldn't match — return neutral
+  return { isHome: null, opponentAbbr: null }
 }
 
 // ── Route handlers ────────────────────────────────────────────────────────────

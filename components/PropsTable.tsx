@@ -15,8 +15,14 @@ const STAT_LABELS: Record<StatType, string> = {
   pra: 'PRA',
 }
 
-export function PropsTable({ props }: { props: Prop[] }) {
-  const [search, setSearch] = useState('')
+export function PropsTable({
+  props,
+  initialSearch = '',
+}: {
+  props: Prop[]
+  initialSearch?: string
+}) {
+  const [search, setSearch] = useState(initialSearch)
   const [statFilter, setStatFilter] = useState<StatType | 'all'>('all')
   const [labelFilter, setLabelFilter] = useState<ConfidenceLabel | 'all'>('all')
   const [dirFilter, setDirFilter] = useState<'over' | 'under' | 'all'>('all')
@@ -34,19 +40,35 @@ export function PropsTable({ props }: { props: Prop[] }) {
   return (
     <div className="flex flex-col gap-4">
       {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        <input
-          type="text"
-          placeholder="Search player..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
-        />
+      <div className="flex flex-wrap gap-2 items-center">
+        {/* Search with icon */}
+        <div className="relative w-full sm:w-auto">
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"
+            />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search player..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full sm:min-w-[280px] pl-9 pr-4 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 transition-colors"
+          />
+        </div>
 
         <select
           value={statFilter}
           onChange={(e) => setStatFilter(e.target.value as StatType | 'all')}
-          className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-white/30"
+          className="px-3 py-1.5 rounded-lg bg-[#0e0b18] border border-white/[0.08] text-sm text-white/80 focus:outline-none focus:border-[#e8a820]/40 transition-colors cursor-pointer"
         >
           <option value="all">All Stats</option>
           {(Object.keys(STAT_LABELS) as StatType[]).map((s) => (
@@ -57,7 +79,7 @@ export function PropsTable({ props }: { props: Prop[] }) {
         <select
           value={dirFilter}
           onChange={(e) => setDirFilter(e.target.value as 'over' | 'under' | 'all')}
-          className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-white/30"
+          className="px-3 py-1.5 rounded-lg bg-[#0e0b18] border border-white/[0.08] text-sm text-white/80 focus:outline-none focus:border-[#e8a820]/40 transition-colors cursor-pointer"
         >
           <option value="all">Over + Under</option>
           <option value="over">Over only</option>
@@ -67,7 +89,7 @@ export function PropsTable({ props }: { props: Prop[] }) {
         <select
           value={labelFilter}
           onChange={(e) => setLabelFilter(e.target.value as ConfidenceLabel | 'all')}
-          className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-white/30"
+          className="px-3 py-1.5 rounded-lg bg-[#0e0b18] border border-white/[0.08] text-sm text-white/80 focus:outline-none focus:border-[#e8a820]/40 transition-colors cursor-pointer"
         >
           <option value="all">All Confidence</option>
           <option value="HIGH">High only</option>

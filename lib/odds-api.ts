@@ -1,6 +1,9 @@
 // odds-api.io — fetches NBA player props
 // Free tier: 100 requests/hour
 // Optimized: 1 req for events + ceil(games/10) reqs for props via /odds/multi
+//
+// API format: all player props live under a single "Player Props" market.
+// Each entry label is "Player Name (Stat Type)", e.g. "LeBron James (Points)"
 
 import type { Prop, StatType, Direction } from '@/types'
 
@@ -8,17 +11,17 @@ const BASE_URL = 'https://api.odds-api.io/v3'
 const API_KEY = process.env.ODDS_API_IO_KEY!
 const BOOKMAKERS = 'DraftKings,FanDuel'
 
-// Map market name fragments → our StatType (order matters: longer matches first)
-const MARKET_MAP: [string, StatType][] = [
-  ['Points + Rebounds + Assists', 'pra'],
-  ['PRA', 'pra'],
-  ['Points', 'points'],
-  ['Rebounds', 'rebounds'],
-  ['Assists', 'assists'],
-  ['Three', 'three_pointers'],
-  ['Steals', 'steals'],
-  ['Blocks', 'blocks'],
-]
+// Map stat type strings in labels → our StatType
+// Label format: "Player Name (Stat Type)"
+const LABEL_STAT_MAP: Record<string, StatType> = {
+  'Points':          'points',
+  'Rebounds':        'rebounds',
+  'Assists':         'assists',
+  'Steals':          'steals',
+  'Blocks':          'blocks',
+  '3 Point FG':      'three_pointers',
+  'Pts+Rebs+Asts':   'pra',
+}
 
 interface IOEvent {
   id: number
@@ -44,6 +47,7 @@ interface IOEventWithOdds {
   id: number
   home: string
   away: string
+  date?: string
   bookmakers: Record<string, IOMarket[]>
 }
 
@@ -60,7 +64,7 @@ export type EventWithProps = IOEventWithOdds & { home_team: string; away_team: s
 // Step 1: Get today's pending NBA games (1 request)
 export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
   const url = `${BASE_URL}/events?apiKey=${API_KEY}&sport=basketball&league=usa-nba&status=pending`
-  const res = await fetch(url, { next: { revalidate: 3600 } })
+  const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) throw new Error(`odds-api.io events failed: ${res.status} ${await res.text()}`)
 
   const data = await res.json() as { data?: IOEvent[] } | IOEvent[]
@@ -84,7 +88,7 @@ export async function fetchAllPropsForEvents(events: NBAEvent[]): Promise<Prop[]
     const ids = batch.map((e) => e.id).join(',')
 
     const url = `${BASE_URL}/odds/multi?apiKey=${API_KEY}&eventIds=${ids}&bookmakers=${BOOKMAKERS}`
-    const res = await fetch(url, { next: { revalidate: 3600 } })
+    const res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) {
       console.error(`[odds-api.io] /odds/multi failed: ${res.status} ${await res.text()}`)
       continue
@@ -94,35 +98,19 @@ export async function fetchAllPropsForEvents(events: NBAEvent[]): Promise<Prop[]
     const eventList: IOEventWithOdds[] = Array.isArray(data) ? data : (data.data ?? [])
 
     for (const event of eventList) {
-      // Find commence_time from the original events list
+      // Prefer commence_time from the /events response; fall back to date on odds response
       const meta = events.find((e) => e.id === String(event.id))
       const enriched: EventWithProps = {
         ...event,
         home_team: event.home,
         away_team: event.away,
-        commence_time: meta?.commence_time,
+        commence_time: meta?.commence_time ?? event.date,
       }
       allProps.push(...parsePropsFromEvent(enriched))
     }
   }
 
   return allProps
-}
-
-// Legacy single-event fetch (kept for compatibility, uses batched route internally)
-export async function fetchPropsForEvent(eventId: string): Promise<EventWithProps> {
-  const url = `${BASE_URL}/odds?apiKey=${API_KEY}&eventId=${eventId}&bookmakers=${BOOKMAKERS}`
-  const res = await fetch(url, { next: { revalidate: 3600 } })
-  if (!res.ok) throw new Error(`odds-api.io props failed for ${eventId}: ${res.status}`)
-  const data = await res.json() as IOEventWithOdds
-  return { ...data, home_team: data.home, away_team: data.away }
-}
-
-function resolveStatType(marketName: string): StatType | null {
-  for (const [fragment, stat] of MARKET_MAP) {
-    if (marketName.includes(fragment)) return stat
-  }
-  return null
 }
 
 function decimalToAmerican(decimal: number): number {
@@ -134,31 +122,41 @@ export function parsePropsFromEvent(event: EventWithProps): Prop[] {
   const props: Prop[] = []
 
   for (const [bookmaker, markets] of Object.entries(event.bookmakers ?? {})) {
-    for (const market of markets) {
-      const statType = resolveStatType(market.name)
-      if (!statType) continue
+    // All player props are in the "Player Props" market
+    const ppMarket = markets.find((m) => m.name === 'Player Props')
+    if (!ppMarket) continue
 
-      for (const entry of market.odds) {
-        if (!entry.label || entry.hdp == null) continue
+    for (const entry of ppMarket.odds) {
+      if (!entry.label || entry.hdp == null) continue
 
-        const directions: Direction[] = ['over', 'under']
-        for (const direction of directions) {
-          const decimal = parseFloat(direction === 'over' ? entry.over : entry.under)
-          props.push({
-            player_id: 0,
-            player_name: entry.label,
-            team: 'TBD',
-            opponent: 'TBD',
-            game_id: String(event.id),
-            stat_type: statType,
-            line: entry.hdp,
-            direction,
-            odds: isNaN(decimal) ? undefined : decimalToAmerican(decimal),
-            sportsbook: bookmaker,
-            commence_time: event.commence_time,
-            cached_at: new Date().toISOString(),
-          })
-        }
+      // Label format: "Player Name (Stat Type)"
+      const match = entry.label.match(/^(.+) \(([^)]+)\)$/)
+      if (!match) continue
+
+      const playerName = match[1].trim()
+      const statKey = match[2].trim()
+      const statType = LABEL_STAT_MAP[statKey]
+      if (!statType) continue // skip combo props we don't model (Pts+Rebs, Double+Double, etc.)
+
+      const directions: Direction[] = ['over', 'under']
+      for (const direction of directions) {
+        const decimal = parseFloat(direction === 'over' ? entry.over : entry.under)
+        props.push({
+          player_id: 0,
+          player_name: playerName,
+          team: 'TBD',
+          opponent: 'TBD',
+          game_id: String(event.id),
+          stat_type: statType,
+          line: entry.hdp,
+          direction,
+          odds: isNaN(decimal) ? undefined : decimalToAmerican(decimal),
+          sportsbook: bookmaker,
+          commence_time: event.commence_time,
+          home_team: event.home_team,
+          away_team: event.away_team,
+          cached_at: new Date().toISOString(),
+        })
       }
     }
   }

@@ -1,12 +1,24 @@
 {
   "crons": [
     {
+      "path": "/api/results",
+      "schedule": "55 13 * * *"
+    },
+    {
       "path": "/api/props",
-      "schedule": "0 12 * * *"
+      "schedule": "0 14 * * *"
     },
     {
       "path": "/api/enrich",
-      "schedule": "10 12 * * *"
+      "schedule": "15 14 * * *"
+    },
+    {
+      "path": "/api/props",
+      "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/enrich",
+      "schedule": "45 4 * * *"
     }
   ]
 }

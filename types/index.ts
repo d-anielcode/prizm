@@ -47,6 +47,8 @@ export interface Prop {
   confidence_reason?: string
   risk_tier?: RiskTier
   cached_at?: string
+  home_team?: string
+  away_team?: string
 }
 
 export interface Parlay {

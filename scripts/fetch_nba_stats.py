@@ -106,11 +106,22 @@ def parse_minutes(min_str) -> float:
     except:
         return 0.0
 
-# ── Step 1: Get today's player names from props ───────────────────────────────
+# ── Step 1: Get today's player names from props (paginate — no cap) ──────────
 print("\n[1/4] Loading player names from Supabase props...")
-props = supabase_get('props', 'select=player_name&order=cached_at.desc&limit=1000')
-player_names = list({p['player_name'] for p in props if p.get('player_name')})
-print(f"      {len(player_names)} unique players in today's props")
+all_prop_rows = []
+offset = 0
+PAGE = 1000
+while True:
+    batch = supabase_get('props', f'select=player_name&order=cached_at.desc&limit={PAGE}&offset={offset}')
+    if not batch:
+        break
+    all_prop_rows.extend(batch)
+    if len(batch) < PAGE:
+        break
+    offset += PAGE
+
+player_names = list({p['player_name'] for p in all_prop_rows if p.get('player_name')})
+print(f"      {len(player_names)} unique players across {len(all_prop_rows)} props")
 
 # ── Step 2: Resolve to NBA IDs ────────────────────────────────────────────────
 print("\n[2/4] Matching player names to NBA IDs...")
@@ -128,22 +139,38 @@ print(f"      Matched: {len(resolved)}/{len(player_names)}")
 if unmatched:
     print(f"      Unmatched: {unmatched}")
 
-# ── Step 3: Fetch game logs (last 25 games) ───────────────────────────────────
-print(f"\n[3/4] Fetching last 25 game logs for {len(resolved)} players...")
+# ── Step 3: Fetch game logs (last 60 games across current + prior season) ─────
+print(f"\n[3/4] Fetching up to 60 game logs for {len(resolved)} players...")
 all_log_rows = []
-SEASON = '2025-26'
+SEASON      = '2025-26'
+PREV_SEASON = '2024-25'
 
 for i, (prop_name, player) in enumerate(resolved.items()):
     nba_id = player['id']
     print(f"  [{i+1}/{len(resolved)}] {prop_name} (id={nba_id})", end=' ... ', flush=True)
     try:
-        log = playergamelog.PlayerGameLog(
+        # Fetch current season
+        log_curr = playergamelog.PlayerGameLog(
             player_id=nba_id,
             season=SEASON,
             season_type_all_star='Regular Season',
             timeout=10,
         )
-        df = log.get_data_frames()[0].head(25)
+        df_curr = log_curr.get_data_frames()[0]
+        time.sleep(0.2)
+
+        # Fetch prior season to fill up to 60 games total for better vs-opponent history
+        log_prev = playergamelog.PlayerGameLog(
+            player_id=nba_id,
+            season=PREV_SEASON,
+            season_type_all_star='Regular Season',
+            timeout=10,
+        )
+        df_prev = log_prev.get_data_frames()[0]
+
+        # Combine: current season first, then prior — cap at 60 total
+        import pandas as pd
+        df = pd.concat([df_curr, df_prev], ignore_index=True).head(60)
 
         if df.empty:
             print("no games found")
@@ -162,10 +189,17 @@ for i, (prop_name, player) in enumerate(resolved.items()):
             mins = parse_minutes(row.get('MIN', 0))
             wl   = str(row.get('WL', ''))
 
+            # Convert "MAR 18, 2026" → "2026-03-18" so Supabase sorts chronologically
+            raw_date = str(row.get('GAME_DATE', ''))
+            try:
+                game_date = datetime.strptime(raw_date, '%b %d, %Y').strftime('%Y-%m-%d')
+            except ValueError:
+                game_date = raw_date  # keep as-is if format unexpected
+
             rows.append({
                 'player_name': prop_name,
                 'nba_id': nba_id,
-                'game_date': str(row.get('GAME_DATE', '')),
+                'game_date': game_date,
                 'matchup': matchup,
                 'is_home': is_home,
                 'points': pts,
@@ -249,4 +283,4 @@ try:
 except Exception as e:
     print(f"      ERROR fetching team stats: {e}")
 
-print("\nDone! Run /api/enrich?force=true to rescore props with the new stats.")
+print("\nDone! Run py scripts/daily_refresh.py or hit /api/enrich?force=true to rescore with fresh stats.")
