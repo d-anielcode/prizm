@@ -1,19 +1,18 @@
-// /api/enrich — Enriches all cached props with confidence scores
-// Runs after /api/props has populated the cache.
-// Scores each prop using available data; falls back to neutral defaults if NBA stats are unavailable.
-// GET is used by Vercel cron; POST also supported.
+// /api/enrich — Enriches all cached props with AI confidence scores
+// Uses real NBA game logs from player_game_logs + team_defense_stats tables.
+// Run scripts/fetch_nba_stats.py first to populate those tables.
+// Falls back to book-odds scoring if game log data isn't available.
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { resolvePlayerIds, fetchSeasonAveragesBatch, buildSeasonAvgMap } from '@/lib/nba-api'
-import { scoreProps } from '@/lib/confidence'
+import { scoreProps, type GameLog, type TeamDefenseStats } from '@/lib/confidence'
 import type { Prop, StatType } from '@/types'
 
 async function runEnrichment(force = false) {
   const keyUsed = process.env.SUPABASE_SERVICE_KEY ? 'service_role' : 'anon'
-  console.log('[/api/enrich] Supabase key in use:', keyUsed, force ? '(force re-score)' : '')
+  console.log('[/api/enrich] key:', keyUsed, force ? '(force)' : '')
 
-  // If force mode, clear all existing scores so we re-score with the latest engine
+  // Clear existing scores if forcing full re-score
   if (force) {
     await supabase.from('props').update({
       confidence_score: null,
@@ -23,7 +22,7 @@ async function runEnrichment(force = false) {
     }).not('id', 'is', null)
   }
 
-  // 1. Load all unscored props from Supabase (max 500 per run — we only surface top 500)
+  // Load unscored props (top 500 by insertion order)
   const { data: props, error } = await supabase
     .from('props')
     .select('*')
@@ -35,38 +34,64 @@ async function runEnrichment(force = false) {
     return { message: 'No props to enrich', enriched: 0, total: 0 }
   }
 
-  // 2. Fetch season averages for all unique players via BallDontLie (free tier)
-  //    Step A: Resolve name → BDL id (sequential, 150ms gap, uses in-memory cache)
-  //    Step B: ONE batch request for all season averages
+  // ── Load game logs from Supabase ──────────────────────────────────────────
   const uniqueNames = [...new Set((props as Prop[]).map((p) => p.player_name))]
-  const seasonMap = new Map<string, Record<StatType, number> | null>()
+  console.log(`[/api/enrich] Loading game logs for ${uniqueNames.length} players...`)
 
-  console.log(`[/api/enrich] Resolving ${uniqueNames.length} player IDs via BDL...`)
-  const nameToId = await resolvePlayerIds(uniqueNames)
-  console.log(`[/api/enrich] Found ${nameToId.size}/${uniqueNames.length} player IDs`)
+  const { data: logRows } = await supabase
+    .from('player_game_logs')
+    .select('*')
+    .in('player_name', uniqueNames)
+    .order('game_date', { ascending: false })
 
-  // Step B: batch season averages — just ONE request for all players
-  const allIds = [...nameToId.values()]
-  const avgById = await fetchSeasonAveragesBatch(allIds)
-  console.log(`[/api/enrich] Season averages returned for ${avgById.size}/${allIds.length} players`)
-
-  // Build name → season avg map
-  for (const [name, id] of nameToId) {
-    const avg = avgById.get(id)
-    seasonMap.set(name, avg ? buildSeasonAvgMap(avg) : null)
+  // Group logs by player_name
+  const logsMap = new Map<string, GameLog[]>()
+  for (const row of logRows ?? []) {
+    const name = row.player_name as string
+    if (!logsMap.has(name)) logsMap.set(name, [])
+    logsMap.get(name)!.push({
+      game_date:  row.game_date,
+      matchup:    row.matchup,
+      is_home:    row.is_home ?? false,
+      points:     Number(row.points ?? 0),
+      rebounds:   Number(row.rebounds ?? 0),
+      assists:    Number(row.assists ?? 0),
+      steals:     Number(row.steals ?? 0),
+      blocks:     Number(row.blocks ?? 0),
+      fg3m:       Number(row.fg3m ?? 0),
+      minutes:    Number(row.minutes ?? 0),
+      pra:        Number(row.pra ?? 0),
+    })
   }
 
-  const withData = [...seasonMap.values()].filter(Boolean).length
-  console.log(`[/api/enrich] Season data found for ${withData}/${uniqueNames.length} players`)
+  const playersWithLogs = [...logsMap.values()].filter((l) => l.length >= 3).length
+  console.log(`[/api/enrich] Game log data available for ${playersWithLogs}/${uniqueNames.length} players`)
 
-  // 3. Score every prop (empty recentStats — v3 engine doesn't need game logs)
+  // ── Load team defensive rankings ──────────────────────────────────────────
+  const { data: defRows } = await supabase
+    .from('team_defense_stats')
+    .select('*')
+
+  const defMap = new Map<string, TeamDefenseStats>()
+  for (const row of defRows ?? []) {
+    defMap.set(row.team_abbreviation as string, row as TeamDefenseStats)
+  }
+  console.log(`[/api/enrich] Team defense stats loaded for ${defMap.size} teams`)
+
+  // ── Score every prop ──────────────────────────────────────────────────────
   const updates = (props as Prop[]).map((prop) => {
-    const seasonAvg = seasonMap.get(prop.player_name) ?? null
-    return scoreProps(prop, [], seasonAvg)
+    const logs = logsMap.get(prop.player_name) ?? []
+
+    // Find opponent team abbreviation from game logs or prop data
+    // Matchup format: "LAL vs. DEN" (home) or "LAL @ DEN" (away)
+    // opponent field on prop is often 'TBD' — try to infer from prop data
+    const oppTeam = prop.opponent !== 'TBD' ? getTeamAbbr(prop.opponent) : null
+    const defStats = oppTeam ? (defMap.get(oppTeam) ?? null) : null
+
+    return scoreProps(prop, logs, null, defStats)
   })
 
-  // 4. Batch-upsert scores to Supabase (500 at a time)
-  // Send full prop objects so upsert never tries to INSERT with null required fields
+  // ── Batch-upsert to Supabase ──────────────────────────────────────────────
   let enriched = 0
   const BATCH = 500
   for (let i = 0; i < updates.length; i += BATCH) {
@@ -79,13 +104,33 @@ async function runEnrichment(force = false) {
   }
 
   return {
-    message: `Enriched ${enriched} props with confidence scores`,
+    message: `Enriched ${enriched} props with AI confidence scores`,
     enriched,
     total: props.length,
+    playersWithGameLogs: playersWithLogs,
+    teamsWithDefenseData: defMap.size,
   }
 }
 
-// GET — called by Vercel cron (and usable in browser); pass ?force=true to re-score all
+// ── Team name → abbreviation lookup ──────────────────────────────────────────
+const TEAM_ABBR: Record<string, string> = {
+  'Atlanta Hawks': 'ATL', 'Boston Celtics': 'BOS', 'Brooklyn Nets': 'BKN',
+  'Charlotte Hornets': 'CHA', 'Chicago Bulls': 'CHI', 'Cleveland Cavaliers': 'CLE',
+  'Dallas Mavericks': 'DAL', 'Denver Nuggets': 'DEN', 'Detroit Pistons': 'DET',
+  'Golden State Warriors': 'GSW', 'Houston Rockets': 'HOU', 'Indiana Pacers': 'IND',
+  'Los Angeles Clippers': 'LAC', 'Los Angeles Lakers': 'LAL', 'Memphis Grizzlies': 'MEM',
+  'Miami Heat': 'MIA', 'Milwaukee Bucks': 'MIL', 'Minnesota Timberwolves': 'MIN',
+  'New Orleans Pelicans': 'NOP', 'New York Knicks': 'NYK', 'Oklahoma City Thunder': 'OKC',
+  'Orlando Magic': 'ORL', 'Philadelphia 76ers': 'PHI', 'Phoenix Suns': 'PHX',
+  'Portland Trail Blazers': 'POR', 'Sacramento Kings': 'SAC', 'San Antonio Spurs': 'SAS',
+  'Toronto Raptors': 'TOR', 'Utah Jazz': 'UTA', 'Washington Wizards': 'WAS',
+}
+
+function getTeamAbbr(fullName: string): string | null {
+  return TEAM_ABBR[fullName] ?? null
+}
+
+// ── Route handlers ────────────────────────────────────────────────────────────
 export async function GET(req: Request) {
   try {
     const force = new URL(req.url).searchParams.get('force') === 'true'
@@ -98,7 +143,6 @@ export async function GET(req: Request) {
   }
 }
 
-// POST — for manual triggers; pass ?force=true to re-score all
 export async function POST(req: Request) {
   try {
     const force = new URL(req.url).searchParams.get('force') === 'true'
