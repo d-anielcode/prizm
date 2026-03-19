@@ -1,0 +1,56 @@
+name: Daily NBA Stats Refresh
+
+# Runs automatically every day at 11:00 AM Eastern (16:00 UTC)
+# This is before most NBA games tip off, so stats are fresh for the day.
+# Also runs at 7:00 AM Eastern (12:00 UTC) to catch any late-night game completions
+# and pull the next day's props.
+
+on:
+  schedule:
+    - cron: '0 12 * * *'   # 7:00 AM ET — pull next day's props after overnight games end
+    - cron: '0 16 * * *'   # 11:00 AM ET — refresh stats before tonight's games
+  workflow_dispatch:        # Allow manual trigger from GitHub Actions tab
+
+jobs:
+  refresh-stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install nba_api requests
+
+      - name: Fetch NBA game logs + team defense stats
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python scripts/fetch_nba_stats.py
+
+      - name: Refresh props from odds-api.io
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+        run: |
+          echo "Refreshing props..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$VERCEL_APP_URL/api/props?refresh=true")
+          echo "Props refresh status: $STATUS"
+          sleep 5
+
+      - name: Run AI enrichment
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+        run: |
+          echo "Running AI enrichment..."
+          RESULT=$(curl -s "$VERCEL_APP_URL/api/enrich?force=true")
+          echo "Enrichment result: $RESULT"
+
+      - name: Done
+        run: echo "NBA IQ daily refresh complete"

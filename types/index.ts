@@ -41,6 +41,7 @@ export interface Prop {
   direction: Direction
   odds?: number
   sportsbook?: string
+  commence_time?: string   // ISO string of game tip-off from odds-api.io
   confidence_score?: number
   confidence_label?: ConfidenceLabel
   confidence_reason?: string

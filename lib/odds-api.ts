@@ -55,7 +55,7 @@ export interface NBAEvent {
   commence_time: string
 }
 
-export type EventWithProps = IOEventWithOdds & { home_team: string; away_team: string }
+export type EventWithProps = IOEventWithOdds & { home_team: string; away_team: string; commence_time?: string }
 
 // Step 1: Get today's pending NBA games (1 request)
 export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
@@ -94,7 +94,14 @@ export async function fetchAllPropsForEvents(events: NBAEvent[]): Promise<Prop[]
     const eventList: IOEventWithOdds[] = Array.isArray(data) ? data : (data.data ?? [])
 
     for (const event of eventList) {
-      const enriched: EventWithProps = { ...event, home_team: event.home, away_team: event.away }
+      // Find commence_time from the original events list
+      const meta = events.find((e) => e.id === String(event.id))
+      const enriched: EventWithProps = {
+        ...event,
+        home_team: event.home,
+        away_team: event.away,
+        commence_time: meta?.commence_time,
+      }
       allProps.push(...parsePropsFromEvent(enriched))
     }
   }
@@ -148,6 +155,7 @@ export function parsePropsFromEvent(event: EventWithProps): Prop[] {
             direction,
             odds: isNaN(decimal) ? undefined : decimalToAmerican(decimal),
             sportsbook: bookmaker,
+            commence_time: event.commence_time,
             cached_at: new Date().toISOString(),
           })
         }

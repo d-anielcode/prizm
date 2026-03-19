@@ -19,9 +19,9 @@ import os, sys, time, json
 from difflib import get_close_matches
 from datetime import datetime
 
-# ── Load .env.local ──────────────────────────────────────────────────────────
-ENV_PATH = os.path.join(os.path.dirname(__file__), '..', '.env.local')
+# ── Load credentials (env vars take priority, fall back to .env.local) ───────
 env = {}
+ENV_PATH = os.path.join(os.path.dirname(__file__), '..', '.env.local')
 try:
     with open(ENV_PATH) as f:
         for line in f:
@@ -30,10 +30,11 @@ try:
                 k, v = line.split('=', 1)
                 env[k.strip()] = v.strip()
 except FileNotFoundError:
-    print(f"[warn] .env.local not found at {ENV_PATH} — using environment variables")
+    pass  # Fine — GitHub Actions uses real env vars
 
-SUPABASE_URL = env.get('NEXT_PUBLIC_SUPABASE_URL') or os.environ.get('NEXT_PUBLIC_SUPABASE_URL', '')
-SUPABASE_KEY = env.get('SUPABASE_SERVICE_KEY') or os.environ.get('SUPABASE_SERVICE_KEY', '')
+# Real env vars (GitHub Actions) override .env.local values
+SUPABASE_URL = os.environ.get('NEXT_PUBLIC_SUPABASE_URL') or env.get('NEXT_PUBLIC_SUPABASE_URL', '')
+SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_KEY') or env.get('SUPABASE_SERVICE_KEY', '')
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     print("ERROR: Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_KEY")
