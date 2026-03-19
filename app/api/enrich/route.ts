@@ -13,12 +13,12 @@ async function runEnrichment() {
   const keyUsed = process.env.SUPABASE_SERVICE_KEY ? 'service_role' : 'anon'
   console.log('[/api/enrich] Supabase key in use:', keyUsed)
 
-  // 1. Load all unscored props from Supabase (max 1000 per run)
+  // 1. Load all unscored props from Supabase (max 500 per run — we only surface top 500)
   const { data: props, error } = await supabase
     .from('props')
     .select('*')
     .is('confidence_score', null)
-    .limit(1000)
+    .limit(500)
 
   if (error) throw new Error(`Supabase read error: ${error.message}`)
   if (!props || props.length === 0) {
@@ -65,14 +65,11 @@ async function runEnrichment() {
     }
   }
 
-  // 3. Score every prop — use neutral defaults when no stats available
+  // 3. Score every prop using real computed factors only
   const updates = (props as Prop[]).map((prop) => {
     const recentStats = statsMap.get(prop.player_name) ?? []
     const seasonAvg = seasonMap.get(prop.player_name) ?? null
-    const daysSinceLastGame = recentStats.length > 0
-      ? Math.round((Date.now() - new Date(recentStats[0].game_date).getTime()) / 86400000)
-      : 1
-    return scoreProps(prop, recentStats, seasonAvg, 15, true, daysSinceLastGame)
+    return scoreProps(prop, recentStats, seasonAvg)
   })
 
   // 4. Batch-upsert scores to Supabase (500 at a time)

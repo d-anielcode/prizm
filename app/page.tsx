@@ -8,7 +8,9 @@ async function getProps(): Promise<Prop[]> {
   const { data, error } = await supabase
     .from('props')
     .select('*')
-    .order('confidence_score', { ascending: false, nullsFirst: false })
+    .not('confidence_score', 'is', null)
+    .order('confidence_score', { ascending: false })
+    .limit(500)
 
   if (error) {
     console.error('[page] Supabase error:', error.message)
