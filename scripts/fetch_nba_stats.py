@@ -82,7 +82,10 @@ def find_player(name: str):
         return _name_to_player[lower]
 
     # Suffix stripping (Jr., Sr., III, etc.)
-    clean = lower.replace(' jr.','').replace(' sr.','').replace(' ii','').replace(' iii','').replace(' iv','').strip()
+    # Handle accented names (Doncic, etc.)
+    import unicodedata
+    clean = unicodedata.normalize('NFKD', lower).encode('ascii', 'ignore').decode('ascii')
+    clean = clean.replace(' jr.','').replace(' sr.','').replace(' ii','').replace(' iii','').replace(' iv','').strip()
     if clean in _name_to_player:
         return _name_to_player[clean]
 
@@ -188,7 +191,7 @@ for i, (prop_name, player) in enumerate(resolved.items()):
 
 print(f"\n      Total game log rows: {len(all_log_rows)}")
 supabase_upsert('player_game_logs', all_log_rows)
-print("      Saved to Supabase ✓")
+print("      Saved to Supabase OK")
 
 # ── Step 4: Fetch team defensive rankings ────────────────────────────────────
 print("\n[4/4] Fetching team defensive rankings...")
@@ -245,4 +248,4 @@ try:
 except Exception as e:
     print(f"      ERROR fetching team stats: {e}")
 
-print("\n✅ Done! Run /api/enrich?force=true to rescore props with the new stats.")
+print("\nDone! Run /api/enrich?force=true to rescore props with the new stats.")

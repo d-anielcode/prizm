@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase'
-import { searchPlayer, fetchPlayerRecentStats, fetchSeasonAverages } from '@/lib/nba-api'
 import { ConfidenceBadge } from '@/components/ConfidenceBadge'
 import { StatChart } from '@/components/StatChart'
 import Link from 'next/link'
@@ -14,14 +13,14 @@ const STAT_LABELS: Record<StatType, string> = {
 
 function getStatValue(game: Record<string, number>, statType: StatType): number {
   switch (statType) {
-    case 'points': return game.points
-    case 'rebounds': return game.rebounds
-    case 'assists': return game.assists
-    case 'steals': return game.steals
-    case 'blocks': return game.blocks
-    case 'three_pointers': return game.three_pointers
-    case 'pra': return game.points + game.rebounds + game.assists
-    default: return 0
+    case 'points':         return game.points
+    case 'rebounds':       return game.rebounds
+    case 'assists':        return game.assists
+    case 'steals':         return game.steals
+    case 'blocks':         return game.blocks
+    case 'three_pointers': return game.fg3m
+    case 'pra':            return game.pra
+    default:               return 0
   }
 }
 
@@ -38,20 +37,38 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
 
   const playerProps = (props ?? []) as Prop[]
 
-  // Fetch recent game logs from NBA.com
-  const player = await searchPlayer(playerName)
-  const recentGames = player ? await fetchPlayerRecentStats(player.id, 10).catch(() => []) : []
-  const seasonAvg = player ? await fetchSeasonAverages(player.id).catch(() => null) : null
+  // Fetch real game logs from player_game_logs table (populated by fetch_nba_stats.py)
+  const { data: logRows } = await supabase
+    .from('player_game_logs')
+    .select('*')
+    .ilike('player_name', playerName)
+    .order('game_date', { ascending: false })
+    .limit(20)
 
-  const gameRows = recentGames.map((g) => ({
-    date: String(g.date).replace(/,\s*\d{4}/, '').trim(), // "Mar 16"
-    points: g.pts ?? 0,
-    rebounds: g.reb ?? 0,
-    assists: g.ast ?? 0,
-    steals: g.stl ?? 0,
-    blocks: g.blk ?? 0,
-    three_pointers: g.fg3m ?? 0,
+  const gameLogs = (logRows ?? []).map((g) => ({
+    date: String(g.game_date).replace(/,\s*\d{4}/, '').trim(),
+    matchup: String(g.matchup ?? ''),
+    points:   Number(g.points  ?? 0),
+    rebounds: Number(g.rebounds ?? 0),
+    assists:  Number(g.assists  ?? 0),
+    steals:   Number(g.steals   ?? 0),
+    blocks:   Number(g.blocks   ?? 0),
+    fg3m:     Number(g.fg3m     ?? 0),
+    pra:      Number(g.pra      ?? 0),
+    minutes:  Number(g.minutes  ?? 0),
+    win:      Boolean(g.win),
   }))
+
+  // Compute season averages from game logs
+  const seasonAvg = gameLogs.length >= 5 ? {
+    pts:  Number((gameLogs.reduce((s, g) => s + g.points,   0) / gameLogs.length).toFixed(1)),
+    reb:  Number((gameLogs.reduce((s, g) => s + g.rebounds, 0) / gameLogs.length).toFixed(1)),
+    ast:  Number((gameLogs.reduce((s, g) => s + g.assists,  0) / gameLogs.length).toFixed(1)),
+    stl:  Number((gameLogs.reduce((s, g) => s + g.steals,   0) / gameLogs.length).toFixed(1)),
+    blk:  Number((gameLogs.reduce((s, g) => s + g.blocks,   0) / gameLogs.length).toFixed(1)),
+    fg3m: Number((gameLogs.reduce((s, g) => s + g.fg3m,     0) / gameLogs.length).toFixed(1)),
+    min:  Number((gameLogs.reduce((s, g) => s + g.minutes,  0) / gameLogs.length).toFixed(1)),
+  } : null
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-8">
@@ -63,22 +80,24 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
       {/* Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-3xl font-bold text-white">{playerName}</h1>
-        {player && (
-          <p className="text-white/40 text-sm">{player.team.full_name} · {player.team.abbreviation}</p>
-        )}
+        <p className="text-white/40 text-sm">
+          {gameLogs.length > 0
+            ? `${gameLogs.length} games loaded · last game ${gameLogs[0]?.matchup}`
+            : 'No game log data — run fetch_nba_stats.py'}
+        </p>
       </div>
 
-      {/* Season averages */}
+      {/* Season averages (computed from game logs) */}
       {seasonAvg && (
         <div className="grid grid-cols-4 sm:grid-cols-7 gap-3">
           {[
-            { label: 'PTS', value: seasonAvg.pts },
-            { label: 'REB', value: seasonAvg.reb },
-            { label: 'AST', value: seasonAvg.ast },
-            { label: 'STL', value: seasonAvg.stl },
-            { label: 'BLK', value: seasonAvg.blk },
-            { label: '3PM', value: seasonAvg.fg3m },
-            { label: 'MIN', value: parseFloat(seasonAvg.min) },
+            { label: 'PTS',  value: seasonAvg.pts  },
+            { label: 'REB',  value: seasonAvg.reb  },
+            { label: 'AST',  value: seasonAvg.ast  },
+            { label: 'STL',  value: seasonAvg.stl  },
+            { label: 'BLK',  value: seasonAvg.blk  },
+            { label: '3PM',  value: seasonAvg.fg3m },
+            { label: 'MIN',  value: seasonAvg.min  },
           ].map(({ label, value }) => (
             <div key={label} className="rounded-xl bg-white/5 border border-white/10 p-3 text-center">
               <div className="text-xl font-bold text-white">{value.toFixed(1)}</div>
@@ -93,9 +112,9 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
         <div className="flex flex-col gap-6">
           <h2 className="text-lg font-semibold text-white">Today&apos;s Props</h2>
           {playerProps.map((prop, i) => {
-            const chartData = gameRows.map((g) => ({
+            const chartData = gameLogs.map((g) => ({
               date: g.date,
-              value: getStatValue(g as Record<string, number>, prop.stat_type),
+              value: getStatValue(g as unknown as Record<string, number>, prop.stat_type),
             }))
 
             return (
@@ -127,7 +146,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                   />
                 ) : (
                   <div className="h-24 flex items-center justify-center text-white/20 text-sm">
-                    No recent game data available
+                    No recent game data — run fetch_nba_stats.py
                   </div>
                 )}
               </div>
