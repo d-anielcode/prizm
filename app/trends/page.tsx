@@ -100,9 +100,8 @@ async function getData(): Promise<StreakEntry[]> {
     const { data, error } = await supabase
       .from('props')
       .select('*')
-      .not('confidence_score', 'is', null)
       .or(`commence_time.is.null,commence_time.gt.${now}`)
-      .order('confidence_score', { ascending: false })
+      .order('confidence_score', { ascending: false, nullsFirst: false })
       .range(from, from + PAGE - 1)
     if (error) { console.error('[trends] props error:', error.message); break }
     if (!data || data.length === 0) break
