@@ -85,12 +85,11 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
   const playerName = decodeURIComponent(name)
   const now = new Date().toISOString()
 
-  // Fetch upcoming scored props for this player
+  // Fetch upcoming props for this player (all, not just scored)
   const { data: rawProps } = await supabase
     .from('props')
     .select('*')
     .ilike('player_name', playerName)
-    .not('confidence_score', 'is', null)
     .or(`commence_time.is.null,commence_time.gt.${now}`)
     .order('confidence_score', { ascending: false, nullsFirst: false })
 
@@ -98,9 +97,11 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
 
   // Grab context from first prop
   const firstProp = (rawProps ?? [])[0] as Prop | undefined
-  const team       = firstProp?.team ?? ''
-  const opponent   = firstProp?.opponent ?? ''
   const commence   = firstProp?.commence_time
+
+  // Derive opponent from home/away team fields (more reliable than prop.opponent = 'TBD')
+  const homeTeam = firstProp?.home_team ?? ''
+  const awayTeam = firstProp?.away_team ?? ''
 
   // Fetch recent game logs
   const { data: logRows } = await supabase
@@ -109,6 +110,16 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
     .ilike('player_name', playerName)
     .order('game_date', { ascending: false })
     .limit(20)
+
+  // Derive player's team abbreviation from most recent game log matchup (e.g. "BKN vs. NYK" → "BKN")
+  const latestMatchup = (logRows?.[0]?.matchup as string) ?? ''
+  const matchParts = latestMatchup.split(/\s+vs\.\s+|\s+@\s+/)
+  const playerTeamAbbr = matchParts[0]?.trim().toUpperCase() ?? ''
+  const opponentAbbr = playerTeamAbbr && homeTeam && awayTeam
+    ? (playerTeamAbbr === homeTeam.slice(0, 3).toUpperCase() ? awayTeam : homeTeam)
+    : (awayTeam || homeTeam)
+  const team = playerTeamAbbr || (firstProp?.team !== 'TBD' ? (firstProp?.team ?? '') : '')
+  const opponent = opponentAbbr && opponentAbbr !== 'TBD' ? opponentAbbr : ''
 
   const gameLogs: GameLog[] = (logRows ?? []).map((g) => ({
     date:     String(g.game_date ?? ''),
