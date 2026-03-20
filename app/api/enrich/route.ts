@@ -184,24 +184,38 @@ async function runEnrichment(force = false) {
   ])
   console.log(`[/api/enrich] ESPN: ${spreadMap.size} game spreads, ${injuryMap.size} injured players`)
 
-  // ── Load game logs from Supabase ──────────────────────────────────────────
+  // ── Load game logs from Supabase (paginated — 78 players × 66 games > 1000 row limit) ──
   const uniqueNames = [...new Set(props.map((p) => p.player_name))]
   console.log(`[/api/enrich] Loading game logs for ${uniqueNames.length} players...`)
 
-  const { data: logRows } = await supabase
-    .from('player_game_logs')
-    .select('*')
-    .in('player_name', uniqueNames)
-    .order('game_date', { ascending: false })
+  const allLogRows: Record<string, unknown>[] = []
+  {
+    let from = 0
+    const PAGE = 1000
+    while (true) {
+      const { data: page, error: pageErr } = await supabase
+        .from('player_game_logs')
+        .select('*')
+        .in('player_name', uniqueNames)
+        .order('game_date', { ascending: false })
+        .range(from, from + PAGE - 1)
+      if (pageErr) { console.error('[/api/enrich] game log page error:', pageErr.message); break }
+      if (!page || page.length === 0) break
+      allLogRows.push(...page)
+      if (page.length < PAGE) break
+      from += PAGE
+    }
+  }
+  console.log(`[/api/enrich] Loaded ${allLogRows.length} game log rows`)
 
   const logsMap = new Map<string, GameLog[]>()
-  for (const row of logRows ?? []) {
+  for (const row of allLogRows) {
     const name = row.player_name as string
     if (!logsMap.has(name)) logsMap.set(name, [])
     logsMap.get(name)!.push({
-      game_date:  row.game_date,
-      matchup:    row.matchup,
-      is_home:    row.is_home ?? false,
+      game_date:  row.game_date as string,
+      matchup:    row.matchup as string,
+      is_home:    (row.is_home ?? false) as boolean,
       points:     Number(row.points ?? 0),
       rebounds:   Number(row.rebounds ?? 0),
       assists:    Number(row.assists ?? 0),

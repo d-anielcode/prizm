@@ -72,12 +72,15 @@ async function calculateResults(forDate?: string) {
     return { message: 'No props with commence_time found', evaluated: 0 }
   }
 
-  // 2. Load relevant game logs
+  // 2. Load relevant game logs — filter by the specific dates we care about
+  //    (avoids loading full-season history and hitting the 1000-row Supabase limit)
   const playerNames = [...new Set(props.map((p) => p.player_name))]
+  const gameDates   = [...dateGroups.keys()]
   const { data: logsRaw } = await supabase
     .from('player_game_logs')
     .select('player_name, game_date, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
     .in('player_name', playerNames)
+    .in('game_date', gameDates)
     .order('game_date', { ascending: false })
 
   // Index logs by player_name + game_date
@@ -101,7 +104,7 @@ async function calculateResults(forDate?: string) {
     // Deduplicate by player+stat (same as home page dedup — keep highest confidence)
     const best = new Map<string, Prop>()
     for (const p of dateProps) {
-      const key = `${p.player_name}|${p.stat_type}|${p.line}`
+      const key = `${p.player_name}|${p.stat_type}|${p.line}|${p.direction}`
       const ex = best.get(key)
       if (!ex || (p.confidence_score ?? 0) > (ex.confidence_score ?? 0)) best.set(key, p)
     }

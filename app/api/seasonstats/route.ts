@@ -7,8 +7,9 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getEspnVariants } from '@/lib/player-aliases'
+import { CURRENT_SEASON } from '@/lib/constants'
 
-const SEASON = '2025-26'
+const SEASON = CURRENT_SEASON
 const PAGE   = 1000
 
 function avg(arr: number[]): number | null {

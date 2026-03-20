@@ -27,8 +27,8 @@ async function getProps(): Promise<PropWithAlts[]> {
 
   if (allRows.length === 0) return []
 
-  // Fetch alt lines for these games
-  const gameIds = [...new Set(allRows.map((p) => p.game_id))]
+  // Fetch alt lines for these games (filter out null game_ids)
+  const gameIds = [...new Set(allRows.map((p) => p.game_id).filter(Boolean))]
   const { data: alts } = await supabase
     .from('prop_alts')
     .select('*')

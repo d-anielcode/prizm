@@ -5,6 +5,7 @@ import Link from 'next/link'
 import type { Prop, StatType } from '@/types'
 import { getEspnVariants } from '@/lib/player-aliases'
 import { TEAM_ABBR } from '@/lib/team-abbr'
+import { CURRENT_SEASON } from '@/lib/constants'
 
 export const revalidate = 0
 
@@ -249,7 +250,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
     .from('player_season_stats')
     .select('*')
     .in('player_name', nameVariants)
-    .eq('season', '2025-26')
+    .eq('season', CURRENT_SEASON)
     .order('games_played', { ascending: false })
     .limit(1)
 
@@ -356,7 +357,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
       {/* ── Season averages ── */}
       {seasonStats ? (
         <StatGrid
-          label="2025–26 Season"
+          label={`${CURRENT_SEASON} Season`}
           subLabel={`${seasonStats.games_played} games played`}
           stats={[
             ['PTS',  seasonStats.avg_points],
