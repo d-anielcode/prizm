@@ -56,13 +56,20 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
       .select('*')
       .not('confidence_label', 'is', null)
     if (existing && existing.length > 0) {
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-      const historyRows = existing.map((p) => ({ ...p, game_date: today }))
+      // Derive game_date from each prop's commence_time (not current date — cron runs after midnight)
+      const fallbackDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      const historyRows = existing.map((p: Record<string, unknown>) => {
+        const gameDate = p.commence_time
+          ? new Date(p.commence_time as string).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+          : fallbackDate
+        return { ...p, game_date: gameDate }
+      })
       const HBATCH = 500
       for (let i = 0; i < historyRows.length; i += HBATCH) {
         await supabase.from('prop_history').upsert(historyRows.slice(i, i + HBATCH), { onConflict: 'id,game_date' })
       }
-      console.log(`[/api/props] Snapshotted ${existing.length} props to prop_history for ${today}`)
+      const dates = [...new Set(historyRows.map((r) => r.game_date))].join(', ')
+      console.log(`[/api/props] Snapshotted ${existing.length} props to prop_history for ${dates}`)
     }
 
     // Clear old props, insert new batch
