@@ -29,12 +29,29 @@ function toEasternDate(isoString: string): string {
   return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) // en-CA gives YYYY-MM-DD
 }
 
-async function calculateResults() {
-  // 1. Load all props currently in DB (these are from yesterday's games)
-  const { data: propsRaw, error: propsError } = await supabase
-    .from('props')
-    .select('player_name, stat_type, line, direction, confidence_label, confidence_score, commence_time')
-    .not('confidence_label', 'is', null)
+async function calculateResults(forDate?: string) {
+  // 1. Load props — from prop_history if a specific date is requested,
+  //    otherwise from the live props table (called before nightly swap).
+  let propsRaw: Prop[] | null = null
+  let propsError: { message: string } | null = null
+
+  if (forDate) {
+    // Try prop_history table first (saved snapshots)
+    const { data, error } = await supabase
+      .from('prop_history')
+      .select('player_name, stat_type, line, direction, confidence_label, confidence_score, commence_time')
+      .eq('game_date', forDate)
+      .not('confidence_label', 'is', null)
+    propsRaw = (data ?? []) as Prop[]
+    propsError = error
+  } else {
+    const { data, error } = await supabase
+      .from('props')
+      .select('player_name, stat_type, line, direction, confidence_label, confidence_score, commence_time')
+      .not('confidence_label', 'is', null)
+    propsRaw = (data ?? []) as Prop[]
+    propsError = error
+  }
 
   if (propsError || !propsRaw || propsRaw.length === 0) {
     return { message: 'No scored props found to evaluate', evaluated: 0 }
@@ -177,10 +194,11 @@ async function calculateResults() {
 export async function GET(req: Request) {
   const url = new URL(req.url)
 
-  // ?force=true → recalculate from current props
+  // ?force=true → recalculate. Optional ?date=YYYY-MM-DD to grade a specific date.
   if (url.searchParams.get('force') === 'true') {
     try {
-      const result = await calculateResults()
+      const forDate = url.searchParams.get('date') ?? undefined
+      const result = await calculateResults(forDate)
       return NextResponse.json(result)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error'

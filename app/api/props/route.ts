@@ -50,6 +50,21 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
   })
 
   if (deduped.length > 0) {
+    // Snapshot existing props to prop_history BEFORE deleting (for results grading)
+    const { data: existing } = await supabase
+      .from('props')
+      .select('*')
+      .not('confidence_label', 'is', null)
+    if (existing && existing.length > 0) {
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      const historyRows = existing.map((p) => ({ ...p, game_date: today }))
+      const HBATCH = 500
+      for (let i = 0; i < historyRows.length; i += HBATCH) {
+        await supabase.from('prop_history').upsert(historyRows.slice(i, i + HBATCH), { onConflict: 'id,game_date' })
+      }
+      console.log(`[/api/props] Snapshotted ${existing.length} props to prop_history for ${today}`)
+    }
+
     // Clear old props, insert new batch
     await supabase.from('props').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     const rows = deduped.map((p) => ({ ...p, cached_at: new Date().toISOString() }))
