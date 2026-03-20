@@ -9,14 +9,16 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { TEAM_ABBR } from '@/lib/team-abbr'
 import {
   scoreProps,
   type GameLog,
   type TeamDefenseStats,
   type ScoringContext,
   type InjuredTeammate,
+  type SeasonStats,
 } from '@/lib/confidence'
-import type { Prop, StatType } from '@/types'
+import type { Prop, StatType, Direction } from '@/types'
 
 // ── ESPN free APIs ─────────────────────────────────────────────────────────────
 // Both are undocumented but widely stable — wrapped in try/catch so failures
@@ -110,18 +112,6 @@ async function fetchEspnSpreads(): Promise<Map<string, number>> {
 }
 
 // ── Team name → abbreviation lookup ──────────────────────────────────────────
-const TEAM_ABBR: Record<string, string> = {
-  'Atlanta Hawks': 'ATL', 'Boston Celtics': 'BOS', 'Brooklyn Nets': 'BKN',
-  'Charlotte Hornets': 'CHA', 'Chicago Bulls': 'CHI', 'Cleveland Cavaliers': 'CLE',
-  'Dallas Mavericks': 'DAL', 'Denver Nuggets': 'DEN', 'Detroit Pistons': 'DET',
-  'Golden State Warriors': 'GSW', 'Houston Rockets': 'HOU', 'Indiana Pacers': 'IND',
-  'Los Angeles Clippers': 'LAC', 'Los Angeles Lakers': 'LAL', 'Memphis Grizzlies': 'MEM',
-  'Miami Heat': 'MIA', 'Milwaukee Bucks': 'MIL', 'Minnesota Timberwolves': 'MIN',
-  'New Orleans Pelicans': 'NOP', 'New York Knicks': 'NYK', 'Oklahoma City Thunder': 'OKC',
-  'Orlando Magic': 'ORL', 'Philadelphia 76ers': 'PHI', 'Phoenix Suns': 'PHX',
-  'Portland Trail Blazers': 'POR', 'Sacramento Kings': 'SAC', 'San Antonio Spurs': 'SAS',
-  'Toronto Raptors': 'TOR', 'Utah Jazz': 'UTA', 'Washington Wizards': 'WAS',
-}
 
 // ── Derive opponent abbreviation + home/away + player team from prop + logs ───
 function deriveMatchupContext(
@@ -159,6 +149,10 @@ async function runEnrichment(force = false) {
       confidence_label: null,
       risk_tier: null,
       confidence_reason: null,
+    }).not('id', 'is', null)
+    await supabase.from('prop_alts').update({
+      confidence_score: null,
+      confidence_label: null,
     }).not('id', 'is', null)
   }
 
@@ -230,6 +224,24 @@ async function runEnrichment(force = false) {
   }
   console.log(`[/api/enrich] Team defense stats: ${defMap.size} teams`)
 
+  // ── Load season stats ──────────────────────────────────────────────────────
+  const { data: seasonRows } = await supabase.from('player_season_stats').select('*')
+  const seasonMap = new Map<string, SeasonStats>()
+  for (const row of seasonRows ?? []) {
+    seasonMap.set(row.player_name as string, {
+      avg_points:   row.avg_points   != null ? Number(row.avg_points)   : null,
+      avg_rebounds: row.avg_rebounds != null ? Number(row.avg_rebounds) : null,
+      avg_assists:  row.avg_assists  != null ? Number(row.avg_assists)  : null,
+      avg_steals:   row.avg_steals   != null ? Number(row.avg_steals)   : null,
+      avg_blocks:   row.avg_blocks   != null ? Number(row.avg_blocks)   : null,
+      avg_fg3m:     row.avg_fg3m     != null ? Number(row.avg_fg3m)     : null,
+      avg_pra:      row.avg_pra      != null ? Number(row.avg_pra)      : null,
+      avg_minutes:  row.avg_minutes  != null ? Number(row.avg_minutes)  : null,
+      games_played: row.games_played != null ? Number(row.games_played) : null,
+    })
+  }
+  console.log(`[/api/enrich] Season stats: ${seasonMap.size} players`)
+
   // ── Build a map of team → prop players (for injured teammate detection) ────
   // We identify prop players on each team so we can flag injured teammates who
   // are relevant enough to have their own props set (= meaningful usage).
@@ -285,12 +297,13 @@ async function runEnrichment(force = false) {
       spread,
       playerStatus,
       injuredTeammates,
+      seasonStats: seasonMap.get(prop.player_name) ?? null,
     }
 
     return scoreProps(prop, logs, null, ctx)
   })
 
-  // ── Batch-upsert to Supabase ──────────────────────────────────────────────
+  // ── Batch-upsert main props to Supabase ──────────────────────────────────
   let enriched = 0
   const BATCH = 200
   for (let i = 0; i < updates.length; i += BATCH) {
@@ -302,11 +315,74 @@ async function runEnrichment(force = false) {
     else console.error('[/api/enrich] Upsert error:', upsertError.message)
   }
 
+  // ── Score alt lines from prop_alts ────────────────────────────────────────
+  const altRows: Record<string, unknown>[] = []
+  let altFrom = 0
+  while (true) {
+    const { data: page } = await supabase
+      .from('prop_alts')
+      .select('*')
+      .is('confidence_score', null)
+      .range(altFrom, altFrom + PAGE - 1)
+    if (!page || page.length === 0) break
+    altRows.push(...page)
+    if (page.length < PAGE) break
+    altFrom += PAGE
+  }
+
+  let enrichedAlts = 0
+  if (altRows.length > 0) {
+    const altUpdates = altRows.map((alt) => {
+      const pseudoProp: Prop = {
+        player_id:      0,
+        player_name:    alt.player_name as string,
+        team:           'TBD',
+        opponent:       'TBD',
+        game_id:        alt.game_id as string,
+        stat_type:      alt.stat_type as StatType,
+        line:           alt.line as number,
+        direction:      alt.direction as Direction,
+        odds:           alt.odds as number | undefined,
+        home_team:      alt.home_team as string | undefined,
+        away_team:      alt.away_team as string | undefined,
+        commence_time:  alt.commence_time as string | undefined,
+      }
+      const logs = logsMap.get(pseudoProp.player_name) ?? []
+      const { isHome, opponentAbbr, playerTeamAbbr } = deriveMatchupContext(pseudoProp, logs)
+      const defStats = opponentAbbr ? (defMap.get(opponentAbbr) ?? null) : null
+      const homeAbbr = pseudoProp.home_team ? (TEAM_ABBR[pseudoProp.home_team] ?? null) : null
+      const awayAbbr = pseudoProp.away_team ? (TEAM_ABBR[pseudoProp.away_team] ?? null) : null
+      const spreadKey = homeAbbr && awayAbbr ? `${homeAbbr}|${awayAbbr}` : null
+      const spread = spreadKey ? (spreadMap.get(spreadKey) ?? null) : null
+      const playerStatus = injuryMap.get(pseudoProp.player_name)?.status ?? 'active'
+      const injuredTeammates: InjuredTeammate[] = []
+      if (playerTeamAbbr) {
+        const teammates = (teamToPropPlayers.get(playerTeamAbbr) ?? []).filter((n) => n !== pseudoProp.player_name)
+        for (const tName of teammates) {
+          const tInjury = injuryMap.get(tName)
+          if (!tInjury || tInjury.status === 'active') continue
+          injuredTeammates.push({ name: tName, status: tInjury.status, impactScore: 1 / Math.max(teammates.length + 1, 1) })
+        }
+      }
+      const ctx: ScoringContext = { defStats, isHome, opponentAbbr, spread, playerStatus, injuredTeammates }
+      const scored = scoreProps(pseudoProp, logs, null, ctx)
+      return { ...alt, confidence_score: scored.confidence_score, confidence_label: scored.confidence_label }
+    })
+
+    for (let i = 0; i < altUpdates.length; i += BATCH) {
+      const batch = altUpdates.slice(i, i + BATCH)
+      const { error } = await supabase.from('prop_alts').upsert(batch, { onConflict: 'id' })
+      if (!error) enrichedAlts += batch.length
+      else console.error('[/api/enrich] prop_alts upsert error:', error.message)
+    }
+  }
+
   const injuredCount = [...injuryMap.values()].filter((i) => i.status !== 'active').length
 
   return {
-    message: `Enriched ${enriched} props with AI confidence scores`,
+    message: `Enriched ${enriched} props + ${enrichedAlts} alt lines`,
     enriched,
+    enrichedAlts,
     total: props.length,
     playersWithGameLogs: playersWithLogs,
     teamsWithDefenseData: defMap.size,

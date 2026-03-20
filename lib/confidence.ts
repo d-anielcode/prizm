@@ -50,6 +50,18 @@ export interface InjuredTeammate {
   impactScore: number  // 0–1, proportion of team usage being vacated
 }
 
+export interface SeasonStats {
+  avg_points:   number | null
+  avg_rebounds: number | null
+  avg_assists:  number | null
+  avg_steals:   number | null
+  avg_blocks:   number | null
+  avg_fg3m:     number | null
+  avg_pra:      number | null
+  avg_minutes:  number | null
+  games_played: number | null
+}
+
 export interface ScoringContext {
   defStats?:          TeamDefenseStats | null
   isHome?:            boolean | null
@@ -57,6 +69,7 @@ export interface ScoringContext {
   spread?:            number | null              // absolute point spread (e.g. 8.5)
   playerStatus?:      'active' | 'questionable' | 'doubtful' | 'out' | null
   injuredTeammates?:  InjuredTeammate[]
+  seasonStats?:       SeasonStats | null
 }
 
 export interface ScoredProp extends Prop {
@@ -148,15 +161,33 @@ function matchupScore(
 }
 
 // ── Factor 3: Season average cushion ─────────────────────────────────────────
+// Prefers true season average (from player_season_stats) over rolling log avg.
 function cushionScore(
   logs: GameLog[],
   statType: StatType,
   line: number,
   dir: 'over' | 'under',
+  seasonStats: SeasonStats | null | undefined,
 ): number {
-  const vals = logs.map((g) => getStatValue(g, statType)).filter((v) => v >= 0)
-  if (vals.length < 5) return 0.50
-  const avg = vals.reduce((a, b) => a + b, 0) / vals.length
+  // Use full-season average if available (more reliable than limited game logs)
+  let avg: number | null = null
+  if (seasonStats) {
+    switch (statType) {
+      case 'points':         avg = seasonStats.avg_points;   break
+      case 'rebounds':       avg = seasonStats.avg_rebounds; break
+      case 'assists':        avg = seasonStats.avg_assists;  break
+      case 'steals':         avg = seasonStats.avg_steals;   break
+      case 'blocks':         avg = seasonStats.avg_blocks;   break
+      case 'three_pointers': avg = seasonStats.avg_fg3m;     break
+      case 'pra':            avg = seasonStats.avg_pra;      break
+    }
+  }
+  // Fall back to rolling game log average if no season stat
+  if (avg == null) {
+    const vals = logs.map((g) => getStatValue(g, statType)).filter((v) => v >= 0)
+    if (vals.length < 5) return 0.50
+    avg = vals.reduce((a, b) => a + b, 0) / vals.length
+  }
   const pct = (avg - line) / Math.max(line, 1)
   const raw = clamp(pct / 0.60 + 0.50)
   return dir === 'over' ? raw : 1 - raw
@@ -331,6 +362,7 @@ export function scoreProps(
     spread           = null,
     playerStatus     = null,
     injuredTeammates = [],
+    seasonStats      = null,
   } = ctx
 
   // Compute all factors
@@ -341,7 +373,9 @@ export function scoreProps(
 
   const f1  = hr10    ?? 0.50
   const f2  = matchupScore(defStats, stat_type, direction)
-  const f3  = hasLogs ? cushionScore(gameLogs, stat_type, line, direction) : 0.50
+  // cushionScore uses season avg if available (even without game logs)
+  const hasCushion = hasLogs || seasonStats != null
+  const f3  = hasCushion ? cushionScore(gameLogs, stat_type, line, direction, seasonStats) : 0.50
   const f4  = vsOpp.score
   const f5  = homeAway ?? 0.50
   const f6  = hasLogs ? trendScore(gameLogs, stat_type, direction) : 0.50
@@ -354,7 +388,12 @@ export function scoreProps(
 
   let raw: number
   if (!hasLogs) {
-    raw = f9 * 0.60 + f2 * 0.30 + 0.50 * 0.10
+    // No game logs: if we have season stats, include cushion + matchup; otherwise pure book odds
+    if (seasonStats != null) {
+      raw = f9 * 0.30 + f2 * 0.45 + f3 * 0.15 + f11 * 0.10
+    } else {
+      raw = f9 * 0.60 + f2 * 0.30 + 0.50 * 0.10
+    }
   } else {
     raw =
       f1  * W.last10HitRate +
@@ -375,7 +414,7 @@ export function scoreProps(
   const { label, tier } = getLabel(score)
   const reason = buildReason(
     prop, gameLogs, hr10, hr20, f3, f6, f8, f2, hasLogs, defStats, vsOpp, isHome,
-    spread, playerStatus, injuredTeammates
+    spread, playerStatus, injuredTeammates, seasonStats
   )
 
   return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason }
@@ -428,12 +467,29 @@ function buildReason(
   spread: number | null | undefined,
   playerStatus: ScoringContext['playerStatus'],
   injuredTeammates: InjuredTeammate[],
+  seasonStats: SeasonStats | null | undefined,
 ): string {
   const { stat_type, line, direction, player_name, opponent } = prop
   const stat = STAT_WORD[stat_type] ?? stat_type
   const dir  = direction
 
   if (!hasData) {
+    if (seasonStats) {
+      let seasonAvg: number | null = null
+      switch (stat_type) {
+        case 'points':         seasonAvg = seasonStats.avg_points;   break
+        case 'rebounds':       seasonAvg = seasonStats.avg_rebounds; break
+        case 'assists':        seasonAvg = seasonStats.avg_assists;  break
+        case 'steals':         seasonAvg = seasonStats.avg_steals;   break
+        case 'blocks':         seasonAvg = seasonStats.avg_blocks;   break
+        case 'three_pointers': seasonAvg = seasonStats.avg_fg3m;     break
+        case 'pra':            seasonAvg = seasonStats.avg_pra;      break
+      }
+      const avgNote = seasonAvg != null
+        ? ` Season average: ${seasonAvg.toFixed(1)} ${stat} (${seasonStats.games_played ?? '?'} GP).`
+        : ''
+      return `No recent game logs found for ${player_name}.${avgNote} Confidence based on season stats + matchup.`
+    }
     return `No recent game logs found for ${player_name}. Confidence based on bookmaker odds only.`
   }
 
@@ -485,14 +541,32 @@ function buildReason(
     )
   }
 
-  // 3. Season average vs the line
-  const allVals = logs.map((g) => getStatValue(g, stat_type)).filter((v) => v >= 0)
-  if (allVals.length >= 5) {
-    const avg = allVals.reduce((a, b) => a + b, 0) / allVals.length
-    const pct = Math.abs(((avg - line) / Math.max(line, 1)) * 100)
-    const aboveBelow = avg >= line ? 'above' : 'below'
+  // 3. Season average vs the line — prefer full season stats over rolling log avg
+  let seasonAvgValue: number | null = null
+  if (seasonStats) {
+    switch (stat_type) {
+      case 'points':         seasonAvgValue = seasonStats.avg_points;   break
+      case 'rebounds':       seasonAvgValue = seasonStats.avg_rebounds; break
+      case 'assists':        seasonAvgValue = seasonStats.avg_assists;  break
+      case 'steals':         seasonAvgValue = seasonStats.avg_steals;   break
+      case 'blocks':         seasonAvgValue = seasonStats.avg_blocks;   break
+      case 'three_pointers': seasonAvgValue = seasonStats.avg_fg3m;     break
+      case 'pra':            seasonAvgValue = seasonStats.avg_pra;      break
+    }
+  }
+  // Fall back to rolling average from game logs
+  if (seasonAvgValue == null) {
+    const allVals = logs.map((g) => getStatValue(g, stat_type)).filter((v) => v >= 0)
+    if (allVals.length >= 5) {
+      seasonAvgValue = allVals.reduce((a, b) => a + b, 0) / allVals.length
+    }
+  }
+  if (seasonAvgValue != null) {
+    const pct = Math.abs(((seasonAvgValue - line) / Math.max(line, 1)) * 100)
+    const aboveBelow = seasonAvgValue >= line ? 'above' : 'below'
+    const gpNote = seasonStats?.games_played ? ` (${seasonStats.games_played} GP)` : ''
     sentences.push(
-      `Season average of ${avg.toFixed(1)} ${stat} — ${pct.toFixed(0)}% ${aboveBelow} tonight's line of ${line}.`
+      `Season average of ${seasonAvgValue.toFixed(1)} ${stat}${gpNote} — ${pct.toFixed(0)}% ${aboveBelow} tonight's line of ${line}.`
     )
   }
 
@@ -561,10 +635,11 @@ function buildReason(
   }
 
   // 9. Consistency note
-  if (allVals.length >= 5) {
-    const mean = allVals.reduce((a, b) => a + b, 0) / allVals.length
+  const recentVals = logs.slice(0, 20).map((g) => getStatValue(g, stat_type)).filter((v) => v >= 0)
+  if (recentVals.length >= 5) {
+    const mean = recentVals.reduce((a, b) => a + b, 0) / recentVals.length
     if (mean > 0) {
-      const variance = allVals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / allVals.length
+      const variance = recentVals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / recentVals.length
       const cv = Math.sqrt(variance) / mean
       if (cv < 0.25) {
         sentences.push(`Very consistent performer for this stat — low game-to-game variance.`)

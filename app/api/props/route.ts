@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server'
 import { supabase, isCacheStale } from '@/lib/supabase'
 import { fetchTodaysNBAEvents, fetchAllPropsForEvents } from '@/lib/odds-api'
+import { deduplicatePropsWithAlts } from '@/lib/dedup'
 import type { Prop } from '@/types'
 
 // Returns true when all stored games have already tipped off — time to switch days
@@ -50,13 +51,32 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
   })
 
   if (deduped.length > 0) {
-    // Snapshot existing props to prop_history BEFORE deleting (for results grading)
+    // Separate main lines from alt lines
+    const dedupedWithAlts = deduplicatePropsWithAlts(deduped)
+    const mainProps = dedupedWithAlts.map(({ altLines: _alts, ...p }) => p)
+    const now = new Date().toISOString()
+    const altRows = dedupedWithAlts.flatMap((p) =>
+      (p.altLines ?? []).map((alt) => ({
+        player_name:    p.player_name,
+        stat_type:      p.stat_type,
+        direction:      alt.direction,
+        game_id:        p.game_id,
+        line:           alt.line,
+        odds:           alt.odds ?? null,
+        sportsbook:     alt.sportsbook ?? null,
+        home_team:      p.home_team ?? null,
+        away_team:      p.away_team ?? null,
+        commence_time:  p.commence_time ?? null,
+        cached_at:      now,
+      }))
+    )
+
+    // Snapshot existing main props to prop_history BEFORE deleting (for results grading)
     const { data: existing } = await supabase
       .from('props')
       .select('*')
       .not('confidence_label', 'is', null)
     if (existing && existing.length > 0) {
-      // Derive game_date from each prop's commence_time (not current date — cron runs after midnight)
       const fallbackDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
       const historyRows = existing.map((p: Record<string, unknown>) => {
         const gameDate = p.commence_time
@@ -72,17 +92,25 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
       console.log(`[/api/props] Snapshotted ${existing.length} props to prop_history for ${dates}`)
     }
 
-    // Clear old props, insert new batch
-    await supabase.from('props').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    const rows = deduped.map((p) => ({ ...p, cached_at: new Date().toISOString() }))
+    // Clear and insert main props
     const BATCH = 500
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const { error } = await supabase.from('props').insert(rows.slice(i, i + BATCH))
-      if (error) console.error(`[/api/props] insert error:`, error.message)
+    await supabase.from('props').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    for (let i = 0; i < mainProps.length; i += BATCH) {
+      const { error } = await supabase.from('props').insert(mainProps.slice(i, i + BATCH))
+      if (error) console.error(`[/api/props] props insert error:`, error.message)
     }
-  }
 
-  console.log(`[/api/props] Refreshed — ${deduped.length} props for ${events.length} games`)
+    // Clear and insert alt lines
+    await supabase.from('prop_alts').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    for (let i = 0; i < altRows.length; i += BATCH) {
+      const { error } = await supabase.from('prop_alts').insert(altRows.slice(i, i + BATCH))
+      if (error) console.error(`[/api/props] prop_alts insert error:`, error.message)
+    }
+
+    console.log(`[/api/props] Refreshed — ${mainProps.length} main props + ${altRows.length} alt lines for ${events.length} games`)
+  } else {
+    console.log(`[/api/props] Refreshed — 0 props for ${events.length} games`)
+  }
   // Log next game tip-offs for debugging
   const times = [...new Set(deduped.map((p) => p.commence_time).filter(Boolean))].sort()
   if (times.length > 0) console.log(`[/api/props] Games tip off at: ${times.join(', ')}`)

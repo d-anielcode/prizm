@@ -3,6 +3,8 @@ import { ConfidenceBadge } from '@/components/ConfidenceBadge'
 import { StatChart } from '@/components/StatChart'
 import Link from 'next/link'
 import type { Prop, StatType } from '@/types'
+import { getEspnVariants } from '@/lib/player-aliases'
+import { TEAM_ABBR } from '@/lib/team-abbr'
 
 export const revalidate = 0
 
@@ -12,60 +14,89 @@ const STAT_LABELS: Record<StatType, string> = {
 }
 
 interface GameLog {
-  date: string
-  matchup: string
-  points: number
+  date:     string
+  matchup:  string
+  isHome:   boolean
+  points:   number
   rebounds: number
-  assists: number
-  steals: number
-  blocks: number
-  fg3m: number
-  pra: number
-  minutes: number
-  win: boolean
+  assists:  number
+  steals:   number
+  blocks:   number
+  fg3m:     number
+  pra:      number
+  minutes:  number
+  win:      boolean
 }
 
-function getStatValue(game: GameLog, statType: StatType): number {
+interface SeasonStats {
+  games_played: number
+  avg_points:   number | null
+  avg_rebounds: number | null
+  avg_assists:  number | null
+  avg_steals:   number | null
+  avg_blocks:   number | null
+  avg_fg3m:     number | null
+  avg_pra:      number | null
+  avg_minutes:  number | null
+}
+
+// ── Pure helpers ──────────────────────────────────────────────────────────────
+function getStatValue(g: GameLog, statType: StatType): number {
   switch (statType) {
-    case 'points':         return game.points
-    case 'rebounds':       return game.rebounds
-    case 'assists':        return game.assists
-    case 'steals':         return game.steals
-    case 'blocks':         return game.blocks
-    case 'three_pointers': return game.fg3m
-    case 'pra':            return game.pra
+    case 'points':         return g.points
+    case 'rebounds':       return g.rebounds
+    case 'assists':        return g.assists
+    case 'steals':         return g.steals
+    case 'blocks':         return g.blocks
+    case 'three_pointers': return g.fg3m
+    case 'pra':            return g.pra
     default:               return 0
   }
 }
 
+function extractOpponent(matchup: string): string | null {
+  return matchup.split(/\s+vs\.\s+|\s+@\s+/)[1]?.trim().toUpperCase() ?? null
+}
+
+function computeAvgs(logs: GameLog[]) {
+  const n = logs.length
+  if (n === 0) return null
+  const sum = (fn: (g: GameLog) => number) =>
+    +(logs.reduce((s, g) => s + fn(g), 0) / n).toFixed(1)
+  return {
+    n,
+    pts:  sum((g) => g.points),
+    reb:  sum((g) => g.rebounds),
+    ast:  sum((g) => g.assists),
+    stl:  sum((g) => g.steals),
+    blk:  sum((g) => g.blocks),
+    fg3m: sum((g) => g.fg3m),
+    pra:  sum((g) => g.pra),
+  }
+}
+
 function formatDate(dateStr: string): string {
-  // ISO format "2026-03-18" → "Mar 18"
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     const [year, month, day] = dateStr.split('-').map(Number)
     return new Date(year, month - 1, day).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
+      month: 'short', day: 'numeric',
     })
   }
-  // Legacy "MAR 18, 2026" → strip year
   return dateStr.replace(/,\s*\d{4}/, '').trim()
 }
 
 function formatGameTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'America/New_York',
+    hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York',
   }) + ' ET'
 }
 
 function hitRate(logs: GameLog[], statType: StatType, line: number, direction: 'over' | 'under') {
   const recent = logs.slice(0, 10)
-  let hits = 0
-  for (const g of recent) {
-    const val = getStatValue(g, statType)
-    if (direction === 'over' ? val > line : val < line) hits++
-  }
+  const hits = recent.filter((g) => {
+    const v = getStatValue(g, statType)
+    return direction === 'over' ? v > line : v < line
+  }).length
   return { hits, total: recent.length }
 }
 
@@ -80,12 +111,118 @@ function deduplicateProps(props: Prop[]): Prop[] {
   return [...best.values()].sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
 }
 
+// ── Reusable stat grid ────────────────────────────────────────────────────────
+function StatGrid({
+  label,
+  subLabel,
+  stats,
+  highlight,
+}: {
+  label: string
+  subLabel?: string
+  stats: Array<[string, number | null]>
+  highlight?: boolean
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-3">
+        <p className="text-xs font-semibold text-white/35 uppercase tracking-wider">{label}</p>
+        {subLabel && <p className="text-xs text-white/20">{subLabel}</p>}
+      </div>
+      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+        {stats.map(([lbl, value]) => (
+          <div
+            key={lbl}
+            className={[
+              'rounded-xl border p-3 text-center',
+              highlight
+                ? 'bg-[#f0c060]/[0.06] border-[#f0c060]/[0.15]'
+                : 'bg-white/[0.04] border-white/[0.07]',
+            ].join(' ')}
+          >
+            <div className="text-xl font-bold text-white">
+              {value !== null && value !== undefined ? value : '—'}
+            </div>
+            <div className="text-xs text-white/35 mt-0.5">{lbl}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Home/Away comparison ──────────────────────────────────────────────────────
+type SplitAvgs = ReturnType<typeof computeAvgs>
+
+function HomeAwaySplits({
+  home,
+  away,
+}: {
+  home: SplitAvgs
+  away: SplitAvgs
+}) {
+  if (!home || !away) return null
+  const stats: Array<[string, keyof NonNullable<SplitAvgs>]> = [
+    ['PTS', 'pts'], ['REB', 'reb'], ['AST', 'ast'],
+    ['STL', 'stl'], ['BLK', 'blk'], ['3PM', 'fg3m'], ['PRA', 'pra'],
+  ]
+  return (
+    <div>
+      <p className="text-xs font-semibold text-white/35 uppercase tracking-wider mb-3">
+        Home / Away Splits
+      </p>
+      <div className="rounded-xl border border-white/[0.07] overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-white/[0.04] text-white/35 text-xs uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left font-semibold">Split</th>
+              {stats.map(([lbl]) => (
+                <th key={lbl} className="px-2 py-2.5 text-right font-semibold">{lbl}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/[0.04]">
+            {([
+              { label: `Home (${home.n}G)`, avgs: home, isHome: true },
+              { label: `Away (${away.n}G)`, avgs: away, isHome: false },
+            ] as const).map(({ label, avgs }) => (
+              <tr key={label} className="hover:bg-white/[0.02] transition-colors">
+                <td className="px-4 py-2.5 text-white/55 font-medium whitespace-nowrap">
+                  {label}
+                </td>
+                {stats.map(([lbl, key]) => {
+                  const val = avgs[key] as number
+                  const other = (label.startsWith('Home') ? away : home)[key] as number
+                  const diff = val - other
+                  return (
+                    <td
+                      key={lbl}
+                      className={[
+                        'px-2 py-2.5 text-right font-mono font-semibold',
+                        Math.abs(diff) >= 1.5
+                          ? diff > 0 ? 'text-emerald-400' : 'text-red-400'
+                          : 'text-white/75',
+                      ].join(' ')}
+                    >
+                      {val}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export default async function PlayerPage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = await params
   const playerName = decodeURIComponent(name)
   const now = new Date().toISOString()
 
-  // Fetch upcoming props for this player (all, not just scored)
+  // ── 1. Props ──────────────────────────────────────────────────────────────────
   const { data: rawProps } = await supabase
     .from('props')
     .select('*')
@@ -94,36 +231,62 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
     .order('confidence_score', { ascending: false, nullsFirst: false })
 
   const playerProps = deduplicateProps((rawProps ?? []) as Prop[])
+  const firstProp   = (rawProps ?? [])[0] as Prop | undefined
+  const commence    = firstProp?.commence_time
+  const homeTeam    = firstProp?.home_team ?? ''
+  const awayTeam    = firstProp?.away_team ?? ''
 
-  // Grab context from first prop
-  const firstProp = (rawProps ?? [])[0] as Prop | undefined
-  const commence   = firstProp?.commence_time
-
-  // Derive opponent from home/away team fields (more reliable than prop.opponent = 'TBD')
-  const homeTeam = firstProp?.home_team ?? ''
-  const awayTeam = firstProp?.away_team ?? ''
-
-  // Fetch recent game logs
+  // ── 2. ALL game logs (no limit — needed for full-season splits) ───────────────
+  const nameVariants = getEspnVariants(playerName)
   const { data: logRows } = await supabase
     .from('player_game_logs')
     .select('*')
-    .ilike('player_name', playerName)
+    .in('player_name', nameVariants)
     .order('game_date', { ascending: false })
-    .limit(20)
 
-  // Derive player's team abbreviation from most recent game log matchup (e.g. "BKN vs. NYK" → "BKN")
-  const latestMatchup = (logRows?.[0]?.matchup as string) ?? ''
-  const matchParts = latestMatchup.split(/\s+vs\.\s+|\s+@\s+/)
-  const playerTeamAbbr = matchParts[0]?.trim().toUpperCase() ?? ''
-  const opponentAbbr = playerTeamAbbr && homeTeam && awayTeam
-    ? (playerTeamAbbr === homeTeam.slice(0, 3).toUpperCase() ? awayTeam : homeTeam)
-    : (awayTeam || homeTeam)
-  const team = playerTeamAbbr || (firstProp?.team !== 'TBD' ? (firstProp?.team ?? '') : '')
-  const opponent = opponentAbbr && opponentAbbr !== 'TBD' ? opponentAbbr : ''
+  // ── 3. Season stats ───────────────────────────────────────────────────────────
+  const { data: seasonRows } = await supabase
+    .from('player_season_stats')
+    .select('*')
+    .in('player_name', nameVariants)
+    .eq('season', '2025-26')
+    .order('games_played', { ascending: false })
+    .limit(1)
 
+  const seasonStats: SeasonStats | null = seasonRows?.[0]
+    ? (seasonRows[0] as unknown as SeasonStats)
+    : null
+
+  // ── 4. Derive team / opponent context ─────────────────────────────────────────
+  const latestMatchup   = (logRows?.[0]?.matchup as string) ?? ''
+  const matchParts      = latestMatchup.split(/\s+vs\.\s+|\s+@\s+/)
+  const playerTeamAbbr  = matchParts[0]?.trim().toUpperCase() ?? ''
+
+  const homeAbbr = homeTeam ? (TEAM_ABBR[homeTeam] ?? null) : null
+  const awayAbbr = awayTeam ? (TEAM_ABBR[awayTeam] ?? null) : null
+
+  // Figure out which abbreviation is tonight's opponent
+  let tonightOpponentAbbr: string | null = null
+  let isHomeTonight: boolean | null = null
+  if (playerTeamAbbr && homeAbbr && awayAbbr) {
+    if (playerTeamAbbr === homeAbbr) {
+      isHomeTonight = true
+      tonightOpponentAbbr = awayAbbr
+    } else if (playerTeamAbbr === awayAbbr) {
+      isHomeTonight = false
+      tonightOpponentAbbr = homeAbbr
+    }
+  }
+
+  const opponentDisplay = tonightOpponentAbbr ?? (awayTeam || homeTeam)
+  const team     = playerTeamAbbr || (firstProp?.team !== 'TBD' ? (firstProp?.team ?? '') : '')
+  const opponent = opponentDisplay && opponentDisplay !== 'TBD' ? opponentDisplay : ''
+
+  // ── 5. Map all game logs ──────────────────────────────────────────────────────
   const gameLogs: GameLog[] = (logRows ?? []).map((g) => ({
     date:     String(g.game_date ?? ''),
     matchup:  String(g.matchup ?? ''),
+    isHome:   Boolean(g.is_home),
     points:   Number(g.points   ?? 0),
     rebounds: Number(g.rebounds ?? 0),
     assists:  Number(g.assists  ?? 0),
@@ -135,17 +298,25 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
     win:      Boolean(g.win),
   }))
 
-  // Averages over available game logs
-  const n = gameLogs.length
-  const avg = n >= 5 ? {
-    pts:  +(gameLogs.reduce((s, g) => s + g.points,   0) / n).toFixed(1),
-    reb:  +(gameLogs.reduce((s, g) => s + g.rebounds, 0) / n).toFixed(1),
-    ast:  +(gameLogs.reduce((s, g) => s + g.assists,  0) / n).toFixed(1),
-    stl:  +(gameLogs.reduce((s, g) => s + g.steals,   0) / n).toFixed(1),
-    blk:  +(gameLogs.reduce((s, g) => s + g.blocks,   0) / n).toFixed(1),
-    fg3m: +(gameLogs.reduce((s, g) => s + g.fg3m,     0) / n).toFixed(1),
-    pra:  +(gameLogs.reduce((s, g) => s + g.pra,      0) / n).toFixed(1),
-  } : null
+  // ── 6. Compute splits ─────────────────────────────────────────────────────────
+  const homeGames = gameLogs.filter((g) => g.isHome)
+  const awayGames = gameLogs.filter((g) => !g.isHome)
+  const homeAvgs  = computeAvgs(homeGames)
+  const awayAvgs  = computeAvgs(awayGames)
+  const showHomeAway = (homeAvgs?.n ?? 0) >= 5 && (awayAvgs?.n ?? 0) >= 5
+
+  // vs. tonight's opponent (needs ≥ 2 games for any signal)
+  const vsOpponentGames = tonightOpponentAbbr
+    ? gameLogs.filter((g) => extractOpponent(g.matchup) === tonightOpponentAbbr)
+    : []
+  const vsOpponentAvgs = computeAvgs(vsOpponentGames)
+
+  // L20 averages (just from the most recent 20 games)
+  const l20logs = gameLogs.slice(0, 20)
+  const l20Avgs = computeAvgs(l20logs)
+
+  // Logs shown in the table (last 20)
+  const tableGames = gameLogs.slice(0, 20)
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-8">
@@ -163,7 +334,14 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
           {opponent && (
             <>
               <span className="text-white/20">·</span>
-              <span className="text-white/50">vs {opponent}</span>
+              <span className="text-white/50">
+                vs {opponent}
+                {isHomeTonight !== null && (
+                  <span className="ml-1 text-white/30 text-xs">
+                    ({isHomeTonight ? 'Home' : 'Away'})
+                  </span>
+                )}
+              </span>
             </>
           )}
           {commence && (
@@ -175,32 +353,75 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
         </div>
       </div>
 
-      {/* ── Stat averages ── */}
-      {avg && (
+      {/* ── Season averages ── */}
+      {seasonStats ? (
+        <StatGrid
+          label="2025–26 Season"
+          subLabel={`${seasonStats.games_played} games played`}
+          stats={[
+            ['PTS',  seasonStats.avg_points],
+            ['REB',  seasonStats.avg_rebounds],
+            ['AST',  seasonStats.avg_assists],
+            ['STL',  seasonStats.avg_steals],
+            ['BLK',  seasonStats.avg_blocks],
+            ['3PM',  seasonStats.avg_fg3m],
+            ['PRA',  seasonStats.avg_pra],
+          ]}
+        />
+      ) : (
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4 text-center text-white/30 text-sm">
+          Season averages unavailable —{' '}
+          <code className="text-white/40 text-xs">
+            /api/seasonstats?player={encodeURIComponent(playerName)}
+          </code>
+        </div>
+      )}
+
+      {/* ── Home / Away splits ── */}
+      {showHomeAway && homeAvgs && awayAvgs && (
+        <HomeAwaySplits home={homeAvgs} away={awayAvgs} />
+      )}
+
+      {/* ── vs. Tonight's Opponent ── */}
+      {vsOpponentAvgs && vsOpponentAvgs.n >= 2 && tonightOpponentAbbr && (
         <div>
           <p className="text-xs font-semibold text-white/35 uppercase tracking-wider mb-3">
-            L{n} Averages
+            vs. {tonightOpponentAbbr} this season
+            <span className="normal-case font-normal ml-1 text-white/20">
+              ({vsOpponentAvgs.n} game{vsOpponentAvgs.n !== 1 ? 's' : ''})
+            </span>
           </p>
-          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-            {([
-              ['PTS',  avg.pts],
-              ['REB',  avg.reb],
-              ['AST',  avg.ast],
-              ['STL',  avg.stl],
-              ['BLK',  avg.blk],
-              ['3PM',  avg.fg3m],
-              ['PRA',  avg.pra],
-            ] as [string, number][]).map(([label, value]) => (
-              <div
-                key={label}
-                className="rounded-xl bg-white/[0.04] border border-white/[0.07] p-3 text-center"
-              >
-                <div className="text-xl font-bold text-white">{value}</div>
-                <div className="text-xs text-white/35 mt-0.5">{label}</div>
-              </div>
-            ))}
-          </div>
+          <StatGrid
+            label=""
+            stats={[
+              ['PTS',  vsOpponentAvgs.pts],
+              ['REB',  vsOpponentAvgs.reb],
+              ['AST',  vsOpponentAvgs.ast],
+              ['STL',  vsOpponentAvgs.stl],
+              ['BLK',  vsOpponentAvgs.blk],
+              ['3PM',  vsOpponentAvgs.fg3m],
+              ['PRA',  vsOpponentAvgs.pra],
+            ]}
+            highlight
+          />
         </div>
+      )}
+
+      {/* ── Last 20 averages ── */}
+      {l20Avgs && l20Avgs.n >= 3 && (
+        <StatGrid
+          label={`Last ${l20Avgs.n} Games`}
+          subLabel="recent form"
+          stats={[
+            ['PTS',  l20Avgs.pts],
+            ['REB',  l20Avgs.reb],
+            ['AST',  l20Avgs.ast],
+            ['STL',  l20Avgs.stl],
+            ['BLK',  l20Avgs.blk],
+            ['3PM',  l20Avgs.fg3m],
+            ['PRA',  l20Avgs.pra],
+          ]}
+        />
       )}
 
       {/* ── Today's props ── */}
@@ -208,8 +429,8 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
         <h2 className="text-lg font-semibold text-white">Today&apos;s Props</h2>
 
         {playerProps.length > 0 ? playerProps.map((prop, i) => {
-          const chartData = gameLogs.map((g) => ({
-            date: formatDate(g.date),
+          const chartData = gameLogs.slice(0, 20).map((g) => ({
+            date:  formatDate(g.date),
             value: getStatValue(g, prop.stat_type),
           }))
           const { hits, total } = hitRate(gameLogs, prop.stat_type, prop.line, prop.direction)
@@ -226,8 +447,6 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                   <span className="text-lg font-bold text-white">
                     {STAT_LABELS[prop.stat_type]}
                   </span>
-
-                  {/* Direction pill */}
                   <span className={[
                     'text-sm font-semibold px-3 py-0.5 rounded-full',
                     prop.direction === 'over'
@@ -236,8 +455,6 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                   ].join(' ')}>
                     {prop.direction.toUpperCase()} {prop.line}
                   </span>
-
-                  {/* L10 hit rate */}
                   {hitPct !== null && total >= 5 && (
                     <span className={[
                       'text-xs font-semibold px-2.5 py-0.5 rounded-full',
@@ -249,18 +466,15 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                     </span>
                   )}
                 </div>
-
                 {prop.confidence_label && prop.confidence_score != null && (
                   <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
                 )}
               </div>
 
-              {/* AI reasoning */}
               {prop.confidence_reason && (
                 <p className="text-sm text-white/45 leading-relaxed">{prop.confidence_reason}</p>
               )}
 
-              {/* Chart */}
               {chartData.length > 0 ? (
                 <StatChart
                   games={chartData}
@@ -278,13 +492,15 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
         }) : (
           <div className="py-12 text-center rounded-2xl border border-white/[0.07] bg-white/[0.02]">
             <p className="text-white/40 text-sm">No upcoming props found for {playerName}.</p>
-            <p className="text-white/25 text-xs mt-1">Props are populated when today&apos;s games are seeded.</p>
+            <p className="text-white/25 text-xs mt-1">
+              Props are populated when today&apos;s games are seeded.
+            </p>
           </div>
         )}
       </div>
 
-      {/* ── Recent game log ── */}
-      {gameLogs.length > 0 && (
+      {/* ── Recent game log table ── */}
+      {tableGames.length > 0 && (
         <div className="flex flex-col gap-3">
           <h2 className="text-lg font-semibold text-white">Recent Game Log</h2>
           <div className="overflow-x-auto rounded-xl border border-white/[0.08]">
@@ -304,7 +520,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
-                {gameLogs.map((g, i) => (
+                {tableGames.map((g, i) => (
                   <tr key={i} className="hover:bg-white/[0.03] transition-colors">
                     <td className="px-4 py-2.5 text-white/55 whitespace-nowrap font-medium">
                       {formatDate(g.date)}

@@ -52,10 +52,12 @@ export interface Prop {
 }
 
 export interface AltLine {
-  line:      number
-  direction: Direction
-  odds?:     number
-  sportsbook?: string
+  line:              number
+  direction:         Direction
+  odds?:             number
+  sportsbook?:       string
+  confidence_score?: number
+  confidence_label?: ConfidenceLabel
 }
 
 export interface PropWithAlts extends Prop {

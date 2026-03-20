@@ -1,25 +1,13 @@
 import { supabase } from '@/lib/supabase'
 import { PropsTable } from '@/components/PropsTable'
-import type { Prop } from '@/types'
+import type { AltLine, Prop, PropWithAlts } from '@/types'
 
 export const revalidate = 0
 
-function deduplicateProps(props: Prop[]): Prop[] {
-  const best = new Map<string, Prop>()
-  for (const prop of props) {
-    const key = `${prop.player_name}|${prop.stat_type}|${prop.line}`
-    const existing = best.get(key)
-    if (!existing || (prop.confidence_score ?? 0) > (existing.confidence_score ?? 0)) {
-      best.set(key, prop)
-    }
-  }
-  return [...best.values()].sort(
-    (a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0),
-  )
-}
-
-async function getProps(): Promise<Prop[]> {
+async function getProps(): Promise<PropWithAlts[]> {
   const now = new Date().toISOString()
+
+  // Fetch main props
   const allRows: Prop[] = []
   let from = 0
   const PAGE = 1000
@@ -30,16 +18,29 @@ async function getProps(): Promise<Prop[]> {
       .or(`commence_time.is.null,commence_time.gt.${now}`)
       .order('confidence_score', { ascending: false, nullsFirst: false })
       .range(from, from + PAGE - 1)
-    if (error) {
-      console.error('[props] Supabase error:', error.message)
-      break
-    }
+    if (error) { console.error('[props] Supabase error:', error.message); break }
     if (!data || data.length === 0) break
     allRows.push(...(data as Prop[]))
     if (data.length < PAGE) break
     from += PAGE
   }
-  return deduplicateProps(allRows)
+
+  if (allRows.length === 0) return []
+
+  // Fetch alt lines for these games
+  const gameIds = [...new Set(allRows.map((p) => p.game_id))]
+  const { data: alts } = await supabase
+    .from('prop_alts')
+    .select('*')
+    .in('game_id', gameIds)
+  const altRows = (alts ?? []) as (AltLine & { player_name: string; stat_type: string; game_id: string })[]
+
+  return allRows.map((p) => ({
+    ...p,
+    altLines: altRows
+      .filter((a) => a.player_name === p.player_name && a.stat_type === p.stat_type && a.direction === p.direction)
+      .sort((a, b) => a.line - b.line),
+  }))
 }
 
 export default async function PropsPage({

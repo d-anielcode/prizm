@@ -122,41 +122,40 @@ export function parsePropsFromEvent(event: EventWithProps): Prop[] {
   const props: Prop[] = []
 
   for (const [bookmaker, markets] of Object.entries(event.bookmakers ?? {})) {
-    // All player props are in the "Player Props" market
-    const ppMarket = markets.find((m) => m.name === 'Player Props')
-    if (!ppMarket) continue
+    // Parse ALL markets — catches both standard and alt "Player Props" market objects
+    for (const ppMarket of markets) {
+      for (const entry of ppMarket.odds) {
+        if (!entry.label || entry.hdp == null) continue
 
-    for (const entry of ppMarket.odds) {
-      if (!entry.label || entry.hdp == null) continue
+        // Label format: "Player Name (Stat Type)"
+        const match = entry.label.match(/^(.+) \(([^)]+)\)$/)
+        if (!match) continue
 
-      // Label format: "Player Name (Stat Type)"
-      const match = entry.label.match(/^(.+) \(([^)]+)\)$/)
-      if (!match) continue
+        const playerName = match[1].trim()
+        const statKey = match[2].trim()
+        const statType = LABEL_STAT_MAP[statKey]
+        if (!statType) continue // skip combo props we don't model (Pts+Rebs, Double+Double, etc.)
 
-      const playerName = match[1].trim()
-      const statKey = match[2].trim()
-      const statType = LABEL_STAT_MAP[statKey]
-      if (!statType) continue // skip combo props we don't model (Pts+Rebs, Double+Double, etc.)
-
-      const directions: Direction[] = ['over', 'under']
-      for (const direction of directions) {
-        const decimal = parseFloat(direction === 'over' ? entry.over : entry.under)
-        props.push({
-          player_id: 0,
-          player_name: playerName,
-          team: 'TBD',
-          opponent: 'TBD',
-          game_id: String(event.id),
-          stat_type: statType,
-          line: entry.hdp,
-          direction,
-          odds: isNaN(decimal) ? undefined : decimalToAmerican(decimal),
-          sportsbook: bookmaker,
-          commence_time: event.commence_time,
-          home_team: event.home_team,
-          away_team: event.away_team,
-          cached_at: new Date().toISOString(),
-        })
+        const directions: Direction[] = ['over', 'under']
+        for (const direction of directions) {
+          const decimal = parseFloat(direction === 'over' ? entry.over : entry.under)
+          props.push({
+            player_id: 0,
+            player_name: playerName,
+            team: 'TBD',
+            opponent: 'TBD',
+            game_id: String(event.id),
+            stat_type: statType,
+            line: entry.hdp,
+            direction,
+            odds: isNaN(decimal) ? undefined : decimalToAmerican(decimal),
+            sportsbook: bookmaker,
+            commence_time: event.commence_time,
+            home_team: event.home_team,
+            away_team: event.away_team,
+            cached_at: new Date().toISOString(),
+          })
+        }
       }
     }
   }

@@ -74,6 +74,11 @@ function AltRow({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; ma
       ? (mainDir === 'over' ? alt.line > mainLine : alt.line < mainLine)
       : false
 
+  const confColor = alt.confidence_label === 'HIGH' ? 'text-emerald-400'
+    : alt.confidence_label === 'MEDIUM' ? 'text-[#f0c060]'
+    : alt.confidence_label === 'LOW' ? 'text-red-400'
+    : 'text-white/30'
+
   return (
     <div className="flex items-center justify-between gap-3 text-xs">
       <div className="flex items-center gap-2">
@@ -85,6 +90,12 @@ function AltRow({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; ma
         {riskier && <span className="text-[9px] text-red-400/60">riskier</span>}
       </div>
       <div className="flex items-center gap-3">
+        {alt.confidence_score != null && (
+          <span className={`text-[10px] font-semibold ${confColor}`}>
+            {Math.round(alt.confidence_score)}
+            {alt.confidence_label && <span className="font-normal text-white/30 ml-0.5">{alt.confidence_label[0]}</span>}
+          </span>
+        )}
         {alt.odds != null && (
           <span className={`font-mono text-[11px] ${alt.odds > 0 ? 'text-emerald-400/80' : 'text-white/45'}`}>
             {fmtOdds(alt.odds)}

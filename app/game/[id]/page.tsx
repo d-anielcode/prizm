@@ -1,63 +1,37 @@
 import { supabase } from '@/lib/supabase'
-import { ConfidenceBadge } from '@/components/ConfidenceBadge'
-import AltLinesPanel from '@/components/AltLinesPanel'
+import GamePropsTable from '@/components/GamePropsTable'
 import Link from 'next/link'
-import type { Prop, PropWithAlts, AltLine, StatType } from '@/types'
+import type { AltLine, Prop, PropWithAlts } from '@/types'
 
 export const revalidate = 0
 
-const STAT_LABELS: Record<StatType, string> = {
-  points: 'PTS', rebounds: 'REB', assists: 'AST',
-  steals: 'STL', blocks: 'BLK', three_pointers: '3PM', pra: 'PRA',
-}
-
-// Group by player+stat — best confidence prop is "main", others become altLines
-function deduplicateProps(props: Prop[]): PropWithAlts[] {
-  // First dedupe exact duplicates (same player|stat|line|sportsbook)
-  const exactSeen = new Map<string, Prop>()
-  for (const prop of props) {
-    const key = `${prop.player_name}|${prop.stat_type}|${prop.line}|${prop.direction}|${prop.sportsbook}`
-    const ex = exactSeen.get(key)
-    if (!ex || (prop.confidence_score ?? 0) > (ex.confidence_score ?? 0)) exactSeen.set(key, prop)
-  }
-  const deduped = [...exactSeen.values()]
-
-  // Group by player+stat
-  const groups = new Map<string, Prop[]>()
-  for (const prop of deduped) {
-    const key = `${prop.player_name}|${prop.stat_type}`
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(prop)
-  }
-
-  const result: PropWithAlts[] = []
-  for (const group of groups.values()) {
-    group.sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
-    const [main, ...rest] = group
-    const altLines: AltLine[] = rest.map((p) => ({
-      line:      p.line,
-      direction: p.direction,
-      odds:      p.odds,
-      sportsbook: p.sportsbook,
-    })).sort((a, b) => a.line - b.line)
-    result.push({ ...main, altLines })
-  }
-
-  return result.sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
-}
-
 async function getGameProps(gameId: string): Promise<PropWithAlts[]> {
-  const { data, error } = await supabase
-    .from('props')
-    .select('*')
-    .eq('game_id', gameId)
-    .order('confidence_score', { ascending: false, nullsFirst: false })
+  const [{ data, error }, { data: alts }] = await Promise.all([
+    supabase
+      .from('props')
+      .select('*')
+      .eq('game_id', gameId)
+      .order('confidence_score', { ascending: false, nullsFirst: false }),
+    supabase
+      .from('prop_alts')
+      .select('*')
+      .eq('game_id', gameId),
+  ])
 
   if (error) {
     console.error('[game] Supabase error:', error.message)
     return []
   }
-  return deduplicateProps((data ?? []) as Prop[])
+
+  const props = (data ?? []) as Prop[]
+  const altRows = (alts ?? []) as (AltLine & { player_name: string; stat_type: string; game_id: string })[]
+
+  return props.map((p) => ({
+    ...p,
+    altLines: altRows
+      .filter((a) => a.player_name === p.player_name && a.stat_type === p.stat_type && a.direction === p.direction)
+      .sort((a, b) => a.line - b.line),
+  }))
 }
 
 function formatGameTime(iso: string | undefined | null): string {
@@ -142,103 +116,7 @@ export default async function GamePage({
           No props found for this game.
         </div>
       ) : (
-        <>
-          {/* Mobile cards */}
-          <div className="sm:hidden rounded-xl border border-white/10 overflow-hidden divide-y divide-white/[0.06]">
-            {props.map((prop, i) => (
-              <div key={prop.id ?? i} className="px-4 py-3 bg-white/[0.02]">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <Link
-                    href={`/player/${encodeURIComponent(prop.player_name)}`}
-                    className="font-medium text-white text-sm leading-tight hover:text-[#f0c060] transition-colors"
-                  >
-                    {prop.player_name}
-                  </Link>
-                  {prop.confidence_label && prop.confidence_score != null ? (
-                    <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
-                  ) : (
-                    <span className="text-white/30 text-xs">—</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 text-xs text-white/50">
-                  <span className="font-semibold text-white/70">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</span>
-                  <span className="font-mono text-white">{prop.line}</span>
-                  <span className={prop.direction === 'over' ? 'text-blue-400 font-semibold' : 'text-orange-400 font-semibold'}>
-                    {prop.direction.toUpperCase()}
-                  </span>
-                </div>
-                {prop.confidence_reason && (
-                  <p className="text-[11px] text-white/30 mt-1.5 line-clamp-2 leading-relaxed">
-                    {prop.confidence_reason}
-                  </p>
-                )}
-                {prop.altLines && prop.altLines.length > 0 && (
-                  <AltLinesPanel
-                    mainLine={prop.line}
-                    altLines={prop.altLines}
-                    direction={prop.direction}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Desktop table */}
-          <div className="hidden sm:block overflow-x-auto rounded-xl border border-white/10">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 bg-white/5 text-white/50 text-xs uppercase tracking-wider">
-                  <th className="px-4 py-3 text-left">Player</th>
-                  <th className="px-4 py-3 text-left">Stat</th>
-                  <th className="px-4 py-3 text-right">Line</th>
-                  <th className="px-4 py-3 text-left">Dir</th>
-                  <th className="px-4 py-3 text-left">Confidence</th>
-                  <th className="px-4 py-3 text-left">Reason</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {props.map((prop, i) => (
-                  <tr key={prop.id ?? i} className="hover:bg-white/5 transition-colors">
-                    <td className="px-4 py-3 font-medium text-white">
-                      <Link
-                        href={`/player/${encodeURIComponent(prop.player_name)}`}
-                        className="hover:text-blue-400 transition-colors"
-                      >
-                        {prop.player_name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-white/60">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-mono text-white text-right">{prop.line}</div>
-                      {prop.altLines && prop.altLines.length > 0 && (
-                        <AltLinesPanel
-                          mainLine={prop.line}
-                          altLines={prop.altLines}
-                          direction={prop.direction}
-                        />
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={prop.direction === 'over' ? 'text-blue-400' : 'text-orange-400'}>
-                        {prop.direction.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {prop.confidence_label && prop.confidence_score != null ? (
-                        <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
-                      ) : (
-                        <span className="text-white/30">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-white/40 text-xs max-w-xs truncate">
-                      {prop.confidence_reason ?? '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+        <GamePropsTable props={props} />
       )}
     </div>
   )

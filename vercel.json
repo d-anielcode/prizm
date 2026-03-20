@@ -5,32 +5,40 @@
       "schedule": "10 4 * * *"
     },
     {
-      "path": "/api/results?force=true",
+      "path": "/api/seasonstats",
       "schedule": "20 4 * * *"
     },
     {
+      "path": "/api/results?force=true",
+      "schedule": "25 4 * * *"
+    },
+    {
       "path": "/api/props?refresh=true",
-      "schedule": "30 4 * * *"
+      "schedule": "35 4 * * *"
     },
     {
       "path": "/api/enrich?force=true",
-      "schedule": "45 4 * * *"
+      "schedule": "50 4 * * *"
     },
     {
       "path": "/api/gamelogs",
       "schedule": "55 13 * * *"
     },
     {
+      "path": "/api/seasonstats",
+      "schedule": "5 14 * * *"
+    },
+    {
       "path": "/api/results?force=true",
-      "schedule": "0 14 * * *"
+      "schedule": "10 14 * * *"
     },
     {
       "path": "/api/props?refresh=true",
-      "schedule": "15 14 * * *"
+      "schedule": "20 14 * * *"
     },
     {
       "path": "/api/enrich?force=true",
-      "schedule": "30 14 * * *"
+      "schedule": "35 14 * * *"
     }
   ]
 }
