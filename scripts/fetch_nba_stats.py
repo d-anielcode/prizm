@@ -67,8 +67,18 @@ def supabase_upsert(table, rows):
             print(f'  [supabase] upsert error on {table}: {r.status_code} {r.text[:200]}')
 
 # ── NBA API imports ───────────────────────────────────────────────────────────
+import argparse
+from datetime import date, timedelta
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--yesterday', action='store_true',
+                    help='Fetch stats for players who played last night instead of tomorrow\'s props')
+parser.add_argument('--date', type=str, default=None,
+                    help='Specific date to pull box scores from (YYYY-MM-DD). Implies --yesterday mode.')
+args = parser.parse_args()
+
 from nba_api.stats.static import players as nba_players_static
-from nba_api.stats.endpoints import playergamelog, leaguedashteamstats
+from nba_api.stats.endpoints import playergamelog, leaguedashteamstats, scoreboardv2, boxscoretraditionalv2
 
 # Build canonical name → player dict once
 _all_players = nba_players_static.get_players()
@@ -106,22 +116,52 @@ def parse_minutes(min_str) -> float:
     except:
         return 0.0
 
-# ── Step 1: Get today's player names from props (paginate — no cap) ──────────
-print("\n[1/4] Loading player names from Supabase props...")
-all_prop_rows = []
-offset = 0
-PAGE = 1000
-while True:
-    batch = supabase_get('props', f'select=player_name&order=cached_at.desc&limit={PAGE}&offset={offset}')
-    if not batch:
-        break
-    all_prop_rows.extend(batch)
-    if len(batch) < PAGE:
-        break
-    offset += PAGE
+# ── Step 1: Get player names (from props OR last night's box scores) ──────────
+use_yesterday = args.yesterday or args.date is not None
 
-player_names = list({p['player_name'] for p in all_prop_rows if p.get('player_name')})
-print(f"      {len(player_names)} unique players across {len(all_prop_rows)} props")
+if use_yesterday:
+    target_date = args.date or (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+    print(f"\n[1/4] Fetching box scores from {target_date} via NBA API scoreboard...")
+    try:
+        sb = scoreboardv2.ScoreboardV2(game_date=target_date, timeout=15)
+        games_df = sb.get_data_frames()[0]  # GameHeader
+        game_ids = games_df['GAME_ID'].tolist()
+        print(f"      Found {len(game_ids)} game(s): {game_ids}")
+    except Exception as e:
+        print(f"      ERROR getting scoreboard: {e}")
+        game_ids = []
+
+    player_names_set = set()
+    for gid in game_ids:
+        try:
+            box = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=gid, timeout=15)
+            players_df = box.get_data_frames()[0]  # PlayerStats
+            names = players_df['PLAYER_NAME'].dropna().tolist()
+            player_names_set.update(names)
+            print(f"      Game {gid}: {len(names)} players")
+            time.sleep(0.4)
+        except Exception as e:
+            print(f"      ERROR getting box score for {gid}: {e}")
+
+    player_names = list(player_names_set)
+    print(f"      {len(player_names)} unique players who played on {target_date}")
+
+else:
+    print("\n[1/4] Loading player names from Supabase props...")
+    all_prop_rows = []
+    offset = 0
+    PAGE = 1000
+    while True:
+        batch = supabase_get('props', f'select=player_name&order=cached_at.desc&limit={PAGE}&offset={offset}')
+        if not batch:
+            break
+        all_prop_rows.extend(batch)
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+
+    player_names = list({p['player_name'] for p in all_prop_rows if p.get('player_name')})
+    print(f"      {len(player_names)} unique players across {len(all_prop_rows)} props")
 
 # ── Step 2: Resolve to NBA IDs ────────────────────────────────────────────────
 print("\n[2/4] Matching player names to NBA IDs...")
