@@ -51,6 +51,17 @@ export interface Prop {
   away_team?: string
 }
 
+export interface AltLine {
+  line:      number
+  direction: Direction
+  odds?:     number
+  sportsbook?: string
+}
+
+export interface PropWithAlts extends Prop {
+  altLines?: AltLine[]
+}
+
 export interface Parlay {
   id?: string
   pick_ids: string[]

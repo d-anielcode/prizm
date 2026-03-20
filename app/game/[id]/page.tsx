@@ -1,7 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import { ConfidenceBadge } from '@/components/ConfidenceBadge'
+import AltLinesPanel from '@/components/AltLinesPanel'
 import Link from 'next/link'
-import type { Prop, StatType } from '@/types'
+import type { Prop, PropWithAlts, AltLine, StatType } from '@/types'
 
 export const revalidate = 0
 
@@ -10,21 +11,42 @@ const STAT_LABELS: Record<StatType, string> = {
   steals: 'STL', blocks: 'BLK', three_pointers: '3PM', pra: 'PRA',
 }
 
-function deduplicateProps(props: Prop[]): Prop[] {
-  const best = new Map<string, Prop>()
+// Group by player+stat — best confidence prop is "main", others become altLines
+function deduplicateProps(props: Prop[]): PropWithAlts[] {
+  // First dedupe exact duplicates (same player|stat|line|sportsbook)
+  const exactSeen = new Map<string, Prop>()
   for (const prop of props) {
-    const key = `${prop.player_name}|${prop.stat_type}|${prop.line}`
-    const existing = best.get(key)
-    if (!existing || (prop.confidence_score ?? 0) > (existing.confidence_score ?? 0)) {
-      best.set(key, prop)
-    }
+    const key = `${prop.player_name}|${prop.stat_type}|${prop.line}|${prop.direction}|${prop.sportsbook}`
+    const ex = exactSeen.get(key)
+    if (!ex || (prop.confidence_score ?? 0) > (ex.confidence_score ?? 0)) exactSeen.set(key, prop)
   }
-  return [...best.values()].sort(
-    (a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0),
-  )
+  const deduped = [...exactSeen.values()]
+
+  // Group by player+stat
+  const groups = new Map<string, Prop[]>()
+  for (const prop of deduped) {
+    const key = `${prop.player_name}|${prop.stat_type}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(prop)
+  }
+
+  const result: PropWithAlts[] = []
+  for (const group of groups.values()) {
+    group.sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
+    const [main, ...rest] = group
+    const altLines: AltLine[] = rest.map((p) => ({
+      line:      p.line,
+      direction: p.direction,
+      odds:      p.odds,
+      sportsbook: p.sportsbook,
+    })).sort((a, b) => a.line - b.line)
+    result.push({ ...main, altLines })
+  }
+
+  return result.sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
 }
 
-async function getGameProps(gameId: string): Promise<Prop[]> {
+async function getGameProps(gameId: string): Promise<PropWithAlts[]> {
   const { data, error } = await supabase
     .from('props')
     .select('*')
@@ -150,6 +172,13 @@ export default async function GamePage({
                     {prop.confidence_reason}
                   </p>
                 )}
+                {prop.altLines && prop.altLines.length > 0 && (
+                  <AltLinesPanel
+                    mainLine={prop.line}
+                    altLines={prop.altLines}
+                    direction={prop.direction}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -179,7 +208,16 @@ export default async function GamePage({
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-white/60">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</td>
-                    <td className="px-4 py-3 text-right font-mono text-white">{prop.line}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-white text-right">{prop.line}</div>
+                      {prop.altLines && prop.altLines.length > 0 && (
+                        <AltLinesPanel
+                          mainLine={prop.line}
+                          altLines={prop.altLines}
+                          direction={prop.direction}
+                        />
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={prop.direction === 'over' ? 'text-blue-400' : 'text-orange-400'}>
                         {prop.direction.toUpperCase()}
