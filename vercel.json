@@ -1,42 +1,34 @@
 {
   "crons": [
     {
-      "comment": "0. Fetch tonight's box scores from ESPN (12:10 AM EDT / 11:10 PM EST = 4:10 UTC)",
       "path": "/api/gamelogs",
       "schedule": "10 4 * * *"
     },
     {
-      "comment": "1. Grade tonight's props BEFORE they get deleted (12:20 AM EDT / 11:20 PM EST = 4:20 UTC)",
       "path": "/api/results?force=true",
       "schedule": "20 4 * * *"
     },
     {
-      "comment": "2. Fetch tomorrow's props — replaces tonight's (12:30 AM EDT / 11:30 PM EST = 4:30 UTC)",
       "path": "/api/props?refresh=true",
       "schedule": "30 4 * * *"
     },
     {
-      "comment": "3. Enrich tomorrow's props with confidence scores (12:45 AM EDT / 11:45 PM EST = 4:45 UTC)",
       "path": "/api/enrich?force=true",
       "schedule": "45 4 * * *"
     },
     {
-      "comment": "4. Re-fetch box scores (catches late West Coast games) (9:55 AM EDT / 8:55 AM EST = 13:55 UTC)",
       "path": "/api/gamelogs",
       "schedule": "55 13 * * *"
     },
     {
-      "comment": "5. Morning re-grade with final box scores (10:00 AM EDT / 9:00 AM EST = 14:00 UTC)",
       "path": "/api/results?force=true",
       "schedule": "0 14 * * *"
     },
     {
-      "comment": "5. Refresh today's props if any lines moved overnight (10:15 AM EDT / 9:15 AM EST = 14:15 UTC)",
       "path": "/api/props?refresh=true",
       "schedule": "15 14 * * *"
     },
     {
-      "comment": "6. Re-enrich with updated lines (10:30 AM EDT / 9:30 AM EST = 14:30 UTC)",
       "path": "/api/enrich?force=true",
       "schedule": "30 14 * * *"
     }
