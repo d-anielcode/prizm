@@ -1,6 +1,11 @@
 {
   "crons": [
     {
+      "comment": "0. Fetch tonight's box scores from ESPN (12:10 AM EDT / 11:10 PM EST = 4:10 UTC)",
+      "path": "/api/gamelogs",
+      "schedule": "10 4 * * *"
+    },
+    {
       "comment": "1. Grade tonight's props BEFORE they get deleted (12:20 AM EDT / 11:20 PM EST = 4:20 UTC)",
       "path": "/api/results?force=true",
       "schedule": "20 4 * * *"
@@ -16,7 +21,12 @@
       "schedule": "45 4 * * *"
     },
     {
-      "comment": "4. Morning re-grade with final box scores (10:00 AM EDT / 9:00 AM EST = 14:00 UTC)",
+      "comment": "4. Re-fetch box scores (catches late West Coast games) (9:55 AM EDT / 8:55 AM EST = 13:55 UTC)",
+      "path": "/api/gamelogs",
+      "schedule": "55 13 * * *"
+    },
+    {
+      "comment": "5. Morning re-grade with final box scores (10:00 AM EDT / 9:00 AM EST = 14:00 UTC)",
       "path": "/api/results?force=true",
       "schedule": "0 14 * * *"
     },
