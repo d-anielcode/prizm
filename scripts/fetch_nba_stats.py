@@ -79,8 +79,14 @@ parser.add_argument('--date', type=str, default=None,
                     help='Specific date to pull box scores from (YYYY-MM-DD)')
 args = parser.parse_args()
 
-from nba_api.stats.static import players as nba_players_static
-from nba_api.stats.endpoints import playergamelog, leaguedashteamstats
+from nba_api.stats.static import players as nba_players_static, teams as nba_teams_static
+from nba_api.stats.endpoints import playergamelog, leaguedashteamstats, commonteamroster
+try:
+    from nba_api.stats.endpoints import scoreboardv3
+    SCOREBOARD_V3 = True
+except ImportError:
+    from nba_api.stats.endpoints import scoreboardv2
+    SCOREBOARD_V3 = False
 
 # Build canonical name → player dict once
 _all_players = nba_players_static.get_players()
@@ -118,24 +124,70 @@ def parse_minutes(min_str) -> float:
     except:
         return 0.0
 
+# ── Team ID lookup ────────────────────────────────────────────────────────────
+_all_teams = nba_teams_static.get_teams()
+_abbr_to_team = {t['abbreviation'].upper(): t for t in _all_teams}
+
+def get_roster_players(team_id: int, season: str) -> list:
+    """Return all player names on a team's roster for the given season."""
+    try:
+        roster = commonteamroster.CommonTeamRoster(team_id=team_id, season=season, timeout=15)
+        df = roster.get_data_frames()[0]
+        name_col = 'PLAYER' if 'PLAYER' in df.columns else df.columns[2]
+        names = df[name_col].dropna().tolist()
+        time.sleep(0.3)
+        return names
+    except Exception as e:
+        print(f"      WARNING: could not fetch roster for team {team_id}: {e}")
+        return []
+
 # ── Step 1: Get player names ──────────────────────────────────────────────────
-# --today / --yesterday / --date: refresh all players already in game_logs DB.
-# Their latest game log fetch will automatically include any games they played
-# last night / today — no box score parsing needed.
 use_history_mode = args.yesterday or args.today or args.date is not None
 
 if use_history_mode:
     if args.date:
-        label = args.date
+        target_date = args.date
     elif args.today:
-        label = date.today().strftime('%Y-%m-%d')
+        target_date = date.today().strftime('%Y-%m-%d')
     else:
-        label = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+        target_date = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
 
-    print(f"\n[1/4] Loading all known players from Supabase game logs (refreshing for {label})...")
+    print(f"\n[1/4] Getting teams that played on {target_date} via NBA scoreboard...")
+    team_ids = []
+    try:
+        if SCOREBOARD_V3:
+            sb = scoreboardv3.ScoreboardV3(game_date=target_date, timeout=15)
+            games_df = sb.get_data_frames()[0]
+            # V3 GameHeader has homeTeamId / awayTeamId columns
+            for col in ['homeTeamId', 'awayTeamId', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID']:
+                if col in games_df.columns:
+                    team_ids.extend(games_df[col].dropna().astype(int).tolist())
+        else:
+            sb = scoreboardv2.ScoreboardV2(game_date=target_date, timeout=15)
+            games_df = sb.get_data_frames()[0]
+            for col in ['HOME_TEAM_ID', 'VISITOR_TEAM_ID']:
+                if col in games_df.columns:
+                    team_ids.extend(games_df[col].dropna().astype(int).tolist())
+        team_ids = list(set(team_ids))
+        print(f"      Found {len(team_ids)} teams")
+    except Exception as e:
+        print(f"      ERROR getting scoreboard: {e}")
+
+    # Collect all roster players for those teams
+    player_names_set = set()
+    for tid in team_ids:
+        names = get_roster_players(tid, SEASON)
+        player_names_set.update(names)
+        print(f"      Team {tid}: {len(names)} roster players")
+
+    # Also include anyone already in game_logs DB so we don't lose historical data
     known = supabase_get('player_game_logs', 'select=player_name')
-    player_names = list({r['player_name'] for r in known if r.get('player_name')})
-    print(f"      {len(player_names)} unique players in game log history")
+    for r in known:
+        if r.get('player_name'):
+            player_names_set.add(r['player_name'])
+
+    player_names = list(player_names_set)
+    print(f"      {len(player_names)} total players to refresh (roster + existing logs)")
 
 else:
     print("\n[1/4] Loading player names from Supabase props...")
