@@ -141,16 +141,24 @@ if use_history_mode:
             season_type_all_star='Regular Season',
             date_from_nullable=target_date,
             date_to_nullable=target_date,
+            player_or_team_abbreviation='P',
             timeout=30,
         )
         df_lg = lg.get_data_frames()[0]
         if not df_lg.empty:
-            player_names_set.update(df_lg['PLAYER_NAME'].dropna().unique().tolist())
-            print(f"      Found {len(player_names_set)} players who played on {target_date}")
+            # Try multiple possible column names across nba_api versions
+            possible_cols = ['PLAYER_NAME', 'playerName', 'player_name', 'PLAYER']
+            name_col = next((c for c in possible_cols if c in df_lg.columns), None)
+            if name_col:
+                player_names_set.update(df_lg[name_col].dropna().unique().tolist())
+                print(f"      Found {len(player_names_set)} players who played on {target_date}")
+            else:
+                print(f"      WARNING: unknown columns in LeagueGameLog: {df_lg.columns.tolist()}")
         else:
             print(f"      No games found for {target_date} (games may not be final yet)")
     except Exception as e:
         print(f"      ERROR fetching LeagueGameLog: {e}")
+        print(f"      Falling back to existing player_game_logs only")
 
     # Also include anyone already in game_logs DB so historical data is refreshed too
     known = supabase_get('player_game_logs', 'select=player_name')
