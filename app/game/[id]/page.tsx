@@ -29,8 +29,7 @@ async function getGameProps(gameId: string): Promise<Prop[]> {
     .from('props')
     .select('*')
     .eq('game_id', gameId)
-    .not('confidence_score', 'is', null)
-    .order('confidence_score', { ascending: false })
+    .order('confidence_score', { ascending: false, nullsFirst: false })
 
   if (error) {
     console.error('[game] Supabase error:', error.message)

@@ -97,9 +97,8 @@ async function getData(): Promise<{ games: GameInfo[]; allProps: Prop[] }> {
     const { data, error } = await supabase
       .from('props')
       .select('*')
-      .not('confidence_score', 'is', null)
       .or(`commence_time.is.null,commence_time.gt.${now}`)
-      .order('confidence_score', { ascending: false })
+      .order('confidence_score', { ascending: false, nullsFirst: false })
       .range(from, from + PAGE - 1)
     if (error) {
       console.error('[home] Supabase error:', error.message)
@@ -109,6 +108,17 @@ async function getData(): Promise<{ games: GameInfo[]; allProps: Prop[] }> {
     allRows.push(...(data as Prop[]))
     if (data.length < PAGE) break
     from += PAGE
+  }
+
+  // Auto-trigger enrichment if any props are unscored
+  const unscoredCount = allRows.filter((p) => p.confidence_score == null).length
+  if (unscoredCount > 0) {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+      await fetch(`${baseUrl}/api/enrich`, { method: 'GET' })
+    } catch {
+      // Fire-and-forget — page still renders with whatever scores exist
+    }
   }
 
   const deduped = deduplicateProps(allRows)
