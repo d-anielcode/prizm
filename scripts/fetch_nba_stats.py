@@ -80,7 +80,13 @@ parser.add_argument('--date', type=str, default=None,
 args = parser.parse_args()
 
 from nba_api.stats.static import players as nba_players_static
-from nba_api.stats.endpoints import playergamelog, leaguedashteamstats, scoreboardv2, boxscoretraditionalv2
+from nba_api.stats.endpoints import playergamelog, leaguedashteamstats, scoreboardv2
+try:
+    from nba_api.stats.endpoints import boxscoretraditionalv3 as boxscore_ep
+    BOXSCORE_V3 = True
+except ImportError:
+    from nba_api.stats.endpoints import boxscoretraditionalv2 as boxscore_ep
+    BOXSCORE_V3 = False
 
 # Build canonical name → player dict once
 _all_players = nba_players_static.get_players()
@@ -141,9 +147,14 @@ if use_yesterday:
     player_names_set = set()
     for gid in game_ids:
         try:
-            box = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=gid, timeout=15)
+            if BOXSCORE_V3:
+                box = boxscore_ep.BoxScoreTraditionalV3(game_id=gid, timeout=15)
+            else:
+                box = boxscore_ep.BoxScoreTraditionalV2(game_id=gid, timeout=15)
             players_df = box.get_data_frames()[0]  # PlayerStats
-            names = players_df['PLAYER_NAME'].dropna().tolist()
+            # V3 uses camelCase column names, V2 uses UPPER_CASE
+            name_col = 'playerName' if 'playerName' in players_df.columns else 'PLAYER_NAME'
+            names = players_df[name_col].dropna().tolist()
             player_names_set.update(names)
             print(f"      Game {gid}: {len(names)} players")
             time.sleep(0.4)
@@ -278,12 +289,20 @@ print("      Saved to Supabase OK")
 # ── Step 4: Fetch team defensive rankings ────────────────────────────────────
 print("\n[4/4] Fetching team defensive rankings...")
 try:
-    def_stats = leaguedashteamstats.LeagueDashTeamStats(
-        season=SEASON,
-        measure_type_detailed_defense='Opponent',
-        per_mode_simple='PerGame',
-        timeout=15,
-    )
+    # nba_api renamed per_mode_simple in newer versions — try both
+    try:
+        def_stats = leaguedashteamstats.LeagueDashTeamStats(
+            season=SEASON,
+            measure_type_detailed_defense='Opponent',
+            per_mode_simple='PerGame',
+            timeout=15,
+        )
+    except TypeError:
+        def_stats = leaguedashteamstats.LeagueDashTeamStats(
+            season=SEASON,
+            measure_type_detailed_defense='Opponent',
+            timeout=15,
+        )
     df = def_stats.get_data_frames()[0]
 
     # Rank teams by how many of each stat they allow (ascending = tightest defense)
