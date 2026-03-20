@@ -72,9 +72,11 @@ from datetime import date, timedelta
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--yesterday', action='store_true',
-                    help='Fetch stats for players who played last night instead of tomorrow\'s props')
+                    help='Fetch stats for players who played last night (use in morning after overnight games)')
+parser.add_argument('--today', action='store_true',
+                    help='Fetch stats for players who played today (use at night after games finish ~11pm ET)')
 parser.add_argument('--date', type=str, default=None,
-                    help='Specific date to pull box scores from (YYYY-MM-DD). Implies --yesterday mode.')
+                    help='Specific date to pull box scores from (YYYY-MM-DD)')
 args = parser.parse_args()
 
 from nba_api.stats.static import players as nba_players_static
@@ -117,10 +119,15 @@ def parse_minutes(min_str) -> float:
         return 0.0
 
 # ── Step 1: Get player names (from props OR last night's box scores) ──────────
-use_yesterday = args.yesterday or args.date is not None
+use_yesterday = args.yesterday or args.today or args.date is not None
 
 if use_yesterday:
-    target_date = args.date or (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+    if args.date:
+        target_date = args.date
+    elif args.today:
+        target_date = date.today().strftime('%Y-%m-%d')
+    else:
+        target_date = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
     print(f"\n[1/4] Fetching box scores from {target_date} via NBA API scoreboard...")
     try:
         sb = scoreboardv2.ScoreboardV2(game_date=target_date, timeout=15)
