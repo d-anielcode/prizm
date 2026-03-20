@@ -63,18 +63,18 @@ export default async function PropsPage({
         </p>
       </div>
 
-      <div className="flex gap-3 flex-wrap">
-        <div className="px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-sm">
+      <div className="grid grid-cols-3 sm:flex gap-3">
+        <div className="px-3 sm:px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-sm text-center sm:text-left">
           <span className="text-green-400 font-semibold">{high}</span>
-          <span className="text-white/40 ml-1.5">High confidence</span>
+          <span className="text-white/40 ml-1 sm:ml-1.5 text-xs sm:text-sm">High</span>
         </div>
-        <div className="px-4 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-sm">
+        <div className="px-3 sm:px-4 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-sm text-center sm:text-left">
           <span className="text-yellow-400 font-semibold">{medium}</span>
-          <span className="text-white/40 ml-1.5">Medium confidence</span>
+          <span className="text-white/40 ml-1 sm:ml-1.5 text-xs sm:text-sm">Med</span>
         </div>
-        <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-sm">
+        <div className="px-3 sm:px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-center sm:text-left">
           <span className="text-red-400 font-semibold">{low}</span>
-          <span className="text-white/40 ml-1.5">Low confidence</span>
+          <span className="text-white/40 ml-1 sm:ml-1.5 text-xs sm:text-sm">Low</span>
         </div>
       </div>
 

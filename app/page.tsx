@@ -225,26 +225,23 @@ export default async function HomePage() {
           <span className="text-white/30 text-sm">{games.length} games</span>
         </div>
 
-        {/* Confidence summary — large numbers */}
-        <div className="flex items-center gap-6 flex-wrap">
+        {/* Confidence summary — 2×2 grid on mobile, single row on desktop */}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:flex sm:items-center sm:gap-6">
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-emerald-400">{high}</span>
             <span className="text-xs text-white/30 uppercase tracking-wider">High</span>
           </div>
-          <div className="w-px h-5 bg-white/10" />
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-[#f0c060]">{medium}</span>
             <span className="text-xs text-white/30 uppercase tracking-wider">Medium</span>
           </div>
-          <div className="w-px h-5 bg-white/10" />
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-red-400">{low}</span>
             <span className="text-xs text-white/30 uppercase tracking-wider">Low</span>
           </div>
-          <div className="w-px h-5 bg-white/10" />
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-white">{allProps.length}</span>
-            <span className="text-xs text-white/30 uppercase tracking-wider">Total props</span>
+            <span className="text-xs text-white/30 uppercase tracking-wider">Total</span>
           </div>
         </div>
       </div>

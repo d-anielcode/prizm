@@ -114,67 +114,93 @@ export default async function GamePage({
         </div>
       )}
 
-      {/* Props table */}
+      {/* Props list */}
       {props.length === 0 ? (
         <div className="py-20 text-center text-white/30">
-          No scored props found for this game.
+          No props found for this game.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-white/10">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/10 bg-white/5 text-white/50 text-xs uppercase tracking-wider">
-                <th className="px-4 py-3 text-left">Player</th>
-                <th className="px-4 py-3 text-left">Stat</th>
-                <th className="px-4 py-3 text-right">Line</th>
-                <th className="px-4 py-3 text-left">Dir</th>
-                <th className="px-4 py-3 text-left">Confidence</th>
-                <th className="px-4 py-3 text-left">Reason</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {props.map((prop, i) => (
-                <tr
-                  key={prop.id ?? i}
-                  className="hover:bg-white/5 transition-colors"
-                >
-                  <td className="px-4 py-3 font-medium text-white">
-                    <Link
-                      href={`/player/${encodeURIComponent(prop.player_name)}`}
-                      className="hover:text-blue-400 transition-colors"
-                    >
-                      {prop.player_name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-white/60">
-                    {STAT_LABELS[prop.stat_type] ?? prop.stat_type}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-white">
-                    {prop.line}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={prop.direction === 'over' ? 'text-blue-400' : 'text-orange-400'}>
-                      {prop.direction.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {prop.confidence_label && prop.confidence_score != null ? (
-                      <ConfidenceBadge
-                        label={prop.confidence_label}
-                        score={prop.confidence_score}
-                      />
-                    ) : (
-                      <span className="text-white/30">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-white/40 text-xs max-w-xs truncate">
-                    {prop.confidence_reason ?? '—'}
-                  </td>
+        <>
+          {/* Mobile cards */}
+          <div className="sm:hidden rounded-xl border border-white/10 overflow-hidden divide-y divide-white/[0.06]">
+            {props.map((prop, i) => (
+              <div key={prop.id ?? i} className="px-4 py-3 bg-white/[0.02]">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <Link
+                    href={`/player/${encodeURIComponent(prop.player_name)}`}
+                    className="font-medium text-white text-sm leading-tight hover:text-[#f0c060] transition-colors"
+                  >
+                    {prop.player_name}
+                  </Link>
+                  {prop.confidence_label && prop.confidence_score != null ? (
+                    <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+                  ) : (
+                    <span className="text-white/30 text-xs">—</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-white/50">
+                  <span className="font-semibold text-white/70">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</span>
+                  <span className="font-mono text-white">{prop.line}</span>
+                  <span className={prop.direction === 'over' ? 'text-blue-400 font-semibold' : 'text-orange-400 font-semibold'}>
+                    {prop.direction.toUpperCase()}
+                  </span>
+                </div>
+                {prop.confidence_reason && (
+                  <p className="text-[11px] text-white/30 mt-1.5 line-clamp-2 leading-relaxed">
+                    {prop.confidence_reason}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto rounded-xl border border-white/10">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/5 text-white/50 text-xs uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left">Player</th>
+                  <th className="px-4 py-3 text-left">Stat</th>
+                  <th className="px-4 py-3 text-right">Line</th>
+                  <th className="px-4 py-3 text-left">Dir</th>
+                  <th className="px-4 py-3 text-left">Confidence</th>
+                  <th className="px-4 py-3 text-left">Reason</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {props.map((prop, i) => (
+                  <tr key={prop.id ?? i} className="hover:bg-white/5 transition-colors">
+                    <td className="px-4 py-3 font-medium text-white">
+                      <Link
+                        href={`/player/${encodeURIComponent(prop.player_name)}`}
+                        className="hover:text-blue-400 transition-colors"
+                      >
+                        {prop.player_name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-white/60">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</td>
+                    <td className="px-4 py-3 text-right font-mono text-white">{prop.line}</td>
+                    <td className="px-4 py-3">
+                      <span className={prop.direction === 'over' ? 'text-blue-400' : 'text-orange-400'}>
+                        {prop.direction.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {prop.confidence_label && prop.confidence_score != null ? (
+                        <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+                      ) : (
+                        <span className="text-white/30">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-white/40 text-xs max-w-xs truncate">
+                      {prop.confidence_reason ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   )

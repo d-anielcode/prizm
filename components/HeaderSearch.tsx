@@ -96,7 +96,7 @@ export function HeaderSearch() {
             onFocus={() => suggestions.length > 0 && setOpen(true)}
             placeholder="Search players..."
             autoComplete="off"
-            className="w-[160px] sm:w-[280px] pl-9 pr-4 py-1.5 rounded-lg bg-[#0e0b18] border border-white/[0.08] text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#e8a820]/40 focus:bg-white/[0.07] transition-all"
+            className="w-8 sm:w-[280px] pl-9 pr-4 py-1.5 rounded-lg bg-transparent sm:bg-[#0e0b18] border border-transparent sm:border-white/[0.08] text-sm text-white placeholder:text-white/25 focus:outline-none focus:w-[200px] focus:bg-[#0e0b18] focus:border-[#e8a820]/40 focus:placeholder:text-white/25 transition-all duration-200 cursor-pointer focus:cursor-text"
           />
         </div>
       </form>
