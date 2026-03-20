@@ -118,6 +118,10 @@ def parse_minutes(min_str) -> float:
     except:
         return 0.0
 
+# ── Season constants (used in Steps 1 and 3) ─────────────────────────────────
+SEASON      = '2025-26'
+PREV_SEASON = '2024-25'
+
 # ── Step 1: Get player names ──────────────────────────────────────────────────
 use_history_mode = args.yesterday or args.today or args.date is not None
 
@@ -193,8 +197,6 @@ if unmatched:
 # ── Step 3: Fetch game logs (last 60 games across current + prior season) ─────
 print(f"\n[3/4] Fetching up to 60 game logs for {len(resolved)} players...")
 all_log_rows = []
-SEASON      = '2025-26'
-PREV_SEASON = '2024-25'
 
 for i, (prop_name, player) in enumerate(resolved.items()):
     nba_id = player['id']
