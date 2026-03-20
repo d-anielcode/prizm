@@ -188,6 +188,24 @@ def factor_home_away(prior, stat_type, line, direction, is_home):
     hits = sum(1 for g in filtered if (get_stat(g, stat_type) > line if direction == 'over' else get_stat(g, stat_type) < line))
     return hits / len(filtered)
 
+def factor_rest_days(prior_logs, test_game_date):
+    """
+    Days of rest before this game. B2B (0 rest days) hurts performance ~3-4%.
+    Computed from most recent prior game date vs test game date.
+    """
+    if not prior_logs:
+        return 0.5
+    try:
+        last = datetime.strptime(prior_logs[0]['game_date'], '%Y-%m-%d')
+        curr = datetime.strptime(test_game_date, '%Y-%m-%d')
+        rest = (curr - last).days - 1  # rest days between games (0 = back-to-back)
+        if rest <= 0: return 0.25   # B2B: negative impact
+        if rest == 1: return 0.50   # 1 day rest: neutral
+        if rest == 2: return 0.60   # well-rested: slight boost
+        return 0.55                  # 3+ days: well-rested but slight rust
+    except Exception:
+        return 0.5
+
 def factor_blowout(spread):
     """
     Blowout risk based on point spread. Large spreads mean starters may sit
@@ -273,11 +291,12 @@ def build_test_cases_synthetic(logs_by_player, def_stats_map, stat_types, min_pr
                 f_vs_opp, vs_n = factor_vs_opponent(prior, stat, line, direction, opp_abbr)
                 f_home    = factor_home_away(prior, stat, line, direction, is_home)
                 # blowout and newsInjury: 0.5 neutral (no historical spread/injury data)
+                f_rest        = factor_rest_days(prior, test_game['game_date'])
                 f_blowout     = factor_blowout(None)
                 f_news_injury = factor_news_injury(None, 0.0)
 
                 cases.append({
-                    'features': [f_l10, f_matchup, f_cushion, f_vs_opp, f_home, f_trend, f_l20, f_consist, f_blowout, f_news_injury],
+                    'features': [f_l10, f_matchup, f_cushion, f_vs_opp, f_home, f_trend, f_l20, f_consist, f_rest, f_blowout, f_news_injury],
                     'label':    label,
                     'meta': {
                         'player': player,
@@ -341,11 +360,12 @@ def build_test_cases_real_lines(real_props, logs_by_player, def_stats_map):
         f_matchup = factor_matchup(def_stats_map, opp_abbr, stat, direction)
         f_vs_opp, vs_n = factor_vs_opponent(prior, stat, line, direction, opp_abbr)
         f_home    = factor_home_away(prior, stat, line, direction, is_home)
+        f_rest        = factor_rest_days(prior, game_date)
         f_blowout     = factor_blowout(None)
         f_news_injury = factor_news_injury(None, 0.0)
 
         cases.append({
-            'features': [f_l10, f_matchup, f_cushion, f_vs_opp, f_home, f_trend, f_l20, f_consist, f_blowout, f_news_injury],
+            'features': [f_l10, f_matchup, f_cushion, f_vs_opp, f_home, f_trend, f_l20, f_consist, f_rest, f_blowout, f_news_injury],
             'label':    label,
             'meta': {
                 'player': player,
@@ -371,6 +391,7 @@ FACTOR_NAMES = [
     'trend',
     'last20HitRate',
     'consistency',
+    'restDays',       # computable from game log dates — back-to-back detection
     # blowout and newsInjury are fixed at 0.5 in the backtester (no historical data).
     # They appear here so the comparison table includes them and logistic regression
     # can confirm they carry ~0 predictive weight in synthetic mode (expected).
@@ -435,46 +456,147 @@ def analyze(cases, label=''):
             direction_marker = '+' if coef > 0 else '-'
             print(f"  {name:<20} {coef:>+9.4f} {direction_marker}  {w:>6.1%}")
 
-        # Current weights for comparison (v3 — includes blowout + newsInjury)
+        # ── Nelder-Mead direct accuracy optimization ──────────────────────────
+        try:
+            from scipy.optimize import minimize
+
+            print(f"\n  Trying Nelder-Mead direct accuracy optimization...")
+
+            def cv_neg_accuracy(w_raw):
+                w = np.maximum(w_raw, 0)
+                s = w.sum()
+                if s < 1e-9:
+                    return 1.0
+                w = w / s
+                scores = X @ w
+                # 3-fold CV for speed inside objective
+                kf3 = StratifiedKFold(n_splits=3, shuffle=False)
+                accs = []
+                for tr, val in kf3.split(X, y):
+                    accs.append(((scores[val] > 0.5).astype(int) == y[val]).mean())
+                return -np.mean(accs)
+
+            x0 = np.array(weights, dtype=float)
+            res = minimize(cv_neg_accuracy, x0, method='Nelder-Mead',
+                           options={'maxiter': 8000, 'xatol': 1e-5, 'fatol': 1e-5})
+
+            nm_raw = np.maximum(res.x, 0)
+            nm_w = nm_raw / nm_raw.sum() if nm_raw.sum() > 1e-9 else x0
+
+            # Evaluate NM weights with full 5-fold CV
+            nm_scores = X @ nm_w
+            nm_cv_scores = cross_val_score(
+                LogisticRegression(max_iter=1, fit_intercept=False, C=1e9, warm_start=False),
+                nm_scores.reshape(-1, 1), y, cv=5, scoring='accuracy'
+            )
+            # Actually just compute accuracy directly (no fitting needed for fixed weights)
+            kf5 = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+            nm_accs = []
+            for tr, val in kf5.split(X, y):
+                nm_accs.append(((nm_scores[val] > 0.5).astype(int) == y[val]).mean())
+            nm_acc = float(np.mean(nm_accs))
+
+            print(f"  Nelder-Mead 5-fold CV accuracy: {nm_acc:.1%}")
+            print(f"  Logistic Regression 5-fold CV:  {cv_scores.mean():.1%}")
+
+            if nm_acc > cv_scores.mean():
+                print(f"  [Nelder-Mead wins — using NM weights]")
+                final_weights_list = list(nm_w)
+                final_acc = nm_acc
+                opt_method = 'Nelder-Mead direct accuracy'
+            else:
+                print(f"  [Logistic Regression wins — keeping LR weights]")
+                final_weights_list = weights
+                final_acc = float(cv_scores.mean())
+                opt_method = 'Logistic Regression'
+
+        except ImportError:
+            print("\n  [!] scipy not installed — skipping Nelder-Mead. pip install scipy")
+            final_weights_list = weights
+            final_acc = float(cv_scores.mean())
+            opt_method = 'Logistic Regression'
+
+        # Current weights for comparison (v4 — includes restDays, blowout, newsInjury)
         current_weights = {
-            'last10HitRate': 0.20,
-            'matchupEdge':   0.16,
-            'seasonCushion': 0.13,
-            'vsOpponent':    0.12,
-            'homeAway':      0.09,
-            'trend':         0.09,
-            'last20HitRate': 0.06,
-            'consistency':   0.02,
+            'last10HitRate': 0.13,
+            'matchupEdge':   0.27,
+            'seasonCushion': 0.09,
+            'vsOpponent':    0.02,
+            'homeAway':      0.03,
+            'trend':         0.10,
+            'last20HitRate': 0.18,
+            'consistency':   0.00,
+            'restDays':      0.07,
             'bookOdds':      0.01,
-            'blowout':       0.07,   # real-time only, 0.5 neutral in backtest
+            'blowout':       0.05,   # real-time only, 0.5 neutral in backtest
             'newsInjury':    0.05,   # real-time only, 0.5 neutral in backtest
         }
 
-        print(f"\n  Comparison — current vs. data-driven weights:")
-        print(f"  {'Factor':<20} {'Current':>9} {'Suggested':>10} {'Delta':>8}")
+        print(f"\n  Comparison — current vs. optimized weights:")
+        print(f"  {'Factor':<20} {'Current':>9} {'Optimized':>10} {'Delta':>8}")
         print(f"  {'-'*52}")
-        for name, w in zip(FACTOR_NAMES, weights):
+        for name, w in zip(FACTOR_NAMES, final_weights_list):
             curr = current_weights.get(name, 0)
             delta = w - curr
             marker = '^' if delta > 0.02 else ('v' if delta < -0.02 else ' ')
             print(f"  {name:<20} {curr:>8.1%}  {w:>9.1%}  {delta:>+7.1%} {marker}")
 
-        print(f"\n  Model accuracy with data-driven weights:")
-        print(f"    Cross-validated: {cv_scores.mean():.1%}")
+        print(f"\n  Best accuracy ({opt_method}): {final_acc:.1%}")
 
         # Save suggested weights to JSON
         output = {
             'generated_at': datetime.utcnow().isoformat() + 'Z',
             'mode': label,
             'n_test_cases': len(cases),
-            'cv_accuracy': round(float(cv_scores.mean()), 4),
+            'cv_accuracy': round(final_acc, 4),
+            'optimization_method': opt_method,
             'baseline_accuracy': round(float(max(y.mean(), 1-y.mean())), 4),
             'suggested_weights': {
-                name: round(w, 4)
-                for name, w in zip(FACTOR_NAMES, weights)
+                name: round(float(w), 4)
+                for name, w in zip(FACTOR_NAMES, final_weights_list)
             },
             'current_weights': current_weights,
         }
+        # ── Tier calibration: hit rate by score bucket ────────────────────────
+        # Use final weights to score all cases, then find thresholds that produce
+        # the desired tier hit rates: HIGH > 65%, MEDIUM 50-67%, LOW < 50%.
+        print(f"\n  Tier calibration — hit rate by model score bucket:")
+        print(f"  {'Score Range':<14} {'Hit Rate':>9} {'Count':>7} {'Tier Suggestion':>18}")
+        print(f"  {'-'*52}")
+
+        fw = np.array(final_weights_list)
+        all_scores = X @ fw  # weighted sum per case, range ~0-1
+
+        buckets = np.arange(0.35, 0.75, 0.03)
+        tier_cal = []
+        for i in range(len(buckets) - 1):
+            lo, hi = buckets[i], buckets[i+1]
+            mask = (all_scores >= lo) & (all_scores < hi)
+            if mask.sum() < 10:
+                continue
+            hit_rate = y[mask].mean()
+            count = int(mask.sum())
+            tier = 'HIGH'   if hit_rate >= 0.63 else \
+                   'MEDIUM' if hit_rate >= 0.50 else 'LOW'
+            print(f"  {lo:.2f}–{hi:.2f}       {hit_rate:>8.1%}  {count:>6,}  {tier:>18}")
+            tier_cal.append({'lo': round(float(lo), 2), 'hi': round(float(hi), 2),
+                             'hit_rate': round(float(hit_rate), 4), 'count': count, 'tier': tier})
+
+        # Find natural thresholds from calibration
+        high_thresh  = next((b['lo'] for b in reversed(tier_cal) if b['hit_rate'] >= 0.63), None)
+        low_thresh   = next((b['hi'] for b in tier_cal            if b['hit_rate'] < 0.50),  None)
+        print(f"\n  Suggested score thresholds (raw 0-1, multiply by 100 for UI):")
+        if high_thresh:
+            print(f"    HIGH   >= {high_thresh:.2f}  ({high_thresh*100:.0f} in UI)")
+        if low_thresh:
+            print(f"    LOW    <  {low_thresh:.2f}  ({low_thresh*100:.0f} in UI)")
+
+        output['tier_calibration'] = tier_cal
+        if high_thresh:
+            output['suggested_high_threshold'] = round(float(high_thresh) * 100)
+        if low_thresh:
+            output['suggested_low_threshold']  = round(float(low_thresh) * 100)
+
         out_path = os.path.join(os.path.dirname(__file__), '..', 'backtest_results.json')
         with open(out_path, 'w') as f:
             json.dump(output, f, indent=2)

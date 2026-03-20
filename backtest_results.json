@@ -1,32 +1,129 @@
 {
-  "generated_at": "2026-03-19T23:52:56.920022Z",
+  "generated_at": "2026-03-20T00:06:30.477402Z",
   "mode": "Synthetic Lines (rolling avg as proxy, 10+ prior games required)",
   "n_test_cases": 9226,
-  "cv_accuracy": 0.5506,
+  "cv_accuracy": 0.5503,
+  "optimization_method": "Logistic Regression",
   "baseline_accuracy": 0.528,
   "suggested_weights": {
-    "last10HitRate": 0.153,
+    "last10HitRate": 0.154,
     "matchupEdge": 0.329,
-    "seasonCushion": 0.12,
+    "seasonCushion": 0.121,
     "vsOpponent": 0.001,
-    "homeAway": 0.03,
-    "trend": 0.133,
-    "last20HitRate": 0.233,
+    "homeAway": 0.029,
+    "trend": 0.132,
+    "last20HitRate": 0.234,
     "consistency": 0.0,
+    "restDays": 0.0,
     "blowout": 0.0,
     "newsInjury": 0.0
   },
   "current_weights": {
-    "last10HitRate": 0.2,
-    "matchupEdge": 0.16,
-    "seasonCushion": 0.13,
-    "vsOpponent": 0.12,
-    "homeAway": 0.09,
-    "trend": 0.09,
-    "last20HitRate": 0.06,
-    "consistency": 0.02,
+    "last10HitRate": 0.13,
+    "matchupEdge": 0.27,
+    "seasonCushion": 0.09,
+    "vsOpponent": 0.02,
+    "homeAway": 0.03,
+    "trend": 0.1,
+    "last20HitRate": 0.18,
+    "consistency": 0.0,
+    "restDays": 0.07,
     "bookOdds": 0.01,
-    "blowout": 0.07,
+    "blowout": 0.05,
     "newsInjury": 0.05
-  }
+  },
+  "tier_calibration": [
+    {
+      "lo": 0.35,
+      "hi": 0.38,
+      "hit_rate": 0.4295,
+      "count": 596,
+      "tier": "LOW"
+    },
+    {
+      "lo": 0.38,
+      "hi": 0.41,
+      "hit_rate": 0.4265,
+      "count": 687,
+      "tier": "LOW"
+    },
+    {
+      "lo": 0.41,
+      "hi": 0.44,
+      "hit_rate": 0.4614,
+      "count": 778,
+      "tier": "LOW"
+    },
+    {
+      "lo": 0.44,
+      "hi": 0.47,
+      "hit_rate": 0.4581,
+      "count": 775,
+      "tier": "LOW"
+    },
+    {
+      "lo": 0.47,
+      "hi": 0.5,
+      "hit_rate": 0.4762,
+      "count": 777,
+      "tier": "LOW"
+    },
+    {
+      "lo": 0.5,
+      "hi": 0.53,
+      "hit_rate": 0.4903,
+      "count": 879,
+      "tier": "LOW"
+    },
+    {
+      "lo": 0.53,
+      "hi": 0.56,
+      "hit_rate": 0.5213,
+      "count": 752,
+      "tier": "MEDIUM"
+    },
+    {
+      "lo": 0.56,
+      "hi": 0.59,
+      "hit_rate": 0.4929,
+      "count": 700,
+      "tier": "LOW"
+    },
+    {
+      "lo": 0.59,
+      "hi": 0.62,
+      "hit_rate": 0.5041,
+      "count": 611,
+      "tier": "MEDIUM"
+    },
+    {
+      "lo": 0.62,
+      "hi": 0.65,
+      "hit_rate": 0.5239,
+      "count": 481,
+      "tier": "MEDIUM"
+    },
+    {
+      "lo": 0.65,
+      "hi": 0.68,
+      "hit_rate": 0.5472,
+      "count": 360,
+      "tier": "MEDIUM"
+    },
+    {
+      "lo": 0.68,
+      "hi": 0.71,
+      "hit_rate": 0.553,
+      "count": 264,
+      "tier": "MEDIUM"
+    },
+    {
+      "lo": 0.71,
+      "hi": 0.74,
+      "hit_rate": 0.561,
+      "count": 123,
+      "tier": "MEDIUM"
+    }
+  ],
+  "suggested_low_threshold": 38
 }
