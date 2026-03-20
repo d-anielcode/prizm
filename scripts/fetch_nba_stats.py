@@ -80,13 +80,7 @@ parser.add_argument('--date', type=str, default=None,
 args = parser.parse_args()
 
 from nba_api.stats.static import players as nba_players_static
-from nba_api.stats.endpoints import playergamelog, leaguedashteamstats, scoreboardv2
-try:
-    from nba_api.stats.endpoints import boxscoretraditionalv3 as boxscore_ep
-    BOXSCORE_V3 = True
-except ImportError:
-    from nba_api.stats.endpoints import boxscoretraditionalv2 as boxscore_ep
-    BOXSCORE_V3 = False
+from nba_api.stats.endpoints import playergamelog, leaguedashteamstats
 
 # Build canonical name → player dict once
 _all_players = nba_players_static.get_players()
@@ -124,45 +118,24 @@ def parse_minutes(min_str) -> float:
     except:
         return 0.0
 
-# ── Step 1: Get player names (from props OR last night's box scores) ──────────
-use_yesterday = args.yesterday or args.today or args.date is not None
+# ── Step 1: Get player names ──────────────────────────────────────────────────
+# --today / --yesterday / --date: refresh all players already in game_logs DB.
+# Their latest game log fetch will automatically include any games they played
+# last night / today — no box score parsing needed.
+use_history_mode = args.yesterday or args.today or args.date is not None
 
-if use_yesterday:
+if use_history_mode:
     if args.date:
-        target_date = args.date
+        label = args.date
     elif args.today:
-        target_date = date.today().strftime('%Y-%m-%d')
+        label = date.today().strftime('%Y-%m-%d')
     else:
-        target_date = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
-    print(f"\n[1/4] Fetching box scores from {target_date} via NBA API scoreboard...")
-    try:
-        sb = scoreboardv2.ScoreboardV2(game_date=target_date, timeout=15)
-        games_df = sb.get_data_frames()[0]  # GameHeader
-        game_ids = games_df['GAME_ID'].tolist()
-        print(f"      Found {len(game_ids)} game(s): {game_ids}")
-    except Exception as e:
-        print(f"      ERROR getting scoreboard: {e}")
-        game_ids = []
+        label = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
 
-    player_names_set = set()
-    for gid in game_ids:
-        try:
-            if BOXSCORE_V3:
-                box = boxscore_ep.BoxScoreTraditionalV3(game_id=gid, timeout=15)
-            else:
-                box = boxscore_ep.BoxScoreTraditionalV2(game_id=gid, timeout=15)
-            players_df = box.get_data_frames()[0]  # PlayerStats
-            # V3 uses camelCase column names, V2 uses UPPER_CASE
-            name_col = 'playerName' if 'playerName' in players_df.columns else 'PLAYER_NAME'
-            names = players_df[name_col].dropna().tolist()
-            player_names_set.update(names)
-            print(f"      Game {gid}: {len(names)} players")
-            time.sleep(0.4)
-        except Exception as e:
-            print(f"      ERROR getting box score for {gid}: {e}")
-
-    player_names = list(player_names_set)
-    print(f"      {len(player_names)} unique players who played on {target_date}")
+    print(f"\n[1/4] Loading all known players from Supabase game logs (refreshing for {label})...")
+    known = supabase_get('player_game_logs', 'select=player_name')
+    player_names = list({r['player_name'] for r in known if r.get('player_name')})
+    print(f"      {len(player_names)} unique players in game log history")
 
 else:
     print("\n[1/4] Loading player names from Supabase props...")
