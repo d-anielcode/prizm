@@ -1,24 +1,34 @@
 {
   "crons": [
     {
-      "path": "/api/results",
-      "schedule": "55 13 * * *"
+      "comment": "1. Grade tonight's props BEFORE they get deleted (11:20 PM ET = 4:20 UTC)",
+      "path": "/api/results?force=true",
+      "schedule": "20 4 * * *"
     },
     {
-      "path": "/api/props",
-      "schedule": "0 14 * * *"
-    },
-    {
-      "path": "/api/enrich",
-      "schedule": "15 14 * * *"
-    },
-    {
-      "path": "/api/props",
+      "comment": "2. Fetch tomorrow's props — replaces tonight's (11:30 PM ET = 4:30 UTC)",
+      "path": "/api/props?refresh=true",
       "schedule": "30 4 * * *"
     },
     {
-      "path": "/api/enrich",
+      "comment": "3. Enrich tomorrow's props with confidence scores (11:45 PM ET = 4:45 UTC)",
+      "path": "/api/enrich?force=true",
       "schedule": "45 4 * * *"
+    },
+    {
+      "comment": "4. Morning re-grade with final box scores (9:00 AM ET = 14:00 UTC)",
+      "path": "/api/results?force=true",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "comment": "5. Refresh today's props if any lines moved overnight (9:15 AM ET = 14:15 UTC)",
+      "path": "/api/props?refresh=true",
+      "schedule": "15 14 * * *"
+    },
+    {
+      "comment": "6. Re-enrich with updated lines (9:30 AM ET = 14:30 UTC)",
+      "path": "/api/enrich?force=true",
+      "schedule": "30 14 * * *"
     }
   ]
 }
