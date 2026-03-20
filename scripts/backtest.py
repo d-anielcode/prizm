@@ -44,8 +44,8 @@ except FileNotFoundError:
 
 import requests
 
-SUPABASE_URL = os.environ.get('NEXT_PUBLIC_SUPABASE_URL') or env.get('NEXT_PUBLIC_SUPABASE_URL', '')
-SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_KEY') or env.get('SUPABASE_SERVICE_KEY', '')
+SUPABASE_URL = (os.environ.get('NEXT_PUBLIC_SUPABASE_URL') or env.get('NEXT_PUBLIC_SUPABASE_URL', '')).strip('"').strip("'")
+SUPABASE_KEY = (os.environ.get('SUPABASE_SERVICE_KEY') or env.get('SUPABASE_SERVICE_KEY', '')).strip('"').strip("'")
 THE_ODDS_API_KEY = os.environ.get('THE_ODDS_API_KEY') or env.get('THE_ODDS_API_KEY', '')
 
 if not SUPABASE_URL or not SUPABASE_KEY:
