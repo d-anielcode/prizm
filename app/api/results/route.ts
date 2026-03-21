@@ -112,9 +112,10 @@ async function calculateResults(forDate?: string) {
 
     // Tally hits per confidence tier
     const tiers: Record<string, { total: number; hits: number }> = {
-      HIGH:   { total: 0, hits: 0 },
-      MEDIUM: { total: 0, hits: 0 },
-      LOW:    { total: 0, hits: 0 },
+      LOCK: { total: 0, hits: 0 },
+      PLAY: { total: 0, hits: 0 },
+      LEAN: { total: 0, hits: 0 },
+      FADE: { total: 0, hits: 0 },
     }
 
     for (const prop of dedupedProps) {
@@ -214,7 +215,7 @@ export async function GET(req: Request) {
     .from('prop_results')
     .select('*')
     .order('date', { ascending: false })
-    .limit(56) // 14 days × 4 labels (HIGH/MEDIUM/LOW/ALL)
+    .limit(70) // 14 days × 5 labels (LOCK/PLAY/LEAN/FADE/ALL)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ results: data ?? [] })

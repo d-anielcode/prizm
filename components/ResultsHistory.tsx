@@ -13,16 +13,17 @@ interface Props {
 }
 
 const TIER_COLORS = {
-  HIGH:   { bar: 'bg-emerald-500', text: 'text-emerald-400', badge: 'bg-emerald-500/12 border-emerald-500/30 text-emerald-400' },
-  MEDIUM: { bar: 'bg-[#e8a820]',   text: 'text-[#f0c060]',  badge: 'bg-[#e8a820]/12 border-[#e8a820]/30 text-[#f0c060]' },
-  LOW:    { bar: 'bg-red-500',      text: 'text-red-400',    badge: 'bg-red-500/12 border-red-500/30 text-red-400' },
+  LOCK: { bar: 'bg-violet-500',  text: 'text-violet-400',  badge: 'bg-violet-500/12 border-violet-500/30 text-violet-400'  },
+  PLAY: { bar: 'bg-emerald-500', text: 'text-emerald-400', badge: 'bg-emerald-500/12 border-emerald-500/30 text-emerald-400' },
+  LEAN: { bar: 'bg-[#e8a820]',  text: 'text-[#f0c060]',   badge: 'bg-[#e8a820]/12 border-[#e8a820]/30 text-[#f0c060]'     },
+  FADE: { bar: 'bg-red-500',    text: 'text-red-400',      badge: 'bg-red-500/12 border-red-500/30 text-red-400'           },
 }
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00')
-  const today    = new Date(); today.setHours(0,0,0,0)
+  const today     = new Date(); today.setHours(0,0,0,0)
   const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
-  const target = new Date(dateStr + 'T00:00:00')
+  const target    = new Date(dateStr + 'T00:00:00')
 
   if (target.getTime() === yesterday.getTime()) return 'Yesterday'
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -42,7 +43,7 @@ function HitBar({ rate, color }: { rate: number; color: string }) {
 export default function ResultsHistory({ results }: Props) {
   if (!results || results.length === 0) return null
 
-  // Group by date, keep only HIGH/MEDIUM/LOW (not ALL)
+  // Group by date, keep only LOCK/PLAY/LEAN/FADE (not ALL)
   const byDate = new Map<string, Record<string, ResultRow>>()
   for (const r of results) {
     if (r.confidence_label === 'ALL') continue
@@ -61,8 +62,8 @@ export default function ResultsHistory({ results }: Props) {
 
   if (sortedDates.length === 0) return null
 
-  const mostRecentDate = sortedDates[0]
-  const mostRecentAll  = allByDate.get(mostRecentDate)
+  const mostRecentDate  = sortedDates[0]
+  const mostRecentAll   = allByDate.get(mostRecentDate)
   const mostRecentTiers = byDate.get(mostRecentDate) ?? {}
 
   return (
@@ -99,7 +100,7 @@ export default function ResultsHistory({ results }: Props) {
             {formatDate(mostRecentDate)}
           </p>
 
-          {(['HIGH', 'MEDIUM', 'LOW'] as const).map((label) => {
+          {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as const).map((label) => {
             const row = mostRecentTiers[label]
             if (!row) return null
             const c = TIER_COLORS[label]
@@ -127,12 +128,13 @@ export default function ResultsHistory({ results }: Props) {
             <div className="h-px bg-white/[0.06]" />
             <div className="px-5 py-4 flex flex-col gap-0">
               <p className="text-[11px] text-white/35 uppercase tracking-widest mb-3">7-Day History</p>
-              <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr] gap-x-2 sm:gap-x-4 gap-y-2 text-[11px]">
+              <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr_1fr] gap-x-2 sm:gap-x-4 gap-y-2 text-[11px]">
                 {/* Header */}
                 <div className="text-white/20 uppercase tracking-wider">Date</div>
-                <div className="text-emerald-400/60 uppercase tracking-wider text-right">HIGH</div>
-                <div className="text-[#f0c060]/60 uppercase tracking-wider text-right">MED</div>
-                <div className="text-red-400/60 uppercase tracking-wider text-right">LOW</div>
+                <div className="text-violet-400/60 uppercase tracking-wider text-right">LOCK</div>
+                <div className="text-emerald-400/60 uppercase tracking-wider text-right">PLAY</div>
+                <div className="text-[#f0c060]/60 uppercase tracking-wider text-right">LEAN</div>
+                <div className="text-red-400/60 uppercase tracking-wider text-right">FADE</div>
                 <div className="text-white/20 uppercase tracking-wider text-right">ALL</div>
 
                 {sortedDates.map((date) => {
@@ -141,7 +143,7 @@ export default function ResultsHistory({ results }: Props) {
                   return (
                     <>
                       <div key={`${date}-d`} className="text-white/40">{formatDate(date)}</div>
-                      {(['HIGH', 'MEDIUM', 'LOW'] as const).map((label) => {
+                      {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as const).map((label) => {
                         const row = tiers[label]
                         if (!row) return <div key={`${date}-${label}`} className="text-white/20 text-right">—</div>
                         const pct = Math.round(row.hit_rate * 100)

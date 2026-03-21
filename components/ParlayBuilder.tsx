@@ -179,7 +179,7 @@ export default function ParlayBuilder({ allProps }: Props) {
       <div className="flex items-center gap-3">
         <h2 className="text-2xl font-black text-white tracking-tight">Parlay Builder</h2>
         <span className="text-[11px] text-[#f0c060]/70 bg-[#e8a820]/8 border border-[#e8a820]/20 rounded-full px-2.5 py-0.5 font-semibold tracking-wide">
-          AI · HIGH picks only
+          AI · LOCK &amp; PLAY picks only
         </span>
       </div>
 
@@ -242,7 +242,7 @@ export default function ParlayBuilder({ allProps }: Props) {
               </div>
             </div>
 
-            <p className="text-[11px] text-white/20">{eligible.length} eligible HIGH picks today</p>
+            <p className="text-[11px] text-white/20">{eligible.length} eligible LOCK &amp; PLAY picks today</p>
 
             <button
               onClick={build}
@@ -281,7 +281,7 @@ export default function ParlayBuilder({ allProps }: Props) {
           ) : parlay.length === 0 ? (
             <div className="flex-1 flex items-center justify-center p-10">
               <p className="text-white/30 text-sm text-center">
-                Not enough HIGH picks for the selected stats.<br />
+                Not enough LOCK or PLAY picks for the selected stats.<br />
                 Try enabling more stat types.
               </p>
             </div>
@@ -397,7 +397,7 @@ export default function ParlayBuilder({ allProps }: Props) {
               </div>
 
               <p className="text-[11px] text-white/20 text-center pt-1">
-                All picks are HIGH confidence · Hit &ldquo;Regenerate&rdquo; for a new combo
+                All picks are LOCK or PLAY confidence · Hit &ldquo;Regenerate&rdquo; for a new combo
               </p>
             </div>
           )}

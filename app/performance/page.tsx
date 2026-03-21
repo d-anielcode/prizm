@@ -192,10 +192,11 @@ export default async function PerformancePage() {
 
   // Rolling totals by confidence tier
   const totals: Record<string, { total: number; hits: number }> = {
-    HIGH:   { total: 0, hits: 0 },
-    MEDIUM: { total: 0, hits: 0 },
-    LOW:    { total: 0, hits: 0 },
-    ALL:    { total: 0, hits: 0 },
+    LOCK: { total: 0, hits: 0 },
+    PLAY: { total: 0, hits: 0 },
+    LEAN: { total: 0, hits: 0 },
+    FADE: { total: 0, hits: 0 },
+    ALL:  { total: 0, hits: 0 },
   }
   for (const g of resolved) {
     const label = g.confidence_label ?? ''
