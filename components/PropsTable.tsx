@@ -33,9 +33,10 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
     : 'text-red-400'
   const safer   = alt.direction === mainDir && (mainDir === 'over' ? alt.line < mainLine : alt.line > mainLine)
   const riskier = alt.direction === mainDir && (mainDir === 'over' ? alt.line > mainLine : alt.line < mainLine)
-  const confColor = alt.confidence_label === 'HIGH' ? 'text-emerald-400'
-    : alt.confidence_label === 'MEDIUM' ? 'text-[#f0c060]'
-    : alt.confidence_label === 'LOW' ? 'text-red-400'
+  const confColor = alt.confidence_label === 'LOCK' ? 'text-violet-400'
+    : alt.confidence_label === 'PLAY' ? 'text-emerald-400'
+    : alt.confidence_label === 'LEAN' ? 'text-[#f0c060]'
+    : alt.confidence_label === 'FADE' ? 'text-red-400'
     : 'text-white/30'
 
   return (
@@ -126,9 +127,10 @@ export function PropsTable({
         <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value as ConfidenceLabel | 'all')}
           className="px-3 py-1.5 rounded-lg bg-[#0e0b18] border border-white/[0.08] text-sm text-white/80 focus:outline-none focus:border-[#e8a820]/40 transition-colors cursor-pointer">
           <option value="all">All Confidence</option>
-          <option value="HIGH">High only</option>
-          <option value="MEDIUM">Medium only</option>
-          <option value="LOW">Low only</option>
+          <option value="LOCK">Lock only</option>
+          <option value="PLAY">Play only</option>
+          <option value="LEAN">Lean only</option>
+          <option value="FADE">Fade only</option>
         </select>
 
         <span className="ml-auto self-center text-sm text-white/40">{filtered.length} props</span>

@@ -211,9 +211,10 @@ export default async function HomePage() {
   const [{ games, allProps }, results] = await Promise.all([getData(), getResults()])
   const gameDay = getGameDay(games)
 
-  const high   = allProps.filter((p) => p.confidence_label === 'HIGH').length
-  const medium = allProps.filter((p) => p.confidence_label === 'MEDIUM').length
-  const low    = allProps.filter((p) => p.confidence_label === 'LOW').length
+  const lock = allProps.filter((p) => p.confidence_label === 'LOCK').length
+  const play = allProps.filter((p) => p.confidence_label === 'PLAY').length
+  const lean = allProps.filter((p) => p.confidence_label === 'LEAN').length
+  const fade = allProps.filter((p) => p.confidence_label === 'FADE').length
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 flex flex-col gap-10">
@@ -228,16 +229,20 @@ export default async function HomePage() {
         {/* Confidence summary — 2×2 grid on mobile, single row on desktop */}
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:flex sm:items-center sm:gap-6">
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-emerald-400">{high}</span>
-            <span className="text-xs text-white/30 uppercase tracking-wider">High</span>
+            <span className="text-2xl font-black text-violet-400">{lock}</span>
+            <span className="text-xs text-white/30 uppercase tracking-wider">Lock</span>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-[#f0c060]">{medium}</span>
-            <span className="text-xs text-white/30 uppercase tracking-wider">Medium</span>
+            <span className="text-2xl font-black text-emerald-400">{play}</span>
+            <span className="text-xs text-white/30 uppercase tracking-wider">Play</span>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-red-400">{low}</span>
-            <span className="text-xs text-white/30 uppercase tracking-wider">Low</span>
+            <span className="text-2xl font-black text-[#f0c060]">{lean}</span>
+            <span className="text-xs text-white/30 uppercase tracking-wider">Lean</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-black text-red-400">{fade}</span>
+            <span className="text-xs text-white/30 uppercase tracking-wider">Fade</span>
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-white">{allProps.length}</span>

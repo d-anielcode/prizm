@@ -2,9 +2,10 @@ import { cn } from '@/lib/utils'
 import type { ConfidenceLabel } from '@/types'
 
 const styles: Record<ConfidenceLabel, string> = {
-  HIGH:   'bg-emerald-500/12 text-emerald-400 border-emerald-500/25 shadow-[0_0_10px_rgba(16,185,129,0.15)]',
-  MEDIUM: 'bg-[#e8a820]/10  text-[#f0c060]   border-[#e8a820]/25',
-  LOW:    'bg-red-500/10    text-red-400      border-red-500/20',
+  LOCK: 'bg-violet-500/12  text-violet-400  border-violet-500/25 shadow-[0_0_10px_rgba(139,92,246,0.2)]',
+  PLAY: 'bg-emerald-500/12 text-emerald-400 border-emerald-500/25 shadow-[0_0_10px_rgba(16,185,129,0.15)]',
+  LEAN: 'bg-[#e8a820]/10  text-[#f0c060]   border-[#e8a820]/25',
+  FADE: 'bg-red-500/10    text-red-400      border-red-500/20',
 }
 
 export function ConfidenceBadge({

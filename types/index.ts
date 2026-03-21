@@ -25,8 +25,8 @@ export type StatType =
   | 'blocks'
   | 'three_pointers'
 
-export type ConfidenceLabel = 'HIGH' | 'MEDIUM' | 'LOW'
-export type RiskTier = 'LOW_RISK' | 'MED_RISK' | 'HIGH_RISK'
+export type ConfidenceLabel = 'LOCK' | 'PLAY' | 'LEAN' | 'FADE'
+export type RiskTier = 'PRIME' | 'LOW_RISK' | 'MED_RISK' | 'HIGH_RISK'
 export type Direction = 'over' | 'under'
 
 export interface Prop {

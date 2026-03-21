@@ -96,7 +96,7 @@ export default function ParlayBuilder({ allProps }: Props) {
   const eligible = useMemo(() => {
     const seen = new Set<string>()
     return allProps
-      .filter((p) => p.confidence_label === 'HIGH' && enabledStats.has(p.stat_type))
+      .filter((p) => (p.confidence_label === 'LOCK' || p.confidence_label === 'PLAY') && enabledStats.has(p.stat_type))
       .sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
       .filter((p) => {
         const key = propKey(p)
@@ -325,9 +325,10 @@ export default function ParlayBuilder({ allProps }: Props) {
                     ? prop.odds > 0 ? `+${prop.odds}` : `${prop.odds}`
                     : '-110'
                   const labelColor =
-                    prop.confidence_label === 'HIGH'   ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' :
-                    prop.confidence_label === 'MEDIUM' ? 'text-[#f0c060] bg-[#e8a820]/10 border-[#e8a820]/20' :
-                                                          'text-red-400 bg-red-400/10 border-red-400/20'
+                    prop.confidence_label === 'LOCK' ? 'text-violet-400 bg-violet-400/10 border-violet-400/20' :
+                    prop.confidence_label === 'PLAY' ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' :
+                    prop.confidence_label === 'LEAN' ? 'text-[#f0c060] bg-[#e8a820]/10 border-[#e8a820]/20' :
+                                                       'text-red-400 bg-red-400/10 border-red-400/20'
 
                   return (
                     <div

@@ -18,6 +18,8 @@ import {
   type ScoringContext,
   type InjuredTeammate,
   type SeasonStats,
+  type PlayerLineBias,
+  type OpponentStatLeak,
 } from '@/lib/confidence'
 import type { Prop, StatType, Direction } from '@/types'
 
@@ -293,6 +295,35 @@ async function runEnrichment(force = false) {
   }
   console.log(`[/api/enrich] Season stats: ${seasonMap.size} players`)
 
+  // ── Load player line bias ──────────────────────────────────────────────────
+  const { data: biasRows } = await supabase
+    .from('player_line_bias')
+    .select('player_name, stat_type, hit_rate, median_ratio, sample_count')
+  // Index by "player|stat" for O(1) lookup
+  const biasMap = new Map<string, PlayerLineBias>()
+  for (const row of biasRows ?? []) {
+    biasMap.set(`${row.player_name}|${row.stat_type}`, {
+      hit_rate:     Number(row.hit_rate),
+      median_ratio: Number(row.median_ratio),
+      sample_count: Number(row.sample_count),
+    })
+  }
+  console.log(`[/api/enrich] Line bias: ${biasMap.size} player/stat entries`)
+
+  // ── Load opponent stat leaks ───────────────────────────────────────────────
+  const { data: leakRows } = await supabase
+    .from('opponent_stat_leaks')
+    .select('opponent_team, stat_type, over_hit_rate, median_ratio, sample_count')
+  const leakMap = new Map<string, OpponentStatLeak>()
+  for (const row of leakRows ?? []) {
+    leakMap.set(`${row.opponent_team}|${row.stat_type}`, {
+      over_hit_rate: Number(row.over_hit_rate),
+      median_ratio:  Number(row.median_ratio),
+      sample_count:  Number(row.sample_count),
+    })
+  }
+  console.log(`[/api/enrich] Opponent leaks: ${leakMap.size} team/stat entries`)
+
   // ── Build a map of team → prop players (for injured teammate detection) ────
   // We identify prop players on each team so we can flag injured teammates who
   // are relevant enough to have their own props set (= meaningful usage).
@@ -353,6 +384,8 @@ async function runEnrichment(force = false) {
       injuredTeammates,
       seasonStats:     seasonMap.get(prop.player_name) ?? null,
       historicalLines: histMap.get(prop.player_name)  ?? [],
+      playerBias:      biasMap.get(`${prop.player_name}|${prop.stat_type}`) ?? null,
+      opponentLeak:    opponentAbbr ? (leakMap.get(`${opponentAbbr}|${prop.stat_type}`) ?? null) : null,
     }
 
     return scoreProps(prop, logs, null, ctx)

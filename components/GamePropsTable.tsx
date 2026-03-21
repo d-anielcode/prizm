@@ -28,9 +28,10 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
     : 'text-red-400'
   const safer   = alt.direction === mainDir && (mainDir === 'over' ? alt.line < mainLine : alt.line > mainLine)
   const riskier = alt.direction === mainDir && (mainDir === 'over' ? alt.line > mainLine : alt.line < mainLine)
-  const confColor = alt.confidence_label === 'HIGH' ? 'text-emerald-400'
-    : alt.confidence_label === 'MEDIUM' ? 'text-[#f0c060]'
-    : alt.confidence_label === 'LOW' ? 'text-red-400'
+  const confColor = alt.confidence_label === 'LOCK' ? 'text-violet-400'
+    : alt.confidence_label === 'PLAY' ? 'text-emerald-400'
+    : alt.confidence_label === 'LEAN' ? 'text-[#f0c060]'
+    : alt.confidence_label === 'FADE' ? 'text-red-400'
     : 'text-white/30'
 
   return (

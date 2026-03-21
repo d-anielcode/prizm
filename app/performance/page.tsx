@@ -164,9 +164,10 @@ async function loadGradedProps(): Promise<GradedProp[]> {
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
 const TIER_COLORS = {
-  HIGH:   { bar: 'bg-emerald-500', text: 'text-emerald-400',  badge: 'bg-emerald-500/12 border-emerald-500/30 text-emerald-400',  glow: 'shadow-[0_0_12px_rgba(16,185,129,0.2)]' },
-  MEDIUM: { bar: 'bg-[#e8a820]',   text: 'text-[#f0c060]',   badge: 'bg-[#e8a820]/12 border-[#e8a820]/30 text-[#f0c060]',        glow: 'shadow-[0_0_12px_rgba(232,168,32,0.2)]'  },
-  LOW:    { bar: 'bg-red-500',     text: 'text-red-400',      badge: 'bg-red-500/12 border-red-500/30 text-red-400',              glow: '' },
+  LOCK: { bar: 'bg-violet-500',  text: 'text-violet-400',  badge: 'bg-violet-500/12 border-violet-500/30 text-violet-400',  glow: 'shadow-[0_0_12px_rgba(139,92,246,0.25)]' },
+  PLAY: { bar: 'bg-emerald-500', text: 'text-emerald-400', badge: 'bg-emerald-500/12 border-emerald-500/30 text-emerald-400', glow: 'shadow-[0_0_12px_rgba(16,185,129,0.2)]' },
+  LEAN: { bar: 'bg-[#e8a820]',  text: 'text-[#f0c060]',   badge: 'bg-[#e8a820]/12 border-[#e8a820]/30 text-[#f0c060]',     glow: 'shadow-[0_0_12px_rgba(232,168,32,0.2)]'  },
+  FADE: { bar: 'bg-red-500',    text: 'text-red-400',      badge: 'bg-red-500/12 border-red-500/30 text-red-400',           glow: '' },
 }
 
 function HitBar({ rate, colorClass }: { rate: number; colorClass: string }) {
@@ -256,7 +257,7 @@ export default async function PerformancePage() {
               All-time ({sortedDates.length} day{sortedDates.length !== 1 ? 's' : ''} tracked · {resolved.length} props graded)
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {(['HIGH', 'MEDIUM', 'LOW', 'ALL'] as const).map((label) => {
+              {(['LOCK', 'PLAY', 'LEAN', 'FADE', 'ALL'] as const).map((label) => {
                 const t = totals[label]
                 if (!t || t.total === 0) return null
                 const pct = Math.round((t.hits / t.total) * 100)
@@ -286,7 +287,7 @@ export default async function PerformancePage() {
             {sortedDates.map((date) => {
               const dayGraded = byDate.get(date) ?? []
               const dayTotals: Record<string, { total: number; hits: number }> = {
-                HIGH: { total: 0, hits: 0 }, MEDIUM: { total: 0, hits: 0 }, LOW: { total: 0, hits: 0 },
+                LOCK: { total: 0, hits: 0 }, PLAY: { total: 0, hits: 0 }, LEAN: { total: 0, hits: 0 }, FADE: { total: 0, hits: 0 },
               }
               let dayAll = { total: 0, hits: 0 }
 
@@ -324,7 +325,7 @@ export default async function PerformancePage() {
                     </div>
 
                     <div className="flex flex-col gap-3">
-                      {(['HIGH', 'MEDIUM', 'LOW'] as const).map((label) => {
+                      {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as const).map((label) => {
                         const row = dayTotals[label]
                         if (!row || row.total === 0) return null
                         const c = TIER_COLORS[label]
