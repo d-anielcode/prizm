@@ -27,6 +27,15 @@ async function getProps(): Promise<PropWithAlts[]> {
 
   if (allRows.length === 0) return []
 
+  // Sort by tier first (LOCK > PLAY > LEAN > FADE), then by score within tier
+  const TIER_ORDER: Record<string, number> = { LOCK: 0, PLAY: 1, LEAN: 2, FADE: 3 }
+  allRows.sort((a, b) => {
+    const ta = TIER_ORDER[a.confidence_label ?? ''] ?? 4
+    const tb = TIER_ORDER[b.confidence_label ?? ''] ?? 4
+    if (ta !== tb) return ta - tb
+    return (b.confidence_score ?? 0) - (a.confidence_score ?? 0)
+  })
+
   // Fetch alt lines for these games (filter out null game_ids)
   const gameIds = [...new Set(allRows.map((p) => p.game_id).filter(Boolean))]
   const { data: alts } = await supabase

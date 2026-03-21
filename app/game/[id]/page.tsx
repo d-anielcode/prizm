@@ -23,7 +23,13 @@ async function getGameProps(gameId: string): Promise<PropWithAlts[]> {
     return []
   }
 
-  const props = (data ?? []) as Prop[]
+  const TIER_ORDER: Record<string, number> = { LOCK: 0, PLAY: 1, LEAN: 2, FADE: 3 }
+  const props = ((data ?? []) as Prop[]).sort((a, b) => {
+    const ta = TIER_ORDER[a.confidence_label ?? ''] ?? 4
+    const tb = TIER_ORDER[b.confidence_label ?? ''] ?? 4
+    if (ta !== tb) return ta - tb
+    return (b.confidence_score ?? 0) - (a.confidence_score ?? 0)
+  })
   const altRows = (alts ?? []) as (AltLine & { player_name: string; stat_type: string; game_id: string })[]
 
   return props.map((p) => ({
