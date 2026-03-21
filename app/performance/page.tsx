@@ -52,12 +52,15 @@ function formatDate(dateStr: string): string {
 // ── Data loading ──────────────────────────────────────────────────────────────
 async function loadGradedProps(): Promise<GradedProp[]> {
   const now = new Date().toISOString()
+  // Only look back 30 days — beyond that props table gets large and old data isn't actionable
+  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString()
 
-  // 1. Load all scored props (regardless of time — include both future and past)
+  // 1. Load scored props from the last 30 days
   const { data: rawProps } = await supabase
     .from('props')
     .select('player_name, stat_type, line, direction, confidence_label, confidence_score, commence_time')
     .not('confidence_label', 'is', null)
+    .gte('commence_time', cutoff)
 
   const props = rawProps ?? []
   if (props.length === 0) return []
@@ -73,19 +76,31 @@ async function loadGradedProps(): Promise<GradedProp[]> {
 
   if (propsByDate.size === 0) return []
 
-  // 3. Load game logs for all relevant players + dates
+  // 3. Load game logs for all relevant players + dates (paginated)
   const playerNames = [...new Set(props.map((p) => p.player_name as string))]
   const dates       = [...propsByDate.keys()]
 
-  const { data: logRows } = await supabase
-    .from('player_game_logs')
-    .select('player_name, game_date, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
-    .in('player_name', playerNames)
-    .in('game_date', dates)
+  const allLogRows: Record<string, unknown>[] = []
+  {
+    let from = 0
+    const PAGE = 1000
+    while (true) {
+      const { data: page } = await supabase
+        .from('player_game_logs')
+        .select('player_name, game_date, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
+        .in('player_name', playerNames)
+        .in('game_date', dates)
+        .range(from, from + PAGE - 1)
+      if (!page || page.length === 0) break
+      allLogRows.push(...(page as Record<string, unknown>[]))
+      if (page.length < PAGE) break
+      from += PAGE
+    }
+  }
 
   // Index logs by player_name + game_date for fast lookup
   const logIndex = new Map<string, Record<string, unknown>>()
-  for (const log of logRows ?? []) {
+  for (const log of allLogRows) {
     const key = `${log.player_name}|${log.game_date}`
     logIndex.set(key, log as Record<string, unknown>)
   }
