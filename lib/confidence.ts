@@ -645,12 +645,16 @@ function buildReason(
       if (stdev >= 0.5) {
         const z = dir === 'over' ? (mean - line) / stdev : (line - mean) / stdev
         if (z >= 0.4) {
+          const diff = Math.abs(mean - line).toFixed(1)
+          const relWord = dir === 'over' ? 'below' : 'above'
           sentences.push(
-            `Line value: the line of ${line} sits ${Math.abs((mean - line)).toFixed(1)} below their L10 average of ${mean.toFixed(1)} — the market has set this generously.`
+            `Line value: the line of ${line} sits ${diff} ${relWord} their L10 average of ${mean.toFixed(1)} — the market has set this generously.`
           )
         } else if (z <= -0.4) {
+          const diff = Math.abs(mean - line).toFixed(1)
+          const relWord = dir === 'over' ? 'above' : 'below'
           sentences.push(
-            `Tight line: the line of ${line} sits ${Math.abs((mean - line)).toFixed(1)} above their L10 average of ${mean.toFixed(1)} — the market has priced this aggressively.`
+            `Tight line: the line of ${line} sits ${diff} ${relWord} their L10 average of ${mean.toFixed(1)} — the market has priced this aggressively.`
           )
         }
       }
