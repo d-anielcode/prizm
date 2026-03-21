@@ -13,6 +13,7 @@ import { TEAM_ABBR } from '@/lib/team-abbr'
 import {
   scoreProps,
   type GameLog,
+  type HistoricalLine,
   type TeamDefenseStats,
   type ScoringContext,
   type InjuredTeammate,
@@ -235,6 +236,37 @@ async function runEnrichment(force = false) {
   const playersWithLogs = [...logsMap.values()].filter((l) => l.length >= 3).length
   console.log(`[/api/enrich] Game logs: ${playersWithLogs}/${uniqueNames.length} players`)
 
+  // ── Load historical prop lines (actual market lines for past games) ────────
+  const histRows: Record<string, unknown>[] = []
+  {
+    let from = 0
+    const PAGE = 1000
+    while (true) {
+      const { data: page } = await supabase
+        .from('historical_prop_lines')
+        .select('player_name, stat_type, direction, line, game_date')
+        .in('player_name', uniqueNames)
+        .range(from, from + PAGE - 1)
+      if (!page || page.length === 0) break
+      histRows.push(...page)
+      if (page.length < PAGE) break
+      from += PAGE
+    }
+  }
+  // Index by player_name → HistoricalLine[]
+  const histMap = new Map<string, HistoricalLine[]>()
+  for (const row of histRows) {
+    const name = row.player_name as string
+    if (!histMap.has(name)) histMap.set(name, [])
+    histMap.get(name)!.push({
+      game_date:  row.game_date  as string,
+      stat_type:  row.stat_type  as string,
+      direction:  row.direction  as 'over' | 'under',
+      line:       Number(row.line),
+    })
+  }
+  console.log(`[/api/enrich] Historical lines: ${histRows.length} rows for ${histMap.size} players`)
+
   // ── Load team defensive rankings ──────────────────────────────────────────
   const { data: defRows } = await supabase.from('team_defense_stats').select('*')
   const defMap = new Map<string, TeamDefenseStats>()
@@ -319,7 +351,8 @@ async function runEnrichment(force = false) {
       gameTotal,
       playerStatus,
       injuredTeammates,
-      seasonStats: seasonMap.get(prop.player_name) ?? null,
+      seasonStats:     seasonMap.get(prop.player_name) ?? null,
+      historicalLines: histMap.get(prop.player_name)  ?? [],
     }
 
     return scoreProps(prop, logs, null, ctx)

@@ -36,6 +36,14 @@ export interface GameLog {
   pra:        number
 }
 
+/** Actual line posted by a sportsbook for a specific game — from historical_prop_lines */
+export interface HistoricalLine {
+  game_date:  string
+  stat_type:  string
+  direction:  'over' | 'under'
+  line:       number
+}
+
 export interface TeamDefenseStats {
   team_abbreviation: string
   pts_rank:  number  // 1 = fewest pts allowed (toughest D), 30 = most allowed (easiest D)
@@ -73,6 +81,7 @@ export interface ScoringContext {
   playerStatus?:      'active' | 'questionable' | 'doubtful' | 'out' | null
   injuredTeammates?:  InjuredTeammate[]
   seasonStats?:       SeasonStats | null
+  historicalLines?:   HistoricalLine[]           // actual lines posted by books for past games
 }
 
 export interface ScoredProp extends Prop {
@@ -148,6 +157,42 @@ function hitRate(
     dir === 'over' ? getStatValue(g, statType) > line : getStatValue(g, statType) < line
   ).length
   return hits / slice.length
+}
+
+// ── Actual hit rate vs real posted lines ─────────────────────────────────────
+// Unlike hitRate() which applies tonight's static line retroactively,
+// this matches each game log to the actual line posted that night.
+// Falls back to hitRate() for games where no historical line exists.
+function actualHitRate(
+  logs: GameLog[],
+  historicalLines: HistoricalLine[],
+  statType: StatType,
+  dir: 'over' | 'under',
+  n: number,
+): number | null {
+  const lineByDate = new Map<string, number>()
+  for (const h of historicalLines) {
+    if (h.stat_type === statType && h.direction === dir) {
+      // Average line across books for this date (consensus line)
+      const existing = lineByDate.get(h.game_date)
+      lineByDate.set(h.game_date, existing != null ? (existing + h.line) / 2 : h.line)
+    }
+  }
+
+  const slice = logs.slice(0, n)
+  if (slice.length < 3) return null
+
+  let matched = 0
+  let hits = 0
+  for (const log of slice) {
+    const actualLine = lineByDate.get(log.game_date)
+    if (actualLine == null) continue  // no historical line for this game — skip
+    const stat = getStatValue(log, statType)
+    if (dir === 'over' ? stat > actualLine : stat < actualLine) hits++
+    matched++
+  }
+
+  return matched >= 3 ? hits / matched : null
 }
 
 // ── Factor 1 (NEW): Line value z-score ───────────────────────────────────────
@@ -423,10 +468,17 @@ export function scoreProps(
     playerStatus     = null,
     injuredTeammates = [],
     seasonStats      = null,
+    historicalLines  = [],
   } = ctx
 
   // Compute all factors
-  const hr20     = hasLogs ? hitRate(gameLogs, stat_type, line, direction, 20) : null
+  // Use actual historical lines when available; fall back to retroactive line application
+  const hasHistoricalData = historicalLines.length >= 5
+  const hr20 = hasLogs
+    ? (hasHistoricalData
+        ? (actualHitRate(gameLogs, historicalLines, stat_type, direction, 20) ?? hitRate(gameLogs, stat_type, line, direction, 20))
+        : hitRate(gameLogs, stat_type, line, direction, 20))
+    : null
   const vsOpp    = hasLogs ? vsOpponentScore(gameLogs, stat_type, line, direction, opponentAbbr) : { score: 0.50, gamesFound: 0, hitsFound: 0, avgStat: 0 }
   const homeAway = hasLogs ? homeAwaySplit(gameLogs, stat_type, line, direction, isHome) : null
 
