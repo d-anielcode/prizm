@@ -68,9 +68,11 @@ async function fetchEspnInjuries(): Promise<Map<string, EspnInjury>> {
   return map
 }
 
-/** Fetch today's game spreads from ESPN scoreboard. Returns Map<homeAbbr+awayAbbr, absSpread>. */
-async function fetchEspnSpreads(): Promise<Map<string, number>> {
-  const map = new Map<string, number>()
+interface GameOdds { spread: number; total: number | null }
+
+/** Fetch today's game spreads + O/U totals from ESPN scoreboard. */
+async function fetchEspnSpreads(): Promise<Map<string, GameOdds>> {
+  const map = new Map<string, GameOdds>()
   try {
     const res = await fetch(
       'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard',
@@ -82,7 +84,7 @@ async function fetchEspnSpreads(): Promise<Map<string, number>> {
       events?: Array<{
         competitions?: Array<{
           competitors?: Array<{ homeAway?: string; team?: { abbreviation?: string } }>
-          odds?: Array<{ details?: string }>
+          odds?: Array<{ details?: string; overUnder?: number }>
         }>
       }>
     }
@@ -93,16 +95,18 @@ async function fetchEspnSpreads(): Promise<Map<string, number>> {
         const away = comp.competitors?.find((c) => c.homeAway === 'away')?.team?.abbreviation
         if (!home || !away) continue
 
-        const details = comp.odds?.[0]?.details ?? ''
-        // ESPN details format: "-7.5", "MIL -7.5", "EVEN", etc.
-        const match = details.match(/-?\d+(\.\d+)?/)
+        const oddsEntry = comp.odds?.[0]
+        const details   = oddsEntry?.details ?? ''
+        const match     = details.match(/-?\d+(\.\d+)?/)
         if (!match) continue
 
         const spread = Math.abs(parseFloat(match[0]))
-        if (!isNaN(spread)) {
-          map.set(`${home}|${away}`, spread)
-          map.set(`${away}|${home}`, spread)  // index both directions
-        }
+        if (isNaN(spread)) continue
+
+        const total = oddsEntry?.overUnder != null ? Number(oddsEntry.overUnder) : null
+        const entry: GameOdds = { spread, total }
+        map.set(`${home}|${away}`, entry)
+        map.set(`${away}|${home}`, entry)
       }
     }
   } catch {
@@ -182,7 +186,8 @@ async function runEnrichment(force = false) {
     fetchEspnSpreads(),
     fetchEspnInjuries(),
   ])
-  console.log(`[/api/enrich] ESPN: ${spreadMap.size} game spreads, ${injuryMap.size} injured players`)
+  const totalsLoaded = [...spreadMap.values()].filter((g) => g.total != null).length / 2
+  console.log(`[/api/enrich] ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U totals), ${injuryMap.size} injured players`)
 
   // ── Load game logs from Supabase (paginated — 78 players × 66 games > 1000 row limit) ──
   const uniqueNames = [...new Set(props.map((p) => p.player_name))]
@@ -275,11 +280,13 @@ async function runEnrichment(force = false) {
     const { isHome, opponentAbbr, playerTeamAbbr } = deriveMatchupContext(prop, logs)
     const defStats = opponentAbbr ? (defMap.get(opponentAbbr) ?? null) : null
 
-    // Spread: match by home|away team abbreviation pair
-    const homeAbbr = prop.home_team ? (TEAM_ABBR[prop.home_team] ?? null) : null
-    const awayAbbr = prop.away_team ? (TEAM_ABBR[prop.away_team] ?? null) : null
+    // Spread + game total: match by home|away team abbreviation pair
+    const homeAbbr  = prop.home_team ? (TEAM_ABBR[prop.home_team] ?? null) : null
+    const awayAbbr  = prop.away_team ? (TEAM_ABBR[prop.away_team] ?? null) : null
     const spreadKey = homeAbbr && awayAbbr ? `${homeAbbr}|${awayAbbr}` : null
-    const spread = spreadKey ? (spreadMap.get(spreadKey) ?? null) : null
+    const gameOdds  = spreadKey ? (spreadMap.get(spreadKey) ?? null) : null
+    const spread    = gameOdds?.spread ?? null
+    const gameTotal = gameOdds?.total  ?? null
 
     // Player's own injury status
     const injuryEntry = injuryMap.get(prop.player_name)
@@ -309,6 +316,7 @@ async function runEnrichment(force = false) {
       isHome,
       opponentAbbr,
       spread,
+      gameTotal,
       playerStatus,
       injuredTeammates,
       seasonStats: seasonMap.get(prop.player_name) ?? null,
@@ -366,9 +374,11 @@ async function runEnrichment(force = false) {
       const defStats = opponentAbbr ? (defMap.get(opponentAbbr) ?? null) : null
       const homeAbbr = pseudoProp.home_team ? (TEAM_ABBR[pseudoProp.home_team] ?? null) : null
       const awayAbbr = pseudoProp.away_team ? (TEAM_ABBR[pseudoProp.away_team] ?? null) : null
-      const spreadKey = homeAbbr && awayAbbr ? `${homeAbbr}|${awayAbbr}` : null
-      const spread = spreadKey ? (spreadMap.get(spreadKey) ?? null) : null
-      const playerStatus = injuryMap.get(pseudoProp.player_name)?.status ?? 'active'
+      const spreadKey     = homeAbbr && awayAbbr ? `${homeAbbr}|${awayAbbr}` : null
+      const altGameOdds   = spreadKey ? (spreadMap.get(spreadKey) ?? null) : null
+      const spread        = altGameOdds?.spread ?? null
+      const gameTotal     = altGameOdds?.total  ?? null
+      const playerStatus  = injuryMap.get(pseudoProp.player_name)?.status ?? 'active'
       const injuredTeammates: InjuredTeammate[] = []
       if (playerTeamAbbr) {
         const teammates = (teamToPropPlayers.get(playerTeamAbbr) ?? []).filter((n) => n !== pseudoProp.player_name)
@@ -378,7 +388,7 @@ async function runEnrichment(force = false) {
           injuredTeammates.push({ name: tName, status: tInjury.status, impactScore: 1 / Math.max(teammates.length + 1, 1) })
         }
       }
-      const ctx: ScoringContext = { defStats, isHome, opponentAbbr, spread, playerStatus, injuredTeammates }
+      const ctx: ScoringContext = { defStats, isHome, opponentAbbr, spread, gameTotal, playerStatus, injuredTeammates }
       const scored = scoreProps(pseudoProp, logs, null, ctx)
       return { ...alt, confidence_score: scored.confidence_score, confidence_label: scored.confidence_label }
     })
@@ -400,7 +410,7 @@ async function runEnrichment(force = false) {
     total: props.length,
     playersWithGameLogs: playersWithLogs,
     teamsWithDefenseData: defMap.size,
-    espnSpreadsLoaded: spreadMap.size,
+    espnSpreadsLoaded: spreadMap.size / 2,
     espnInjuriesLoaded: injuredCount,
   }
 }

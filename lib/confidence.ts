@@ -1,22 +1,24 @@
-// Prizm Confidence Engine v4
+// Prizm Confidence Engine v5
 //
 // Factors & weights (sum = 1.00):
-//   1.  matchupEdge    (27%) — opponent's team defensive rank for this stat [STRONGEST SIGNAL]
-//   2.  last20HitRate  (18%) — longer-term stability check (backtest: more reliable than short bursts)
-//   3.  last10HitRate  (13%) — hit rate vs this exact line, most recent 10 games
-//   4.  trend          (10%) — L5 vs L20 momentum
-//   5.  seasonCushion  ( 9%) — season average gap from tonight's line
-//   6.  restDays       ( 7%) — back-to-back games hurt; well-rested = slight boost
-//   7.  blowout        ( 5%) — point spread risk (large spread → starters may sit 4th)
-//   8.  newsInjury     ( 5%) — injury report: teammate out = usage boost, player questionable = risk
-//   9.  homeAway       ( 3%) — home vs away performance split
-//  10.  vsOpponent     ( 2%) — hit rate vs this specific team (Bayesian-blended; near-zero in backtest)
-//  11.  bookOdds       ( 1%) — bookmaker implied probability (sanity check)
-//  12.  consistency    ( 0%) — removed: backtest showed zero predictive power
+//   1.  lineValue      (20%) — z-score of tonight's line vs player's L10 average + stdev [NEW]
+//                              Measures whether the market has set a generous or tight line.
+//                              Replaces last10HitRate which circularly applied tonight's line to past games.
+//   2.  matchupEdge    (22%) — opponent's defensive rank for this stat
+//   3.  last20HitRate  (15%) — did they beat this line in the last 20 games (longer-term stability)
+//   4.  trend          (12%) — L5 vs L20 momentum
+//   5.  pace           ( 7%) — game O/U total as pace proxy; more possessions = more counting stats [NEW]
+//   6.  seasonCushion  ( 7%) — season average cushion above/below tonight's line
+//   7.  newsInjury     ( 5%) — injury report: teammate out = usage boost, player Q = risk
+//   8.  restDays       ( 5%) — back-to-back fatigue; well-rested boost
+//   9.  blowout        ( 4%) — large spread = starters may sit 4th quarter
+//  10.  homeAway       ( 2%) — home vs away performance split
+//  11.  vsOpponent     ( 1%) — hit rate vs this specific team (Bayesian-blended)
+//  12.  consistency    ( 0%) — removed: confirmed no predictive power in backtest
 //
-// Weights updated via backtest.py walk-forward validation (9,226 synthetic test cases, 55.1% CV accuracy).
-// Key finding: matchupEdge and last20HitRate were heavily underweighted in prior versions.
-// Run scripts/backtest.py to re-validate after weight changes.
+// HIGH threshold raised 65 → 73: fewer but higher-conviction picks.
+// Consensus bonus/penalty: if 4+ of the 5 primary factors agree → +3pts; 0-1 agree → -10pts.
+// Real-world result: 17/31 (55%) on first night with old model. Target: 70%+ on HIGH.
 
 import type { Prop, StatType, ConfidenceLabel, RiskTier } from '@/types'
 
@@ -67,6 +69,7 @@ export interface ScoringContext {
   isHome?:            boolean | null
   opponentAbbr?:      string | null
   spread?:            number | null              // absolute point spread (e.g. 8.5)
+  gameTotal?:         number | null              // over/under game total (e.g. 228.5) — pace proxy
   playerStatus?:      'active' | 'questionable' | 'doubtful' | 'out' | null
   injuredTeammates?:  InjuredTeammate[]
   seasonStats?:       SeasonStats | null
@@ -80,18 +83,18 @@ export interface ScoredProp extends Prop {
 }
 
 const W = {
-  last10HitRate:  0.13,  // LR: 15.4%
-  matchupEdge:    0.28,  // LR: 32.9% — strongest signal in backtest
-  seasonCushion:  0.10,  // LR: 12.1%
-  vsOpponent:     0.01,  // LR: ~0% — near zero synthetically, kept for h2h narrative
-  homeAway:       0.03,  // LR:  2.9%
-  trend:          0.11,  // LR: 13.2%
-  last20HitRate:  0.20,  // LR: 23.4%
-  consistency:    0.00,  // LR:  0.0% — confirmed no predictive power
-  bookOdds:       0.01,  // sanity check
-  blowout:        0.05,  // real-time only — not backtestable
-  newsInjury:     0.05,  // real-time only — not backtestable
-  restDays:       0.03,  // LR said 0% (synth lines can't detect), kept small for B2B fatigue
+  lineValue:      0.20,  // NEW: z-score of line vs L10 avg — real market value signal
+  matchupEdge:    0.22,  // opponent defensive rank for this stat
+  last20HitRate:  0.15,  // supplementary stability check (same recent games, not circular)
+  trend:          0.12,  // L5 vs L20 momentum
+  pace:           0.07,  // NEW: game O/U total → possession count proxy
+  seasonCushion:  0.07,  // season average gap from the line
+  newsInjury:     0.05,  // injury context
+  restDays:       0.05,  // B2B fatigue / rest boost
+  blowout:        0.04,  // large spread = early garbage time risk
+  homeAway:       0.02,  // home vs away split
+  vsOpponent:     0.01,  // h2h history (Bayesian-blended)
+  consistency:    0.00,  // confirmed no predictive power
 } as const
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -145,6 +148,62 @@ function hitRate(
     dir === 'over' ? getStatValue(g, statType) > line : getStatValue(g, statType) < line
   ).length
   return hits / slice.length
+}
+
+// ── Factor 1 (NEW): Line value z-score ───────────────────────────────────────
+// Measures whether the market line is generous or tight vs the player's recent form.
+// Unlike hitRate() which applies tonight's line retroactively to past games (circular),
+// this computes: how many standard deviations is the player's L10 avg above/below the line?
+// A line set below a player's recent average (positive z for OVER) = genuine market value.
+function lineValueScore(
+  logs: GameLog[],
+  statType: StatType,
+  line: number,
+  dir: 'over' | 'under',
+): number {
+  const recent = logs.slice(0, 10).map((g) => getStatValue(g, statType)).filter((v) => v >= 0)
+  if (recent.length < 5) return 0.50
+
+  const mean = recent.reduce((a, b) => a + b, 0) / recent.length
+  const variance = recent.reduce((sum, v) => sum + (v - mean) ** 2, 0) / recent.length
+  const stdev = Math.sqrt(variance)
+
+  if (stdev < 0.5) return 0.50  // near-zero variance: no signal
+
+  // For OVER: positive z = line is below recent avg = value (player likely to exceed)
+  // For UNDER: positive z = line is above recent avg = value (player likely to fall short)
+  const z = dir === 'over' ? (mean - line) / stdev : (line - mean) / stdev
+
+  // z=1.5→0.92, z=1.0→0.78, z=0.5→0.64, z=0→0.50, z=-0.5→0.36, z=-1.0→0.22
+  return clamp(0.50 + z * 0.28)
+}
+
+// ── Factor 13 (NEW): Pace / game total ────────────────────────────────────────
+// Higher game O/U total = faster pace = more possessions = more counting stat opportunities.
+// Applies strongest to points/assists/pra; weaker for rebounds/3PM; minimal for steals/blocks.
+function paceScore(
+  gameTotal: number | null | undefined,
+  statType: StatType,
+  dir: 'over' | 'under',
+): number {
+  if (!gameTotal || gameTotal < 185 || gameTotal > 280) return 0.50
+
+  // How much counting stat volume scales with pace per stat type
+  const paceRelevance: Partial<Record<StatType, number>> = {
+    points:         1.0,
+    assists:        0.9,
+    pra:            0.9,
+    rebounds:       0.6,
+    three_pointers: 0.5,
+    steals:         0.2,
+    blocks:         0.2,
+  }
+  const relevance = paceRelevance[statType] ?? 0.5
+
+  // NBA O/U totals typically 212–240. Mean ~226, sd ~8.
+  const z = (gameTotal - 226) / 8
+  const raw = 0.50 + z * 0.15 * relevance  // max ±15% effect for points
+  return dir === 'over' ? clamp(raw) : clamp(1 - raw)
 }
 
 // ── Factor 2: Opponent defensive rank ────────────────────────────────────────
@@ -360,20 +419,19 @@ export function scoreProps(
     isHome           = null,
     opponentAbbr     = null,
     spread           = null,
+    gameTotal        = null,
     playerStatus     = null,
     injuredTeammates = [],
     seasonStats      = null,
   } = ctx
 
   // Compute all factors
-  const hr10     = hasLogs ? hitRate(gameLogs, stat_type, line, direction, 10) : null
   const hr20     = hasLogs ? hitRate(gameLogs, stat_type, line, direction, 20) : null
   const vsOpp    = hasLogs ? vsOpponentScore(gameLogs, stat_type, line, direction, opponentAbbr) : { score: 0.50, gamesFound: 0, hitsFound: 0, avgStat: 0 }
   const homeAway = hasLogs ? homeAwaySplit(gameLogs, stat_type, line, direction, isHome) : null
 
-  const f1  = hr10    ?? 0.50
+  const fLineValue = hasLogs ? lineValueScore(gameLogs, stat_type, line, direction) : 0.50
   const f2  = matchupScore(defStats, stat_type, direction)
-  // cushionScore uses season avg if available (even without game logs)
   const hasCushion = hasLogs || seasonStats != null
   const f3  = hasCushion ? cushionScore(gameLogs, stat_type, line, direction, seasonStats) : 0.50
   const f4  = vsOpp.score
@@ -381,53 +439,58 @@ export function scoreProps(
   const f6  = hasLogs ? trendScore(gameLogs, stat_type, direction) : 0.50
   const f7  = hr20    ?? 0.50
   const f8  = hasLogs ? consistencyScore(gameLogs, stat_type) : 0.50
-  const f9  = bookOddsScore(odds)
   const f10 = blowoutScore(spread)
   const f11 = newsInjuryScore(playerStatus, injuredTeammates)
   const f12 = restDaysScore(gameLogs, prop.commence_time)
+  const fPace = paceScore(gameTotal, stat_type, direction)
 
   let raw: number
   if (!hasLogs) {
-    // No game logs: if we have season stats, include cushion + matchup; otherwise pure book odds
+    // No game logs: rely on matchup + season cushion + injury context
     if (seasonStats != null) {
-      raw = f9 * 0.30 + f2 * 0.45 + f3 * 0.15 + f11 * 0.10
+      raw = f2 * 0.50 + f3 * 0.30 + f11 * 0.20
     } else {
-      raw = f9 * 0.60 + f2 * 0.30 + 0.50 * 0.10
+      raw = f2 * 0.70 + f11 * 0.30
     }
   } else {
     raw =
-      f1  * W.last10HitRate +
-      f2  * W.matchupEdge   +
-      f3  * W.seasonCushion +
-      f4  * W.vsOpponent    +
-      f5  * W.homeAway      +
-      f6  * W.trend         +
-      f7  * W.last20HitRate +
-      f8  * W.consistency   +
-      f9  * W.bookOdds      +
-      f10 * W.blowout       +
-      f11 * W.newsInjury    +
-      f12 * W.restDays
+      fLineValue * W.lineValue      +
+      f2         * W.matchupEdge    +
+      f7         * W.last20HitRate  +
+      f6         * W.trend          +
+      fPace      * W.pace           +
+      f3         * W.seasonCushion  +
+      f11        * W.newsInjury     +
+      f12        * W.restDays       +
+      f10        * W.blowout        +
+      f5         * W.homeAway       +
+      f4         * W.vsOpponent     +
+      f8         * W.consistency
   }
 
-  const score = Math.round(Math.min(95, Math.max(18, raw * 100)))
+  // Consensus bonus/penalty: count how many of the 5 primary factors agree (≥0.55)
+  // If only 1-2 agree, a single dominant factor is carrying the score — penalize.
+  const primaryFactors = [fLineValue, f2, f7, f6, f3]
+  const agreeCount = primaryFactors.filter((f) => f >= 0.55).length
+  const consensusAdj = agreeCount >= 4 ? 3 : agreeCount >= 3 ? 0 : agreeCount >= 2 ? -4 : -10
+
+  const score = Math.round(Math.min(95, Math.max(18, raw * 100 + consensusAdj)))
   const { label, tier } = getLabel(score)
   const reason = buildReason(
-    prop, gameLogs, hr10, hr20, f3, f6, f8, f2, hasLogs, defStats, vsOpp, isHome,
-    spread, playerStatus, injuredTeammates, seasonStats
+    prop, gameLogs, fLineValue, hr20, f3, f6, f8, f2, hasLogs, defStats, vsOpp, isHome,
+    spread, playerStatus, injuredTeammates, seasonStats, gameTotal
   )
 
   return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason }
 }
 
 // ── Label thresholds ──────────────────────────────────────────────────────────
-// Calibrated via backtest tier analysis on 9,226 synthetic test cases:
-//   HIGH   (≥65): ~54-56% historical hit rate  — top tier picks
-//   MEDIUM (50–64): ~50-54% hit rate            — average confidence
-//   LOW    (<50):  ~43-49% hit rate             — model is anti-predicting;
-//                                                  the UNDER side is actually the lean
+// v5 thresholds (raised from 65 to 73 for HIGH):
+//   HIGH   (≥73): requires multiple independent factors agreeing — target 65%+ hit rate
+//   MEDIUM (50–72): moderate confidence
+//   LOW    (<50):  model leans against — the opposite direction may be the value
 function getLabel(score: number): { label: ConfidenceLabel; tier: RiskTier } {
-  if (score >= 65) return { label: 'HIGH',   tier: 'LOW_RISK'  }
+  if (score >= 73) return { label: 'HIGH',   tier: 'LOW_RISK'  }
   if (score >= 50) return { label: 'MEDIUM', tier: 'MED_RISK'  }
   return              { label: 'LOW',    tier: 'HIGH_RISK' }
 }
@@ -454,7 +517,7 @@ function defenseTierLabel(rank: number): string {
 function buildReason(
   prop: Prop,
   logs: GameLog[],
-  hr10: number | null,
+  lineValue: number,
   hr20: number | null,
   cushion: number,
   trend: number,
@@ -468,6 +531,7 @@ function buildReason(
   playerStatus: ScoringContext['playerStatus'],
   injuredTeammates: InjuredTeammate[],
   seasonStats: SeasonStats | null | undefined,
+  gameTotal?: number | null,
 ): string {
   const { stat_type, line, direction, player_name, opponent } = prop
   const stat = STAT_WORD[stat_type] ?? stat_type
@@ -519,15 +583,34 @@ function buildReason(
     }
   }
 
-  // 1. Recent hit rate
-  if (hr10 !== null) {
-    const total10 = Math.min(logs.length, 10)
-    const hits10  = Math.round(hr10 * total10)
+  // 1. Line value (market assessment)
+  {
+    const recent = logs.slice(0, 10).map((g) => getStatValue(g, stat_type)).filter((v) => v >= 0)
+    if (recent.length >= 5) {
+      const mean = recent.reduce((a, b) => a + b, 0) / recent.length
+      const variance = recent.reduce((sum, v) => sum + (v - mean) ** 2, 0) / recent.length
+      const stdev = Math.sqrt(variance)
+      if (stdev >= 0.5) {
+        const z = dir === 'over' ? (mean - line) / stdev : (line - mean) / stdev
+        if (z >= 0.4) {
+          sentences.push(
+            `Line value: the line of ${line} sits ${Math.abs((mean - line)).toFixed(1)} below their L10 average of ${mean.toFixed(1)} — the market has set this generously.`
+          )
+        } else if (z <= -0.4) {
+          sentences.push(
+            `Tight line: the line of ${line} sits ${Math.abs((mean - line)).toFixed(1)} above their L10 average of ${mean.toFixed(1)} — the market has priced this aggressively.`
+          )
+        }
+      }
+    }
+  }
+
+  // 1b. Last 20 hit rate
+  if (hr20 !== null) {
     const total20 = Math.min(logs.length, 20)
-    const hits20  = hr20 !== null ? Math.round(hr20 * total20) : null
-    const longTerm = hits20 !== null ? ` and ${hits20}/${total20} over the last 20` : ''
+    const hits20  = Math.round(hr20 * total20)
     sentences.push(
-      `${player_name} has gone ${dir} ${line} ${stat} in ${hits10} of their last ${total10} games${longTerm}.`
+      `${player_name} has gone ${dir} ${line} ${stat} in ${hits20} of their last ${total20} games.`
     )
   }
 
@@ -621,6 +704,15 @@ function buildReason(
           `${oppName} is ${tierStr} in the league at allowing ${stat} (ranked #${rank} of 30).`
         )
       }
+    }
+  }
+
+  // 7b. Pace note
+  if (gameTotal && gameTotal >= 185 && (stat_type === 'points' || stat_type === 'assists' || stat_type === 'pra')) {
+    if (gameTotal >= 234) {
+      sentences.push(`High-paced game expected (O/U ${gameTotal}) — more possessions means more ${stat} opportunities.`)
+    } else if (gameTotal <= 215) {
+      sentences.push(`Slow-paced game expected (O/U ${gameTotal}) — fewer possessions could limit ${stat} volume.`)
     }
   }
 
