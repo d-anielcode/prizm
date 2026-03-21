@@ -1,24 +1,26 @@
-// Prizm Confidence Engine v5
+// Prizm Confidence Engine v5.1
 //
 // Factors & weights (sum = 1.00):
-//   1.  lineValue      (20%) — z-score of tonight's line vs player's L10 average + stdev [NEW]
-//                              Measures whether the market has set a generous or tight line.
-//                              Replaces last10HitRate which circularly applied tonight's line to past games.
+//   1.  lineValue      (20%) — z-score of tonight's line vs player's L10 average + stdev
+//                              Only uses games within the last 60 days (date-windowed).
 //   2.  matchupEdge    (22%) — opponent's defensive rank for this stat
-//   3.  last20HitRate  (15%) — did they beat this line in the last 20 games (longer-term stability)
-//   4.  trend          (12%) — L5 vs L20 momentum
-//   5.  pace           ( 7%) — game O/U total as pace proxy; more possessions = more counting stats [NEW]
+//   3.  last20HitRate  (15%) — exponentially-weighted hit rate (recent games count more)
+//                              Filtered to games within last 90 days.
+//   4.  trend          (12%) — L5 vs L20 momentum (90-day window)
+//   5.  pace           ( 7%) — game O/U total as pace proxy
 //   6.  seasonCushion  ( 7%) — season average cushion above/below tonight's line
 //   7.  newsInjury     ( 5%) — injury report: teammate out = usage boost, player Q = risk
 //   8.  restDays       ( 5%) — back-to-back fatigue; well-rested boost
 //   9.  blowout        ( 4%) — large spread = starters may sit 4th quarter
 //  10.  homeAway       ( 2%) — home vs away performance split
 //  11.  vsOpponent     ( 1%) — hit rate vs this specific team (Bayesian-blended)
-//  12.  consistency    ( 0%) — removed: confirmed no predictive power in backtest
+//  12.  consistency    ( 0%) — pending re-evaluation via backtest
 //
-// HIGH threshold raised 65 → 73: fewer but higher-conviction picks.
-// Consensus bonus/penalty: if 4+ of the 5 primary factors agree → +3pts; 0-1 agree → -10pts.
-// Real-world result: 17/31 (55%) on first night with old model. Target: 70%+ on HIGH.
+// Data freshness: if a player's last game was >7 days ago, all log-based factor scores
+// are compressed toward 0.50 proportionally. A 2-month absence = ~35% of signal retained.
+// This prevents injury-return picks from scoring HIGH based on pre-injury form.
+//
+// HIGH threshold: 73. Consensus: 4+ primary factors agree → +3pts; 0-1 → -10pts (scaled by freshness).
 
 import type { Prop, StatType, ConfidenceLabel, RiskTier } from '@/types'
 
@@ -111,6 +113,38 @@ function clamp(x: number, lo = 0.05, hi = 0.95): number {
   return Math.min(hi, Math.max(lo, x))
 }
 
+/** Returns YYYY-MM-DD cutoff date N days before commenceTime. */
+function dateCutoff(commenceTime: string | undefined, daysBack: number): string | null {
+  if (!commenceTime) return null
+  return new Date(new Date(commenceTime).getTime() - daysBack * 86400000)
+    .toISOString().slice(0, 10)
+}
+
+// ── Data freshness ────────────────────────────────────────────────────────────
+// Returns a multiplier (0–1) based on the gap between a player's most recent game
+// and tonight. Applied to all log-derived factor deviations from 0.50, so a player
+// returning from a long absence gets compressed toward neutral confidence.
+//
+//   ≤7 days (playing regularly): 1.00 — no decay
+//   8–14 days (missed ~1 week):  0.88 — mild decay
+//   15–21 days (missed 2 weeks): 0.72 — moderate decay
+//   22–45 days (missed 3+ wks):  0.55 — significant decay
+//   46–90 days (out 6+ weeks):   0.35 — major decay
+//   >90 days  (out 3+ months):   0.15 — near-neutral (e.g., Tatum returning from year out)
+function dataFreshness(logs: GameLog[], commenceTime: string | undefined): number {
+  if (!logs.length || !commenceTime) return 0.70
+  const lastGame = new Date(logs[0].game_date)
+  const tonight  = new Date(commenceTime)
+  const gapDays  = (tonight.getTime() - lastGame.getTime()) / 86400000
+
+  if (gapDays > 90) return 0.15
+  if (gapDays > 45) return 0.35
+  if (gapDays > 21) return 0.55
+  if (gapDays > 14) return 0.72
+  if (gapDays > 7)  return 0.88
+  return 1.00
+}
+
 function getStatValue(log: GameLog, statType: StatType): number {
   switch (statType) {
     case 'points':         return log.points
@@ -144,69 +178,90 @@ function extractOpponent(matchup: string): string | null {
 }
 
 // ── Factor 1 & 7: Hit rate over N games ──────────────────────────────────────
+// Uses exponential decay weighting: most recent game has weight 1.0, each game
+// back multiplied by 0.93 (game 10 back ≈ 0.48x weight). Also filters to games
+// within the last 90 days so pre-injury/pre-season data doesn't pollute the rate.
 function hitRate(
   logs: GameLog[],
   statType: StatType,
   line: number,
   dir: 'over' | 'under',
   n: number,
+  commenceTime?: string,
 ): number | null {
-  const slice = logs.slice(0, n)
+  const cutoff = dateCutoff(commenceTime, 90)
+  const slice = (cutoff ? logs.filter((g) => g.game_date >= cutoff) : logs).slice(0, n)
   if (slice.length < 3) return null
-  const hits = slice.filter((g) =>
-    dir === 'over' ? getStatValue(g, statType) > line : getStatValue(g, statType) < line
-  ).length
-  return hits / slice.length
+
+  let weightedHits = 0
+  let totalWeight   = 0
+  for (let i = 0; i < slice.length; i++) {
+    const w   = Math.pow(0.93, i)   // decay: game 0 = 1.0, game 10 ≈ 0.48
+    const hit = dir === 'over'
+      ? getStatValue(slice[i], statType) > line
+      : getStatValue(slice[i], statType) < line
+    weightedHits += hit ? w : 0
+    totalWeight  += w
+  }
+  return weightedHits / totalWeight
 }
 
 // ── Actual hit rate vs real posted lines ─────────────────────────────────────
 // Unlike hitRate() which applies tonight's static line retroactively,
 // this matches each game log to the actual line posted that night.
-// Falls back to hitRate() for games where no historical line exists.
+// Also applies exponential weighting and 90-day filter, same as hitRate().
 function actualHitRate(
   logs: GameLog[],
   historicalLines: HistoricalLine[],
   statType: StatType,
   dir: 'over' | 'under',
   n: number,
+  commenceTime?: string,
 ): number | null {
   const lineByDate = new Map<string, number>()
   for (const h of historicalLines) {
     if (h.stat_type === statType && h.direction === dir) {
-      // Average line across books for this date (consensus line)
       const existing = lineByDate.get(h.game_date)
       lineByDate.set(h.game_date, existing != null ? (existing + h.line) / 2 : h.line)
     }
   }
 
-  const slice = logs.slice(0, n)
+  const cutoff = dateCutoff(commenceTime, 90)
+  const slice = (cutoff ? logs.filter((g) => g.game_date >= cutoff) : logs).slice(0, n)
   if (slice.length < 3) return null
 
-  let matched = 0
-  let hits = 0
-  for (const log of slice) {
-    const actualLine = lineByDate.get(log.game_date)
-    if (actualLine == null) continue  // no historical line for this game — skip
-    const stat = getStatValue(log, statType)
-    if (dir === 'over' ? stat > actualLine : stat < actualLine) hits++
+  let weightedHits = 0
+  let totalWeight   = 0
+  let matched       = 0
+  for (let i = 0; i < slice.length; i++) {
+    const actualLine = lineByDate.get(slice[i].game_date)
+    if (actualLine == null) continue
+    const w   = Math.pow(0.93, matched)  // weight by position among matched games
+    const hit = dir === 'over'
+      ? getStatValue(slice[i], statType) > actualLine
+      : getStatValue(slice[i], statType) < actualLine
+    weightedHits += hit ? w : 0
+    totalWeight  += w
     matched++
   }
 
-  return matched >= 3 ? hits / matched : null
+  return matched >= 3 ? weightedHits / totalWeight : null
 }
 
-// ── Factor 1 (NEW): Line value z-score ───────────────────────────────────────
+// ── Factor 1: Line value z-score ─────────────────────────────────────────────
 // Measures whether the market line is generous or tight vs the player's recent form.
-// Unlike hitRate() which applies tonight's line retroactively to past games (circular),
-// this computes: how many standard deviations is the player's L10 avg above/below the line?
-// A line set below a player's recent average (positive z for OVER) = genuine market value.
+// Only considers games within the last 60 days so injury-return players don't get
+// a falsely bullish signal from pre-injury stats.
 function lineValueScore(
   logs: GameLog[],
   statType: StatType,
   line: number,
   dir: 'over' | 'under',
+  commenceTime?: string,
 ): number {
-  const recent = logs.slice(0, 10).map((g) => getStatValue(g, statType)).filter((v) => v >= 0)
+  const cutoff = dateCutoff(commenceTime, 60)
+  const eligible = cutoff ? logs.filter((g) => g.game_date >= cutoff) : logs
+  const recent = eligible.slice(0, 10).map((g) => getStatValue(g, statType)).filter((v) => v >= 0)
   if (recent.length < 5) return 0.50
 
   const mean = recent.reduce((a, b) => a + b, 0) / recent.length
@@ -350,13 +405,18 @@ function homeAwaySplit(
 }
 
 // ── Factor 6: Trend (L5 vs L20 avg) ─────────────────────────────────────────
+// Uses a 90-day window so pre-injury/last-season games don't distort the baseline.
+// A player on a hot streak (high L5 vs L20) gets a positive trend score.
 function trendScore(
   logs: GameLog[],
   statType: StatType,
   dir: 'over' | 'under',
+  commenceTime?: string,
 ): number {
-  const l5  = logs.slice(0, 5).map((g) => getStatValue(g, statType))
-  const l20 = logs.slice(0, 20).map((g) => getStatValue(g, statType))
+  const cutoff = dateCutoff(commenceTime, 90)
+  const eligible = cutoff ? logs.filter((g) => g.game_date >= cutoff) : logs
+  const l5  = eligible.slice(0, 5).map((g) => getStatValue(g, statType))
+  const l20 = eligible.slice(0, 20).map((g) => getStatValue(g, statType))
   if (l5.length < 3 || l20.length < 8) return 0.50
   const avg5  = l5.reduce((a, b) => a + b, 0) / l5.length
   const avg20 = l20.reduce((a, b) => a + b, 0) / l20.length
@@ -472,33 +532,34 @@ export function scoreProps(
   } = ctx
 
   // Compute all factors
+  const ct = prop.commence_time  // shorthand for commenceTime threading
+
   // Use actual historical lines when available; fall back to retroactive line application
   const hasHistoricalData = historicalLines.length >= 5
   const hr20 = hasLogs
     ? (hasHistoricalData
-        ? (actualHitRate(gameLogs, historicalLines, stat_type, direction, 20) ?? hitRate(gameLogs, stat_type, line, direction, 20))
-        : hitRate(gameLogs, stat_type, line, direction, 20))
+        ? (actualHitRate(gameLogs, historicalLines, stat_type, direction, 20, ct) ?? hitRate(gameLogs, stat_type, line, direction, 20, ct))
+        : hitRate(gameLogs, stat_type, line, direction, 20, ct))
     : null
   const vsOpp    = hasLogs ? vsOpponentScore(gameLogs, stat_type, line, direction, opponentAbbr) : { score: 0.50, gamesFound: 0, hitsFound: 0, avgStat: 0 }
   const homeAway = hasLogs ? homeAwaySplit(gameLogs, stat_type, line, direction, isHome) : null
 
-  const fLineValue = hasLogs ? lineValueScore(gameLogs, stat_type, line, direction) : 0.50
+  const fLineValue = hasLogs ? lineValueScore(gameLogs, stat_type, line, direction, ct) : 0.50
   const f2  = matchupScore(defStats, stat_type, direction)
   const hasCushion = hasLogs || seasonStats != null
   const f3  = hasCushion ? cushionScore(gameLogs, stat_type, line, direction, seasonStats) : 0.50
   const f4  = vsOpp.score
   const f5  = homeAway ?? 0.50
-  const f6  = hasLogs ? trendScore(gameLogs, stat_type, direction) : 0.50
+  const f6  = hasLogs ? trendScore(gameLogs, stat_type, direction, ct) : 0.50
   const f7  = hr20    ?? 0.50
   const f8  = hasLogs ? consistencyScore(gameLogs, stat_type) : 0.50
   const f10 = blowoutScore(spread)
   const f11 = newsInjuryScore(playerStatus, injuredTeammates)
-  const f12 = restDaysScore(gameLogs, prop.commence_time)
+  const f12 = restDaysScore(gameLogs, ct)
   const fPace = paceScore(gameTotal, stat_type, direction)
 
   let raw: number
   if (!hasLogs) {
-    // No game logs: rely on matchup + season cushion + injury context
     if (seasonStats != null) {
       raw = f2 * 0.50 + f3 * 0.30 + f11 * 0.20
     } else {
@@ -521,16 +582,21 @@ export function scoreProps(
   }
 
   // Consensus bonus/penalty: count how many of the 5 primary factors agree (≥0.55)
-  // If only 1-2 agree, a single dominant factor is carrying the score — penalize.
   const primaryFactors = [fLineValue, f2, f7, f6, f3]
   const agreeCount = primaryFactors.filter((f) => f >= 0.55).length
   const consensusAdj = agreeCount >= 4 ? 3 : agreeCount >= 3 ? 0 : agreeCount >= 2 ? -4 : -10
 
-  const score = Math.round(Math.min(95, Math.max(18, raw * 100 + consensusAdj)))
+  // Data freshness: compress log-derived signal toward 0.50 when player has been out.
+  // Factors like lineValue and hitRate are meaningless if the data is 3 months old.
+  // matchupEdge, spread, pace, injury are real-time and unaffected by this.
+  const freshness = hasLogs ? dataFreshness(gameLogs, ct) : 1.00
+  const adjustedRaw = hasLogs ? (0.50 + (raw - 0.50) * freshness) : raw
+
+  const score = Math.round(Math.min(95, Math.max(18, adjustedRaw * 100 + consensusAdj * freshness)))
   const { label, tier } = getLabel(score)
   const reason = buildReason(
     prop, gameLogs, fLineValue, hr20, f3, f6, f8, f2, hasLogs, defStats, vsOpp, isHome,
-    spread, playerStatus, injuredTeammates, seasonStats, gameTotal
+    spread, playerStatus, injuredTeammates, seasonStats, gameTotal, freshness
   )
 
   return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason }
@@ -584,6 +650,7 @@ function buildReason(
   injuredTeammates: InjuredTeammate[],
   seasonStats: SeasonStats | null | undefined,
   gameTotal?: number | null,
+  freshness?: number,
 ): string {
   const { stat_type, line, direction, player_name, opponent } = prop
   const stat = STAT_WORD[stat_type] ?? stat_type
@@ -611,7 +678,17 @@ function buildReason(
 
   const sentences: string[] = []
 
-  // 0. News / injury — lead with this if it's impactful
+  // 0a. Data staleness warning — show before anything else when data is significantly old
+  if (freshness != null && freshness <= 0.55 && logs.length > 0) {
+    const lastGame = logs[0].game_date
+    const gapDays  = Math.round((new Date(prop.commence_time ?? Date.now()).getTime() - new Date(lastGame).getTime()) / 86400000)
+    sentences.push(
+      `⚠️ Data may be stale — last game was ${gapDays} days ago. ` +
+      `Historical stats are discounted; confidence reflects higher uncertainty on return.`
+    )
+  }
+
+  // 0b. News / injury — lead with this if it's impactful
   if (playerStatus === 'out') {
     sentences.push(`⚠️ ${player_name} is listed as OUT — this pick carries extreme risk.`)
   } else if (playerStatus === 'doubtful') {
