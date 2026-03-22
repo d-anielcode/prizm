@@ -101,27 +101,43 @@ function teamFromMatchup(matchup: string, isHome: boolean): string | null {
   return null
 }
 
-async function getData(): Promise<{ games: GameInfo[]; allProps: Prop[] }> {
+async function getData(): Promise<{ games: GameInfo[]; allProps: Prop[]; stale: boolean }> {
   const now = new Date().toISOString()
 
-  const allRows: Prop[] = []
-  let from = 0
-  const PAGE = 1000
-  while (true) {
-    const { data, error } = await supabase
-      .from('props')
-      .select('*')
-      .or(`commence_time.is.null,commence_time.gt.${now}`)
-      .order('confidence_score', { ascending: false, nullsFirst: false })
-      .range(from, from + PAGE - 1)
-    if (error) {
-      console.error('[home] Supabase error:', error.message)
-      break
+  // Helper to paginate a query
+  async function fetchProps(futureOnly: boolean): Promise<Prop[]> {
+    const rows: Prop[] = []
+    let from = 0
+    const PAGE = 1000
+    while (true) {
+      let q = supabase
+        .from('props')
+        .select('*')
+        .order('confidence_score', { ascending: false, nullsFirst: false })
+        .range(from, from + PAGE - 1)
+      if (futureOnly) q = q.or(`commence_time.is.null,commence_time.gt.${now}`)
+      const { data, error } = await q
+      if (error) { console.error('[home] Supabase error:', error.message); break }
+      if (!data || data.length === 0) break
+      rows.push(...(data as Prop[]))
+      if (data.length < PAGE) break
+      from += PAGE
     }
-    if (!data || data.length === 0) break
-    allRows.push(...(data as Prop[]))
-    if (data.length < PAGE) break
-    from += PAGE
+    return rows
+  }
+
+  // First try: only upcoming games (normal case)
+  let allRows = await fetchProps(true)
+  let stale = false
+
+  // Fallback: if table is empty or all games have started, show whatever is cached
+  // This prevents a blank slate during the window between midnight and the morning cron
+  if (allRows.length === 0) {
+    allRows = await fetchProps(false)
+    stale = true
+    if (allRows.length > 0) {
+      console.log('[home] No upcoming props found — showing stale cache as fallback')
+    }
   }
 
   // Resolve actual team abbreviations for LOCK/PLAY props from recent game logs.
@@ -188,16 +204,16 @@ async function getData(): Promise<{ games: GameInfo[]; allProps: Prop[] }> {
     if (g) g.prop_count++
   }
 
-  // Filter to upcoming only, sort by commence_time
+  // Filter to upcoming only when not in stale mode, sort by commence_time
   const games = [...gameMap.values()]
-    .filter((g) => g.commence_time == null || new Date(g.commence_time) > new Date())
+    .filter((g) => stale || g.commence_time == null || new Date(g.commence_time) > new Date())
     .sort((a, b) => {
       if (!a.commence_time) return 1
       if (!b.commence_time) return -1
       return new Date(a.commence_time).getTime() - new Date(b.commence_time).getTime()
     })
 
-  return { games, allProps: deduped }
+  return { games, allProps: deduped, stale }
 }
 
 function getGameDay(games: GameInfo[]): string {
@@ -248,7 +264,7 @@ function TeamSide({
 }
 
 export default async function HomePage() {
-  const [{ games, allProps }, results] = await Promise.all([getData(), getResults()])
+  const [{ games, allProps, stale }, results] = await Promise.all([getData(), getResults()])
   const gameDay = getGameDay(games)
 
   const lock = allProps.filter((p) => p.confidence_label === 'LOCK').length
@@ -261,6 +277,12 @@ export default async function HomePage() {
 
       {/* ── Page header ── */}
       <div className="flex flex-col gap-3">
+        {stale && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            Showing last cached slate — today&apos;s lines not yet available. Updates automatically by 8 AM ET.
+          </div>
+        )}
         <div className="flex items-baseline gap-3 flex-wrap">
           <h1 className="text-4xl font-black text-white tracking-tight">{gameDay} Slate</h1>
           <span className="text-white/30 text-sm">{games.length} games</span>

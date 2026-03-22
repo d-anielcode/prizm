@@ -33,6 +33,18 @@
       "schedule": "5 5 * * *"
     },
     {
+      "path": "/api/props?refresh=true",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/enrich?force=true",
+      "schedule": "15 12 * * *"
+    },
+    {
+      "path": "/api/feed/generate",
+      "schedule": "30 12 * * *"
+    },
+    {
       "path": "/api/gamelogs",
       "schedule": "55 13 * * *"
     },
