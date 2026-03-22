@@ -124,6 +124,14 @@ function evaluate(
   return { total, hits, hitRate: hits / total }
 }
 
+// ── Source mode ───────────────────────────────────────────────────────────────
+// --source=historical (default) : train on historical_prop_lines (82k real book lines)
+// --source=grades               : train on prop_grades (real production pipeline output)
+//   Useful once 30+ days of production data have accumulated. Trains on props that
+//   actually went through the confidence model, so the optimizer sees the same
+//   feature distribution the model uses in production.
+const SOURCE = process.argv.find((a) => a.startsWith('--source='))?.split('=')[1] ?? 'historical'
+
 // ── Stat column map ───────────────────────────────────────────────────────────
 const STAT_COL: Record<string, string> = {
   points: 'points', rebounds: 'rebounds', assists: 'assists',
@@ -139,6 +147,17 @@ interface GameLogRow {
 interface PropRow {
   player_name: string; stat_type: string; direction: string
   line: number; game_date: string; commence_time: string | null
+}
+
+// prop_grades row (real production graded props)
+interface GradeRow {
+  player_name:      string
+  stat_type:        string
+  direction:        string
+  line:             number
+  game_date:        string
+  result:           'hit' | 'miss' | 'dnp'
+  confidence_score: number | null
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,12 +184,44 @@ async function main() {
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
   // ── 1. Load props ──────────────────────────────────────────────────────────
-  // Real sportsbook lines only. Synthetic excluded: calibration noise biases signal patterns.
-  console.log('Loading props (real sportsbook lines only)...')
-  const propRows = await loadAll<PropRow>(supabase, 'historical_prop_lines', (q) =>
-    q.select('player_name, stat_type, direction, line, game_date, commence_time').eq('direction', 'over')
-  )
-  console.log(`  ${propRows.length} OVER props`)
+  let propRows: PropRow[]
+
+  if (SOURCE === 'grades') {
+    // ── grades mode: use real production graded data from prop_grades ─────────
+    // Trains on props that actually went through the confidence pipeline — so
+    // factor distributions match exactly what the model sees in production.
+    // Requires 30+ days of graded data to have meaningful signal.
+    console.log('Source: prop_grades (real production pipeline output)')
+    const gradeRows = await loadAll<GradeRow>(supabase, 'prop_grades', (q) =>
+      q.select('player_name, stat_type, direction, line, game_date, result, confidence_score')
+       .eq('direction', 'over')
+       .in('result', ['hit', 'miss'])       // exclude DNP — no game log to evaluate
+       .order('game_date', { ascending: true })
+    )
+    console.log(`  ${gradeRows.length} graded OVER props`)
+
+    // Grade rows don't have commence_time — reconstruct it from game_date (23:30 UTC)
+    propRows = gradeRows.map((g) => ({
+      player_name:   g.player_name,
+      stat_type:     g.stat_type,
+      direction:     g.direction,
+      line:          g.line,
+      game_date:     g.game_date,
+      commence_time: `${g.game_date}T23:30:00+00:00`,
+    }))
+
+    const dateRange = propRows.length > 0
+      ? `${propRows[0].game_date} → ${propRows[propRows.length - 1].game_date}`
+      : 'n/a'
+    console.log(`  Date range: ${dateRange}`)
+  } else {
+    // ── historical mode (default): use historical_prop_lines (82k real book lines) ─
+    console.log('Source: historical_prop_lines (real sportsbook lines, both seasons)')
+    propRows = await loadAll<PropRow>(supabase, 'historical_prop_lines', (q) =>
+      q.select('player_name, stat_type, direction, line, game_date, commence_time').eq('direction', 'over')
+    )
+    console.log(`  ${propRows.length} OVER props`)
+  }
 
   // ── 2. Load game logs (both 24-25 and 25-26 seasons if available) ──────────
   const playerSet = [...new Set(propRows.map((p) => p.player_name))]
@@ -442,6 +493,33 @@ async function main() {
     }
     console.log('═'.repeat(70))
   }
+
+  // ── 11. Segment accuracy breakdown (always printed, most useful in grades mode) ──
+  console.log('\n' + '═'.repeat(70))
+  console.log('SEGMENT ACCURACY — LOCK hit rate by stat type')
+  console.log(`(source: ${SOURCE}  |  ${precomputed.length} props evaluated)`)
+  console.log('─'.repeat(70))
+  const bestW   = deduped[0]?.weights ?? BASELINE
+  const bestT   = deduped[0]?.threshold ?? BASELINE_THRESHOLD
+  const segMap  = new Map<string, { hits: number; total: number }>()
+  for (const f of precomputed) {
+    if (!isLock(f, bestW, bestT)) continue
+    if (!segMap.has(f.statType)) segMap.set(f.statType, { hits: 0, total: 0 })
+    segMap.get(f.statType)!.total += 1
+    if (f.hit) segMap.get(f.statType)!.hits += 1
+  }
+  const segRows = [...segMap.entries()]
+    .map(([stat, { hits, total }]) => ({ stat, hits, total, hr: hits / total }))
+    .sort((a, b) => b.hr - a.hr)
+  for (const { stat, hits, total, hr } of segRows) {
+    const bar   = '█'.repeat(Math.round(hr * 20))
+    const flag  = hr >= 0.68 ? ' ✓ HOT' : hr < 0.55 ? ' ✗ COLD' : ''
+    console.log(`  ${stat.padEnd(16)} ${(hr * 100).toFixed(1).padStart(5)}%  ${hits}/${total}  ${bar}${flag}`)
+  }
+  console.log('─'.repeat(70))
+  console.log('  HOT (≥68%): lean into these stat types for parlay selection')
+  console.log('  COLD (<55%): consider raising threshold or excluding from parlays')
+  console.log('═'.repeat(70))
 }
 
 main().catch(console.error)

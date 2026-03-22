@@ -274,6 +274,51 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     }
   })
 
+  // 3b. Load recent production accuracy to identify hot stat types.
+  //     Hot stat = LOCK hit rate ≥ 62% with ≥ 10 graded samples in last 30 days.
+  //     Hot stats get a +5 score bonus so they bubble up in the pool, making them
+  //     more likely to be selected for parlays without hard-excluding other types.
+  const HOT_LOCK_THRESHOLD = 0.62
+  const HOT_MIN_SAMPLES    = 10
+  const HOT_BONUS          = 5  // points added to confidence_score for sorting
+
+  try {
+    const minGradeDate = new Date(Date.now() - 30 * 86400000)
+      .toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
+    const { data: gradeRows } = await supabase
+      .from('prop_grades')
+      .select('stat_type, confidence_label, result')
+      .gte('game_date', minGradeDate)
+      .in('result', ['hit', 'miss'])
+      .in('confidence_label', ['LOCK'])
+
+    if (gradeRows && gradeRows.length >= HOT_MIN_SAMPLES) {
+      // Tally LOCK hit rate per stat
+      const tallyMap = new Map<string, { hits: number; total: number }>()
+      for (const row of gradeRows) {
+        if (!tallyMap.has(row.stat_type)) tallyMap.set(row.stat_type, { hits: 0, total: 0 })
+        tallyMap.get(row.stat_type)!.hits  += row.result === 'hit' ? 1 : 0
+        tallyMap.get(row.stat_type)!.total += 1
+      }
+      const hotStats = new Set<string>()
+      for (const [stat, { hits, total }] of tallyMap) {
+        if (total >= HOT_MIN_SAMPLES && hits / total >= HOT_LOCK_THRESHOLD) hotStats.add(stat)
+      }
+      // Apply bonus to pool: re-sort with hot-stat adjusted scores
+      if (hotStats.size > 0) {
+        for (const p of pool) {
+          if (hotStats.has(p.stat_type)) {
+            p.confidence_score += HOT_BONUS
+          }
+        }
+        pool.sort((a, b) => b.confidence_score - a.confidence_score)
+      }
+    }
+  } catch {
+    // Grades not yet available — fall back to unmodified pool order
+  }
+
   // 4. Build VALUE parlay (3-leg, independent pool)
   const results: ParlayResult[] = []
   const valueUsed = new Set<string>()
