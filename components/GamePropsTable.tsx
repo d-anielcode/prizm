@@ -4,7 +4,8 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import AltLinesPanel from './AltLinesPanel'
-import type { AltLine, PropWithAlts, StatType } from '@/types'
+import type { AltLine, OpponentCtx, PropWithAlts, StatType } from '@/types'
+import type { PropResult } from '@/app/game/[id]/page'
 
 const STAT_LABELS: Record<StatType, string> = {
   points: 'PTS', rebounds: 'REB', assists: 'AST',
@@ -17,6 +18,37 @@ function impliedProb(odds: number): number {
 }
 function fmtOdds(odds: number): string {
   return odds > 0 ? `+${odds}` : `${odds}`
+}
+
+function SharpMoneyBadge({ opening, current, direction }: { opening: number | null | undefined; current: number; direction: 'over' | 'under' }) {
+  if (opening == null) return null
+  const delta = current - opening
+  if (Math.abs(delta) < 0.5) return null
+  const confirming = direction === 'over' ? delta > 0 : delta < 0
+  return (
+    <span
+      className={`text-[9px] font-black px-1 py-0.5 rounded ${confirming ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/15 text-red-400'}`}
+      title={confirming ? 'Sharp money confirming this pick (line moved with direction)' : 'Sharp money against this pick (line moved opposite direction)'}
+    >
+      {confirming ? 'STEAM' : 'COUNTER'}
+    </span>
+  )
+}
+
+function LineMovement({ opening, current }: { opening: number | null | undefined; current: number }) {
+  if (opening == null || opening === current) return null
+  const delta = current - opening
+  const moved = Math.abs(delta)
+  if (moved < 0.5) return null
+  const up = delta > 0
+  return (
+    <span
+      className={`text-[9px] font-bold ml-1 ${up ? 'text-orange-400' : 'text-emerald-400'}`}
+      title={`Line moved from ${opening} → ${current}`}
+    >
+      {up ? '↑' : '↓'}{moved % 1 === 0 ? moved.toFixed(0) : moved.toFixed(1)}
+    </span>
+  )
 }
 
 function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; mainDir: 'over' | 'under' }) {
@@ -58,7 +90,48 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
   )
 }
 
-export default function GamePropsTable({ props }: { props: PropWithAlts[] }) {
+function OpponentChip({ ctx, direction }: { ctx: OpponentCtx; direction: 'over' | 'under' }) {
+  const { oppAbbr, rank, overHitRate } = ctx
+
+  // Color logic: for OVER, high rank (soft D) = green; low rank (tough D) = red. Flip for UNDER.
+  let rankColor = 'text-white/35'
+  if (rank != null) {
+    const favorable = direction === 'over' ? rank >= 22 : rank <= 9
+    const unfavorable = direction === 'over' ? rank <= 9 : rank >= 22
+    if (favorable)   rankColor = 'text-emerald-400'
+    else if (unfavorable) rankColor = 'text-red-400'
+    else rankColor = 'text-[#f0c060]'
+  }
+
+  const hitPct = overHitRate != null ? Math.round(overHitRate * 100) : null
+  const hitColor = hitPct == null ? 'text-white/30'
+    : direction === 'over'
+      ? hitPct >= 58 ? 'text-emerald-400' : hitPct <= 42 ? 'text-red-400' : 'text-[#f0c060]'
+      : hitPct <= 42 ? 'text-emerald-400' : hitPct >= 58 ? 'text-red-400' : 'text-[#f0c060]'
+
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <span className="text-[10px] text-white/25">vs</span>
+      <span className="text-[10px] font-bold text-white/50">{oppAbbr}</span>
+      {rank != null && (
+        <span className={`text-[10px] font-semibold ${rankColor}`}>#{rank}</span>
+      )}
+      {hitPct != null && (
+        <span className={`text-[10px] ${hitColor}`}>{hitPct}% OVR</span>
+      )}
+    </div>
+  )
+}
+
+export default function GamePropsTable({
+  props,
+  oppCtx,
+  propResults,
+}: {
+  props:        PropWithAlts[]
+  oppCtx?:      Map<string, OpponentCtx>
+  propResults?: Map<string, PropResult>
+}) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   return (
@@ -72,18 +145,35 @@ export default function GamePropsTable({ props }: { props: PropWithAlts[] }) {
                 className="font-medium text-white text-sm leading-tight hover:text-[#f0c060] transition-colors">
                 {prop.player_name}
               </Link>
-              {prop.confidence_label && prop.confidence_score != null ? (
-                <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
-              ) : (
-                <span className="text-white/30 text-xs">—</span>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {prop.id && propResults?.get(prop.id) != null && (() => {
+                  const r = propResults!.get(prop.id!)!
+                  return r.hit === null ? null : (
+                    <span className={`text-xs font-black ${r.hit ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {r.hit ? '✓' : '✗'}{r.actual !== null ? ` ${r.actual}` : ''}
+                    </span>
+                  )
+                })()}
+                {prop.confidence_label && prop.confidence_score != null ? (
+                  <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+                ) : (
+                  <span className="text-white/30 text-xs">—</span>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-3 text-xs text-white/50">
               <span className="font-semibold text-white/70">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</span>
-              <span className="font-mono text-white">{prop.line}</span>
+              <span className="flex items-center font-mono text-white">
+                {prop.line}
+                <LineMovement opening={prop.opening_line} current={prop.line} />
+              </span>
               <span className={prop.direction === 'over' ? 'text-blue-400 font-semibold' : 'text-orange-400 font-semibold'}>
                 {prop.direction.toUpperCase()}
               </span>
+              <SharpMoneyBadge opening={prop.opening_line} current={prop.line} direction={prop.direction} />
+              {prop.id && oppCtx?.get(prop.id) && (
+                <OpponentChip ctx={oppCtx.get(prop.id)!} direction={prop.direction} />
+              )}
             </div>
             {prop.confidence_reason && (
               <p className="text-[11px] text-white/30 mt-1.5 line-clamp-2 leading-relaxed">{prop.confidence_reason}</p>
@@ -105,6 +195,7 @@ export default function GamePropsTable({ props }: { props: PropWithAlts[] }) {
               <th className="px-4 py-3 text-right">Line</th>
               <th className="px-4 py-3 text-left">Dir</th>
               <th className="px-4 py-3 text-left">Confidence</th>
+              {propResults && propResults.size > 0 && <th className="px-4 py-3 text-left">Result</th>}
               <th className="px-4 py-3 text-left">Reason</th>
             </tr>
           </thead>
@@ -127,10 +218,18 @@ export default function GamePropsTable({ props }: { props: PropWithAlts[] }) {
                         {prop.player_name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-white/60">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</td>
+                    <td className="px-4 py-3">
+                      <div className="text-white/60">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</div>
+                      {prop.id && oppCtx?.get(prop.id) && (
+                        <OpponentChip ctx={oppCtx.get(prop.id)!} direction={prop.direction} />
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
-                        <span className="font-mono text-white">{prop.line}</span>
+                        <span className="flex items-center font-mono text-white">
+                          {prop.line}
+                          <LineMovement opening={prop.opening_line} current={prop.line} />
+                        </span>
                         {hasAlts && (
                           <svg
                             className={`w-3.5 h-3.5 text-white/30 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
@@ -147,9 +246,12 @@ export default function GamePropsTable({ props }: { props: PropWithAlts[] }) {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={prop.direction === 'over' ? 'text-blue-400' : 'text-orange-400'}>
-                        {prop.direction.toUpperCase()}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={prop.direction === 'over' ? 'text-blue-400' : 'text-orange-400'}>
+                          {prop.direction.toUpperCase()}
+                        </span>
+                        <SharpMoneyBadge opening={prop.opening_line} current={prop.line} direction={prop.direction} />
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {prop.confidence_label && prop.confidence_score != null ? (
@@ -158,6 +260,16 @@ export default function GamePropsTable({ props }: { props: PropWithAlts[] }) {
                         <span className="text-white/30">—</span>
                       )}
                     </td>
+                    {propResults && propResults.size > 0 && (() => {
+                      const r = prop.id ? propResults.get(prop.id) : null
+                      if (!r) return <td className="px-4 py-3 text-white/20 text-xs">—</td>
+                      if (r.hit === null) return <td className="px-4 py-3 text-white/20 text-xs">DNP</td>
+                      return (
+                        <td className={`px-4 py-3 text-sm font-black ${r.hit ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {r.hit ? '✓' : '✗'} {r.actual !== null ? r.actual : ''}
+                        </td>
+                      )
+                    })()}
                     <td className="px-4 py-3 text-white/40 text-xs max-w-xs truncate">
                       {prop.confidence_reason ?? '—'}
                     </td>
@@ -165,7 +277,7 @@ export default function GamePropsTable({ props }: { props: PropWithAlts[] }) {
 
                   {hasAlts && (
                     <tr>
-                      <td colSpan={6} className="p-0">
+                      <td colSpan={propResults && propResults.size > 0 ? 7 : 6} className="p-0">
                         <div
                           className="overflow-hidden transition-all duration-300 ease-in-out"
                           style={{ maxHeight: isOpen ? `${prop.altLines!.length * 60 + 32}px` : '0px' }}

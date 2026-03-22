@@ -1,51 +1,51 @@
-// Prizm Confidence Engine v5.7
+// Prizm Confidence Engine v6.1
 //
-// Weights from optimizer run 2 (5,000 Dirichlet samples, min 80 HIGH props floor):
-//   Balances hit rate AND volume — consensus of top 10 by HR with ≥80 HIGH picks.
-//   Key shifts from v5.5:
-//   - matchupEdge:    0.18 → 0.04  (neutral 0.50 in backtest — minimal signal)
-//   - last20HitRate:  0.25 → 0.30  (dominant factor when volume constraint applied)
-//   - trend:          0.15 → 0.09  (reduced; momentum less standalone than expected)
-//   - blowout:        0.04 → 0.11  (consistently elevated across all optimizer runs)
-//   - homeAway:       0.02 → 0.07  (home/away split underweighted previously)
-//   - vsOpponent:     0.01 → 0.04  (head-to-head history useful with more weight)
-//   - restDays:       0.11 → 0.08  (slight reduction)
-//   Projected: ~65.9% HIGH-tier hit rate at ~123 HIGH props vs 61.3% at 155 props (v5.5)
+// Weights from optimizer run 4 (50,000 Dirichlet samples + hill-climbing, min 80 LOCK props):
+//   Training set: 33,644 OVER props (real sportsbook lines only).
+//   Game log history: 2024-25 + 2025-26 seasons (37,070 rows across 347 players).
+//   Consensus of top 10 results — balances quality AND volume.
 //
-// v5.6 changes from v5.5:
-//   - lineValue:      0.08 → 0.06
-//   - matchupEdge:    0.18 → 0.04
-//   - last20HitRate:  0.25 → 0.30
-//   - trend:          0.15 → 0.09
-//   - seasonCushion:  0.05 → 0.07
-//   - pace:           0.06 → 0.08
-//   - newsInjury:     0.05 → 0.08
-//   - restDays:       0.11 → 0.08
-//   - blowout:        0.04 → 0.11
-//   - homeAway:       0.02 → 0.07
-//   - vsOpponent:     0.01 → 0.02  (rounding to sum = 1.00)
+//   Key shifts from v5.9 (added 24-25 season game logs + threshold optimization):
+//   - homeAway:       0.08 → 0.18  (+10pp — full season context = much stronger home/away split)
+//   - matchupEdge:    0.04 → 0.14  (+10pp — opponent defense more impactful with more context)
+//   - blowout:        0.09 → 0.11  (+2pp)
+//   - last20HitRate:  0.27 → 0.18  (-9pp — less dominant; more factors now carry signal)
+//   - vsOpponent:     0.11 → 0.04  (-7pp — head-to-head weaker predictor than expected)
+//   - pace:           0.08 → 0.05  (-3pp)
+//   - lineValue:      0.04 → 0.02  (-2pp)
+//   Threshold: base 70 → 68 (stat-specific offsets unchanged: assists/pra +6, 3PM +4)
+//   Projected: ~80.8% LOCK hit rate at ~85 LOCK props (vs v5.9: 75.5% at 98 props)
 //
 // Factors & weights (sum = 1.00):
-//   1.  lineValue      ( 6%) — z-score of tonight's line vs player's L10 average + stdev
+//   1.  lineValue      ( 2%) — z-score of tonight's line vs player's L10 average + stdev
 //                              Only uses games within the last 60 days (date-windowed).
-//   2.  matchupEdge    ( 4%) — opponent's defensive rank for this stat
-//   3.  last20HitRate  (30%) — exponentially-weighted hit rate (recent games count more)
+//   2.  matchupEdge    (14%) — opponent's defensive rank for this stat
+//   3.  last20HitRate  (18%) — exponentially-weighted hit rate (recent games count more)
 //                              Filtered to games within last 90 days.
-//   4.  trend          ( 9%) — L5 vs L20 momentum (90-day window)
-//   5.  seasonCushion  ( 7%) — season average cushion above/below tonight's line
-//   6.  pace           ( 8%) — game O/U total as pace proxy
-//   7.  newsInjury     ( 8%) — injury report: teammate out = usage boost, player Q = risk
-//   8.  restDays       ( 8%) — back-to-back fatigue; well-rested boost
+//   4.  trend          (12%) — L5 vs L20 momentum (90-day window)
+//   5.  seasonCushion  ( 2%) — season average cushion above/below tonight's line
+//   6.  pace           ( 5%) — game O/U total as pace proxy — high-scoring games = more stats
+//   7.  newsInjury     ( 9%) — injury report: teammate out = usage boost, player Q = risk
+//   8.  restDays       ( 5%) — back-to-back fatigue; well-rested boost
 //   9.  blowout        (11%) — large spread = starters may sit 4th quarter
-//  10.  homeAway       ( 7%) — home vs away performance split
-//  11.  vsOpponent     ( 2%) — hit rate vs this specific team (Bayesian-blended)
+//  10.  homeAway       (18%) — home vs away performance split (strongest signal with full history)
+//  11.  vsOpponent     ( 4%) — hit rate vs this specific team (Bayesian-blended)
+//
+// Additive adjustments (not in weight sum):
+//   - minutesTrendAdj: ±2–3 pts if L5 minutes significantly above/below L20 baseline
+//   - lineMovAdj:      ±2–6 pts for sharp money signal (line movement vs pick direction)
+//   - biasAdj:         ±0–5 pts from player-specific historical over/under bias
+//   - leakAdj:         ±0–4 pts from opponent team defensive leak for this stat
+//   - starBonus:       +3 pts for ≥36 min avg stars with generous line + hot hit rate
+//   - consensusAdj:    +3/0/−4/−10 based on how many primary factors agree
 //
 // Data freshness: if a player's last game was >7 days ago, all log-based factor scores
 // are compressed toward 0.50 proportionally. A 2-month absence = ~35% of signal retained.
 // This prevents injury-return picks from scoring HIGH based on pre-injury form.
 //
-// HIGH threshold: 70 (stat-specific: assists/pra ≥78, three_pointers ≥76).
-// Consensus: 4+ primary factors agree → +3pts; 0-1 → -10pts (scaled by freshness).
+// Stat-specific weight sets: steals/blocks use W_VOLATILE (matchupEdge+vsOpponent↑, trend+hitRate↓).
+//   three_pointers use W_THREE_POINTERS (trend+pace↑, homeAway↓). All other stats use W.
+// LOCK threshold: 68 (stat-specific: assists/pra ≥74, steals/blocks/3PM ≥72).
 // Star bonus: +3 pts for star players (≥36 min avg) with lineValue ≥0.58 + hitRate ≥0.55.
 
 import type { Prop, StatType, ConfidenceLabel, RiskTier } from '@/types'
@@ -124,6 +124,7 @@ export interface ScoringContext {
   historicalLines?:   HistoricalLine[]           // actual lines posted by books for past games
   playerBias?:        PlayerLineBias | null      // systematic over/under bias for this player+stat
   opponentLeak?:      OpponentStatLeak | null    // team-specific defensive leak for this stat
+  lineMovementDelta?: number | null              // current line − opening line (positive = line moved up)
 }
 
 export interface ScoredProp extends Prop {
@@ -134,19 +135,68 @@ export interface ScoredProp extends Prop {
 }
 
 // ── Factor weights ────────────────────────────────────────────────────────────
+// Universal weights (points, rebounds, assists, pra)
 const W = {
-  lineValue:      0.06,
-  matchupEdge:    0.04,
-  last20HitRate:  0.30,
-  trend:          0.09,
-  seasonCushion:  0.07,
-  pace:           0.08,
-  newsInjury:     0.08,
-  restDays:       0.08,
+  lineValue:      0.02,
+  matchupEdge:    0.14,
+  last20HitRate:  0.18,
+  trend:          0.12,
+  seasonCushion:  0.02,
+  pace:           0.05,
+  newsInjury:     0.09,
+  restDays:       0.05,
   blowout:        0.11,
-  homeAway:       0.07,
-  vsOpponent:     0.02,
+  homeAway:       0.18,
+  vsOpponent:     0.04,
 } as const  // sum = 1.00
+
+// Steals + Blocks: ultra-volatile, integer-valued, opponent-style-driven.
+//   matchupEdge ↑↑ — defensive schemes drive steal/block opportunities far more than form
+//   vsOpponent ↑↑  — head-to-head history is meaningful (e.g. bigs that always get blocks vs drive-heavy teams)
+//   last20HitRate ↓ — high game-to-game variance makes rolling hit rate noisy
+//   trend ↓         — L5 vs L20 is unreliable for 1-2 unit stats
+//   homeAway ↓      — less home/away split for these stats
+//   pace ↓          — pace matters less; steals/blocks don't scale strongly with possessions
+const W_VOLATILE: typeof W = {
+  lineValue:      0.06,
+  matchupEdge:    0.20,
+  last20HitRate:  0.10,
+  trend:          0.08,
+  seasonCushion:  0.04,
+  pace:           0.03,
+  newsInjury:     0.10,
+  restDays:       0.05,
+  blowout:        0.08,
+  homeAway:       0.10,
+  vsOpponent:     0.16,
+} as const  // sum = 1.00
+
+// Three-pointers: streaky but higher volume than steals/blocks.
+//   trend ↑         — shooter streaks are the most predictive signal for 3PM
+//   pace ↑          — more possessions = more 3PT attempts
+//   matchupEdge ↑   — some defenses give up far more 3s than others
+//   last20HitRate ↓ — discrete (0/1/2/3...) makes rolling rate noisier than for pts
+//   homeAway ↓      — slightly less meaningful than for standard stats
+const W_THREE_POINTERS: typeof W = {
+  lineValue:      0.04,
+  matchupEdge:    0.16,
+  last20HitRate:  0.14,
+  trend:          0.14,
+  seasonCushion:  0.04,
+  pace:           0.10,
+  newsInjury:     0.08,
+  restDays:       0.05,
+  blowout:        0.09,
+  homeAway:       0.12,
+  vsOpponent:     0.04,
+} as const  // sum = 1.00
+
+/** Pick the right weight set for the stat type */
+function getWeights(statType: StatType): typeof W {
+  if (statType === 'steals' || statType === 'blocks') return W_VOLATILE
+  if (statType === 'three_pointers') return W_THREE_POINTERS
+  return W
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function clamp(x: number, lo = 0.05, hi = 0.95): number {
@@ -231,7 +281,8 @@ function hitRate(
   commenceTime?: string,
 ): number | null {
   const cutoff = dateCutoff(commenceTime, 90)
-  const slice = (cutoff ? logs.filter((g) => g.game_date >= cutoff) : logs).slice(0, n)
+  const active = logs.filter((g) => g.minutes >= 5)
+  const slice = (cutoff ? active.filter((g) => g.game_date >= cutoff) : active).slice(0, n)
   if (slice.length < 3) return null
 
   let weightedHits = 0
@@ -268,7 +319,8 @@ function actualHitRate(
   }
 
   const cutoff = dateCutoff(commenceTime, 90)
-  const slice = (cutoff ? logs.filter((g) => g.game_date >= cutoff) : logs).slice(0, n)
+  const active = logs.filter((g) => g.minutes >= 5)
+  const slice = (cutoff ? active.filter((g) => g.game_date >= cutoff) : active).slice(0, n)
   if (slice.length < 3) return null
 
   let weightedHits = 0
@@ -531,11 +583,12 @@ export interface PrecomputedFactors {
   f11:         number   // newsInjury
   f12:         number   // restDays
   fPace:       number
-  freshness:   number
-  consensusAdj: number
-  starBonus:   number
-  biasAdj:     number
-  leakAdj:     number
+  freshness:     number
+  consensusAdj:  number
+  starBonus:     number
+  biasAdj:       number
+  leakAdj:       number
+  minutesTrendAdj: number  // ±2–3 pts based on L5 vs L20 minutes trend
   hasLogs:     boolean
   statType:    StatType
   direction:   'over' | 'under'
@@ -604,7 +657,7 @@ export function computeFactors(
   const freshness = hasLogs ? dataFreshness(gameLogs, ct) : 1.00
 
   let starBonus = 0
-  if (hasLogs && playerTier === 'star' && f7 >= 0.60) starBonus = 3
+  if (hasLogs && playerTier === 'star' && fLineValue >= 0.58 && f7 >= 0.55) starBonus = 3
 
   let biasAdj = 0
   if (playerBias && playerBias.sample_count >= 6) {
@@ -625,9 +678,30 @@ export function computeFactors(
     if (direction === 'under') leakAdj = -leakAdj
   }
 
+  // Minutes trend: L5 vs L20 minutes divergence → counting stat volume signal
+  let minutesTrendAdj = 0
+  if (hasLogs) {
+    const cutoff90m = dateCutoff(ct, 90)
+    const mEligible = (cutoff90m ? gameLogs.filter((g) => g.game_date >= cutoff90m) : gameLogs)
+      .filter((g) => g.minutes >= 5)
+    const ml5  = mEligible.slice(0, 5)
+    const ml20 = mEligible.slice(0, 20)
+    if (ml5.length >= 3 && ml20.length >= 8) {
+      const avgM5  = ml5.reduce((s, g) => s + g.minutes, 0) / ml5.length
+      const avgM20 = ml20.reduce((s, g) => s + g.minutes, 0) / ml20.length
+      if (avgM20 > 0) {
+        const minsTrend = (avgM5 - avgM20) / avgM20
+        if (Math.abs(minsTrend) >= 0.10) {
+          const mag = Math.abs(minsTrend) >= 0.20 ? 3 : 2
+          minutesTrendAdj = (minsTrend > 0 ? mag : -mag) * (direction === 'over' ? 1 : -1)
+        }
+      }
+    }
+  }
+
   return {
     fLineValue, f2, f3, f4, f5, f6, f7, f10, f11, f12, fPace,
-    freshness, consensusAdj, starBonus, biasAdj, leakAdj,
+    freshness, consensusAdj, starBonus, biasAdj, leakAdj, minutesTrendAdj,
     hasLogs, statType: stat_type, direction, hit,
   }
 }
@@ -653,7 +727,7 @@ export function applyWeights(f: PrecomputedFactors, weights: Record<string, numb
   }
   const adjustedRaw = f.hasLogs ? (0.50 + (raw - 0.50) * f.freshness) : raw
   const score = Math.round(Math.min(95, Math.max(18,
-    adjustedRaw * 100 + f.consensusAdj * f.freshness + f.starBonus + f.biasAdj + f.leakAdj
+    adjustedRaw * 100 + f.consensusAdj * f.freshness + f.starBonus + f.biasAdj + f.leakAdj + f.minutesTrendAdj
   )))
   const label = getLabel(score, f.statType).label
   return { score, label }
@@ -727,7 +801,7 @@ export function scoreProps(
     else if (avgMins < 26) playerTier = 'rotation'
   }
 
-  const Wt = weightsOverride ? { ...W, ...weightsOverride } : W
+  const Wt = weightsOverride ? { ...getWeights(stat_type), ...weightsOverride } : getWeights(stat_type)
 
   let raw: number
   if (!hasLogs) {
@@ -766,8 +840,9 @@ export function scoreProps(
   // signals are more reliable for them. Only fires for OVER props (log signals
   // are directional — high-usage stars skew volume upward).
   // Additive-only: never penalizes; cannot push a pick below its current score.
+  // Requires both lineValue ≥ 0.58 (generous line) AND hit rate ≥ 0.55 (hot).
   let starBonus = 0
-  if (hasLogs && playerTier === 'star' && f7 >= 0.60) {
+  if (hasLogs && playerTier === 'star' && fLineValue >= 0.58 && f7 >= 0.55) {
     starBonus = 3
   }
 
@@ -796,8 +871,49 @@ export function scoreProps(
     if (direction === 'under') leakAdj = -leakAdj
   }
 
+  // Sharp money / line movement adjustment:
+  // A line moving in the same direction as the pick (e.g. OVER and line goes up)
+  // signals sharp/syndicate money confirming the direction → +2 to +6 pts.
+  // A line moving against the pick direction → -2 to -6 pts.
+  // Threshold: |delta| must be ≥ 0.5 to avoid noise.
+  const lineMovementDelta = ctx.lineMovementDelta ?? null
+  let lineMovAdj = 0
+  if (lineMovementDelta != null && Math.abs(lineMovementDelta) >= 0.5) {
+    const moved = Math.abs(lineMovementDelta)
+    const magnitude = moved >= 2.0 ? 6 : moved >= 1.0 ? 4 : 2
+    // For OVER: line up = sharp money on OVER = confirming; line down = COUNTER
+    // For UNDER: line down = sharp money on UNDER = confirming; line up = COUNTER
+    const confirming = direction === 'over' ? lineMovementDelta > 0 : lineMovementDelta < 0
+    lineMovAdj = confirming ? magnitude : -magnitude
+  }
+
+  // Minutes trend adjustment: if a player's recent minutes (L5) are significantly
+  // higher than their rolling baseline (L20), they're getting more time = more counting
+  // stat volume. ±2 pts at ≥10% change, ±3 pts at ≥20% change. Applies to all stat types.
+  let minutesTrendAdj = 0
+  if (hasLogs) {
+    const cutoff90m = dateCutoff(ct, 90)
+    const mEligible = (cutoff90m ? gameLogs.filter((g) => g.game_date >= cutoff90m) : gameLogs)
+      .filter((g) => g.minutes >= 5)
+    const ml5  = mEligible.slice(0, 5)
+    const ml20 = mEligible.slice(0, 20)
+    if (ml5.length >= 3 && ml20.length >= 8) {
+      const avgM5  = ml5.reduce((s, g) => s + g.minutes, 0) / ml5.length
+      const avgM20 = ml20.reduce((s, g) => s + g.minutes, 0) / ml20.length
+      if (avgM20 > 0) {
+        const minsTrend = (avgM5 - avgM20) / avgM20
+        if (Math.abs(minsTrend) >= 0.10) {
+          const mag = Math.abs(minsTrend) >= 0.20 ? 3 : 2
+          // Trending up → positive for OVER (more minutes = more production)
+          // Trending down → negative for OVER, positive for UNDER
+          minutesTrendAdj = (minsTrend > 0 ? mag : -mag) * (direction === 'over' ? 1 : -1)
+        }
+      }
+    }
+  }
+
   const score = Math.round(Math.min(95, Math.max(18,
-    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj
+    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + minutesTrendAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
   const reason = buildReason(
@@ -809,32 +925,36 @@ export function scoreProps(
 }
 
 // ── Label thresholds ──────────────────────────────────────────────────────────
-// v5.6 tiers (NBA betting-themed, 4 levels):
-//   LOCK  (≥82): elite picks — strongest log-based signal
-//   PLAY  (70–81): high confidence — previously HIGH
-//   LEAN  (50–69): moderate signal — previously MEDIUM
-//   FADE  (<50):  model leans against — previously LOW
+// v6.0 tiers (NBA betting-themed, 4 levels):
+//   LOCK  (≥68): elite picks — strongest log-based signal
+//   PLAY  (60–67): high confidence
+//   LEAN  (50–59): moderate signal
+//   FADE  (<50):  model leans against
 //
-// Stat-specific PLAY thresholds (backtest-derived, same as former HIGH thresholds):
-//   assists / pra: PLAY ≥ 78 (overconfident at 70 in backtest: 44.8% / 30.8% HR)
-//   three_pointers: PLAY ≥ 76 (volatile stat, 36.4% HR at threshold 70)
-//   all others: PLAY ≥ 70 (standard)
+// Stat-specific LOCK thresholds (base + offset, backtest-derived):
+//   assists / pra: base + 6 = 74 (volatile combined stats, require higher bar)
+//   steals / blocks / three_pointers: base + 4 = 72 (hard-to-predict volatile stats)
+//   all others: 68 (standard)
 //
-// LOCK thresholds are PLAY + 8 for standard stats, PLAY + 7 for volatile stats.
+// PLAY thresholds: LOCK - 8.
 const LOCK_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
-  assists:        76,  // volatile: require higher bar
-  pra:            76,
-  three_pointers: 74,
+  assists:        74,  // volatile: require higher bar (base 68 + 6)
+  pra:            74,
+  steals:         72,  // ultra-volatile: higher bar (base 68 + 4)
+  blocks:         72,
+  three_pointers: 72,  // discrete/streaky stat (base 68 + 4)
 }
 const PLAY_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
-  assists:        68,
-  pra:            68,
-  three_pointers: 66,
+  assists:        70,
+  pra:            66,
+  steals:         64,
+  blocks:         64,
+  three_pointers: 64,
 }
 
 function getLabel(score: number, statType?: StatType): { label: ConfidenceLabel; tier: RiskTier } {
-  const lockThreshold = (statType && LOCK_THRESHOLD_BY_STAT[statType]) ?? 70
-  const playThreshold = (statType && PLAY_THRESHOLD_BY_STAT[statType]) ?? 62
+  const lockThreshold = (statType && LOCK_THRESHOLD_BY_STAT[statType]) ?? 68
+  const playThreshold = (statType && PLAY_THRESHOLD_BY_STAT[statType]) ?? 60
   if (score >= lockThreshold) return { label: 'LOCK', tier: 'PRIME'    }
   if (score >= playThreshold) return { label: 'PLAY', tier: 'LOW_RISK' }
   if (score >= 50)            return { label: 'LEAN', tier: 'MED_RISK' }
@@ -966,13 +1086,20 @@ function buildReason(
     }
   }
 
-  // 1b. Last 20 hit rate
+  // 1b. Last 20 hit rate — count actual hits from raw logs (not back-calculated from weighted rate)
   if (hr20 !== null) {
-    const total20 = Math.min(logs.length, 20)
-    const hits20  = Math.round(hr20 * total20)
-    sentences.push(
-      `${player_name} has gone ${dir} ${line} ${stat} in ${hits20} of their last ${total20} games.`
-    )
+    const cutoff90  = dateCutoff(prop.commence_time, 90)
+    const activeLogs = logs.filter((g) => g.minutes >= 5)
+    const window20  = (cutoff90 ? activeLogs.filter((g) => g.game_date >= cutoff90) : activeLogs).slice(0, 20)
+    const hits20    = window20.filter((g) =>
+      dir === 'over' ? getStatValue(g, stat_type) > line : getStatValue(g, stat_type) < line
+    ).length
+    const total20   = window20.length
+    if (total20 >= 3) {
+      sentences.push(
+        `${player_name} has gone ${dir} ${line} ${stat} in ${hits20} of their last ${total20} games.`
+      )
+    }
   }
 
   // 2. Head-to-head vs this opponent

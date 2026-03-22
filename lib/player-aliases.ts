@@ -14,9 +14,37 @@ export const ESPN_TO_ODDS: Record<string, string> = {
   'Nic Claxton':        'Nicolas Claxton',
   'Mo Bamba':           'Mohamed Bamba',
   'Mo Wagner':          'Moritz Wagner',
+  'Moe Wagner':         'Moritz Wagner',
   'Rob Williams':       'Robert Williams III',
   'Marcus Morris Sr.':  'Marcus Morris',
   'GG Jackson':         'GG Jackson II',
+  'GG Jackson II':      'G.G. Jackson',
+
+  // Initials: ESPN omits periods, The Odds API includes them
+  'AJ Green':           'A.J. Green',
+  'CJ McCollum':        'C.J. McCollum',
+  'RJ Barrett':         'R.J. Barrett',
+
+  // Nickname vs full name
+  'Bub Carrington':     'Carlton Carrington',
+
+  // Suffix: The Odds API omits "II" suffix
+  'Ronald Holland II':  'Ron Holland',
+
+  // Jr. suffix: ESPN uses period, The Odds API omits it
+  'Michael Porter Jr.': 'Michael Porter Jr',
+  'Jabari Smith Jr.':   'Jabari Smith Jr',
+  'Craig Porter Jr.':   'Craig Porter Jr',
+  'Paul Reed Jr.':      'Paul Reed Jr',
+  'Paul Reed':          'Paul Reed Jr',
+  'Jaime Jaquez Jr.':   'Jaime Jaquez Jr',
+  'Gary Trent Jr.':     'Gary Trent Jr',
+  'Tim Hardaway Jr.':   'Tim Hardaway Jr',
+  'Scotty Pippen Jr.':  'Scotty Pippen Jr',
+  'Kelly Oubre Jr.':    'Kelly Oubre Jr',
+  'Wendell Carter Jr.': 'Wendell Carter Jr',
+  'Derrick Jones Jr.':  'Derrick Jones',
+  'Isaiah Stewart':     'Isaiah Stewart II',
 }
 
 /** Normalize an ESPN displayName to match how it appears in the props/odds tables. */

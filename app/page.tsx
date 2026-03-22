@@ -2,7 +2,6 @@ import { supabase } from '@/lib/supabase'
 import type { Prop } from '@/types'
 import Image from 'next/image'
 import Link from 'next/link'
-import ParlayBuilder from '@/components/ParlayBuilder'
 import ResultsHistory from '@/components/ResultsHistory'
 
 export const revalidate = 0
@@ -87,6 +86,21 @@ async function getResults(): Promise<ResultRow[]> {
   return (data ?? []) as ResultRow[]
 }
 
+// Resolve team abbreviations from recent game logs (same logic as generate route)
+const ABBR_NORM: Record<string, string> = { GS: 'GSW', NY: 'NYK', NO: 'NOP', SA: 'SAS', NJ: 'NJN' }
+function normaliseAbbr(abbr: string): string { return ABBR_NORM[abbr] ?? abbr }
+function teamFromMatchup(matchup: string, isHome: boolean): string | null {
+  if (matchup.includes(' @ ')) {
+    const [away, home] = matchup.split(' @ ')
+    return normaliseAbbr((isHome ? home : away).trim())
+  }
+  if (matchup.includes(' vs. ')) {
+    const [home, away] = matchup.split(' vs. ')
+    return normaliseAbbr((isHome ? home : away).trim())
+  }
+  return null
+}
+
 async function getData(): Promise<{ games: GameInfo[]; allProps: Prop[] }> {
   const now = new Date().toISOString()
 
@@ -110,15 +124,41 @@ async function getData(): Promise<{ games: GameInfo[]; allProps: Prop[] }> {
     from += PAGE
   }
 
+  // Resolve actual team abbreviations for LOCK/PLAY props from recent game logs.
+  // Props table stores team='TBD' for most players; game logs have the ground truth.
+  const lockPlayPlayers = [...new Set(
+    allRows
+      .filter((p) => p.confidence_label === 'LOCK' || p.confidence_label === 'PLAY')
+      .map((p) => p.player_name)
+  )]
+  if (lockPlayPlayers.length > 0) {
+    const { data: logsRaw } = await supabase
+      .from('player_game_logs')
+      .select('player_name, matchup, is_home')
+      .in('player_name', lockPlayPlayers)
+      .order('game_date', { ascending: false })
+      .limit(lockPlayPlayers.length * 3)
+
+    const teamByPlayer = new Map<string, string>()
+    for (const log of logsRaw ?? []) {
+      if (!teamByPlayer.has(log.player_name) && log.matchup && log.is_home != null) {
+        const abbr = teamFromMatchup(log.matchup as string, log.is_home as boolean)
+        if (abbr) teamByPlayer.set(log.player_name as string, abbr)
+      }
+    }
+    // Inject resolved team into props
+    for (const prop of allRows) {
+      const resolved = teamByPlayer.get(prop.player_name)
+      if (resolved) prop.team = resolved
+    }
+  }
+
   // Auto-trigger enrichment if any props are unscored
   const unscoredCount = allRows.filter((p) => p.confidence_score == null).length
   if (unscoredCount > 0) {
-    try {
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
-      await fetch(`${baseUrl}/api/enrich`, { method: 'GET' })
-    } catch {
-      // Fire-and-forget — page still renders with whatever scores exist
-    }
+    // Fire-and-forget — don't block page render on enrichment (30-60s)
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+    fetch(`${baseUrl}/api/enrich`, { method: 'GET' }).catch(() => {})
   }
 
   const deduped = deduplicateProps(allRows)
@@ -308,8 +348,6 @@ export default async function HomePage() {
       {/* ── Model Performance / Results History ── */}
       {results.length > 0 && <ResultsHistory results={results} />}
 
-      {/* ── Parlay Builder ── */}
-      <ParlayBuilder allProps={allProps} />
     </div>
   )
 }

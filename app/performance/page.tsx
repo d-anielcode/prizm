@@ -49,9 +49,163 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+// ── SGP parlay grading ────────────────────────────────────────────────────────
+
+interface GradedLeg {
+  player_name: string
+  team:        string
+  stat_type:   StatType
+  line:        number
+  direction:   'over' | 'under'
+  actual:      number | null
+  hit:         boolean | null   // null = DNP / no log
+  l10_hits:    number
+  l10_total:   number
+}
+
+interface GradedParlay {
+  id:             string
+  title:          string
+  game_date:      string
+  parlay_type:    string
+  est_multiplier: number
+  legs:           GradedLeg[]
+  hit:            boolean | null
+  leg_hit_rate:   number | null
+  is_pending:     boolean
+}
+
+async function loadGradedParlays(): Promise<GradedParlay[]> {
+  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
+
+  const { data: parlays } = await supabase
+    .from('curated_parlays')
+    .select('id, title, game_date, parlay_type, est_multiplier, legs, result')
+    .eq('active', true)
+    .gte('game_date', cutoff)
+    .order('game_date', { ascending: false })
+
+  if (!parlays || parlays.length === 0) return []
+
+  // Collect all player names + dates we need to look up
+  const lookups = new Set<string>()
+  for (const p of parlays) {
+    const legs = (p.legs as GradedLeg[] | null) ?? []
+    for (const l of legs) lookups.add(`${l.player_name}|${p.game_date}`)
+  }
+
+  const playerNames = [...new Set([...lookups].map((k) => k.split('|')[0]))]
+  const gameDates   = [...new Set([...lookups].map((k) => k.split('|')[1]))]
+
+  const { data: logsRaw } = await supabase
+    .from('player_game_logs')
+    .select('player_name, game_date, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
+    .in('player_name', playerNames)
+    .in('game_date', gameDates)
+
+  const logIndex = new Map<string, Record<string, unknown>>()
+  for (const log of logsRaw ?? []) {
+    logIndex.set(`${log.player_name}|${log.game_date}`, log as Record<string, unknown>)
+  }
+
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
+  return parlays.map((p) => {
+    const legs = (p.legs as Array<Record<string, unknown>> | null) ?? []
+    const isPending = (p.game_date as string) >= today
+
+    const gradedLegs: GradedLeg[] = legs.map((l) => {
+      const log    = logIndex.get(`${l.player_name}|${p.game_date}`)
+      const mins   = log ? Number(log.minutes ?? 0) : null
+      const isDnp  = mins !== null && mins < 5
+      const noData = !log || isDnp
+
+      const actual = noData ? null : getActualValue(log!, l.stat_type as StatType)
+      const hit    = actual === null ? null
+        : l.direction === 'over' ? actual > Number(l.line) : actual < Number(l.line)
+
+      return {
+        player_name: l.player_name as string,
+        team:        l.team as string,
+        stat_type:   l.stat_type as StatType,
+        line:        Number(l.line),
+        direction:   l.direction as 'over' | 'under',
+        actual,
+        hit,
+        l10_hits:    Number(l.l10_hits ?? 0),
+        l10_total:   Number(l.l10_total ?? 1),
+      }
+    })
+
+    const settledLegs = gradedLegs.filter((l) => l.hit !== null)
+    const hitLegs     = settledLegs.filter((l) => l.hit === true)
+
+    // Use pre-stored result if available (written by /api/feed/grade cron),
+    // otherwise fall back to live computation.
+    const storedResult = p.result as string | null
+    const parlayHit = isPending ? null
+      : storedResult === 'hit'  ? true
+      : storedResult === 'miss' ? false
+      : storedResult === 'void' ? null
+      : gradedLegs.some((l) => l.hit === false) ? false
+      : gradedLegs.every((l) => l.hit === true) ? true
+      : null
+
+    return {
+      id:             p.id as string,
+      title:          p.title as string,
+      game_date:      p.game_date as string,
+      parlay_type:    (p.parlay_type as string) ?? 'sgp',
+      est_multiplier: Number(p.est_multiplier),
+      legs:           gradedLegs,
+      hit:            parlayHit,
+      leg_hit_rate:   settledLegs.length > 0 ? hitLegs.length / settledLegs.length : null,
+      is_pending:     isPending,
+    }
+  })
+}
+
 // ── Data loading ──────────────────────────────────────────────────────────────
 async function loadGradedProps(): Promise<GradedProp[]> {
   const now = new Date().toISOString()
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
+  // ── A. Load pre-graded props from prop_grades (historical backfill) ──────────
+  const cutoffDate = new Date(Date.now() - 60 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const gradesRaw: Record<string, unknown>[] = []
+  {
+    let from = 0
+    const PAGE = 1000
+    while (true) {
+      const { data: page } = await supabase
+        .from('prop_grades')
+        .select('game_date, player_name, stat_type, line, direction, confidence_label, confidence_score, actual_value, hit')
+        .not('confidence_label', 'is', null)
+        .not('hit', 'is', null)
+        .gte('game_date', cutoffDate)
+        .lt('game_date', today)
+        .order('game_date', { ascending: false })
+        .range(from, from + PAGE - 1)
+      if (!page || page.length === 0) break
+      for (const row of page) gradesRaw.push(row as Record<string, unknown>)
+      if (page.length < PAGE) break
+      from += PAGE
+    }
+  }
+
+  const historicalGraded: GradedProp[] = gradesRaw.map((r) => ({
+    player_name:      r.player_name as string,
+    stat_type:        r.stat_type as StatType,
+    line:             Number(r.line),
+    direction:        r.direction as 'over' | 'under',
+    confidence_label: r.confidence_label as string | null,
+    confidence_score: r.confidence_score as number | null,
+    actual_value:     r.actual_value as number | null,
+    hit:              r.hit as boolean | null,
+    game_date:        r.game_date as string,
+  }))
+
+  // ── B. Load today's live props from props table and grade on-the-fly ─────────
   // Only look back 30 days — beyond that props table gets large and old data isn't actionable
   const cutoff = new Date(Date.now() - 30 * 86400000).toISOString()
 
@@ -63,18 +217,19 @@ async function loadGradedProps(): Promise<GradedProp[]> {
     .gte('commence_time', cutoff)
 
   const props = rawProps ?? []
-  if (props.length === 0) return []
 
   // 2. For each prop, figure out the game date
   const propsByDate = new Map<string, typeof props>()
   for (const p of props) {
     if (!p.commence_time) continue
     const gameDate = toEasternDate(p.commence_time as string)
+    // Only include props for today (historical dates are covered by prop_grades above)
+    if (gameDate < today) continue
     if (!propsByDate.has(gameDate)) propsByDate.set(gameDate, [])
     propsByDate.get(gameDate)!.push(p)
   }
 
-  if (propsByDate.size === 0) return []
+  if (propsByDate.size === 0) return historicalGraded
 
   // 3. Load game logs for all relevant players + dates (paginated)
   const playerNames = [...new Set(props.map((p) => p.player_name as string))]
@@ -106,7 +261,7 @@ async function loadGradedProps(): Promise<GradedProp[]> {
   }
 
   // 4. Grade each prop against its game log
-  const graded: GradedProp[] = []
+  const graded: GradedProp[] = [...historicalGraded]
 
   for (const [gameDate, dateProps] of propsByDate) {
     // Dedup: keep highest-confidence prop per player+stat
@@ -184,7 +339,7 @@ function HitBar({ rate, colorClass }: { rate: number; colorClass: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default async function PerformancePage() {
-  const graded = await loadGradedProps()
+  const [graded, gradedParlays] = await Promise.all([loadGradedProps(), loadGradedParlays()])
 
   // Only count props that have been graded (hit !== null)
   const resolved = graded.filter((g) => g.hit !== null)
@@ -214,9 +369,13 @@ export default async function PerformancePage() {
     if (!byDate.has(g.game_date)) byDate.set(g.game_date, [])
     byDate.get(g.game_date)!.push(g)
   }
-  const sortedDates = [...byDate.keys()].sort((a, b) => b.localeCompare(a))
+  const sortedDates = [...byDate.keys()].sort((a, b) => b.localeCompare(a)).slice(0, 3)
 
   const hasData = resolved.length > 0
+
+  const valueParlays   = gradedParlays.filter((p) => p.parlay_type === 'value')
+  const premiumParlays = gradedParlays.filter((p) => p.parlay_type === 'premium')
+  const jackpotParlays = gradedParlays.filter((p) => p.parlay_type === 'jackpot')
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 flex flex-col gap-10">
@@ -255,7 +414,7 @@ export default async function PerformancePage() {
           {/* ── Overall rolling stats ── */}
           <div className="flex flex-col gap-3">
             <p className="text-[11px] text-white/35 uppercase tracking-widest">
-              All-time ({sortedDates.length} day{sortedDates.length !== 1 ? 's' : ''} tracked · {resolved.length} props graded)
+              All-time ({byDate.size} day{byDate.size !== 1 ? 's' : ''} tracked · {resolved.length} props graded)
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {(['LOCK', 'PLAY', 'LEAN', 'FADE', 'ALL'] as const).map((label) => {
@@ -393,6 +552,114 @@ export default async function PerformancePage() {
           </div>
         </>
       )}
+
+      {/* ── Curated Parlays ── */}
+      {([
+        { label: 'Consistent Picks', sublabel: '3-leg · PTS/REB/3PM · LOCK+PLAY · ~33% hit rate',   parlays: valueParlays,   accent: 'text-emerald-400', dot: 'bg-emerald-400', minHitPct: 28 },
+        { label: 'High Rollers',     sublabel: '4-leg · PTS/REB/3PM · 24+ min avg · ~10x payout',   parlays: premiumParlays, accent: 'text-[#e8a820]',   dot: 'bg-[#e8a820]',   minHitPct: 12 },
+        { label: 'Jackpot',          sublabel: '5-leg · PTS/REB/3PM · 24+ min avg · ~17x payout',   parlays: jackpotParlays, accent: 'text-violet-400', dot: 'bg-violet-400', minHitPct: 8  },
+      ] as const).map(({ label, sublabel, parlays, accent, dot, minHitPct }) => {
+        const settled   = parlays.filter((p) => p.hit !== null)
+        const hits      = settled.filter((p) => p.hit === true)
+        const allLegs   = parlays.flatMap((p) => p.legs).filter((l) => l.hit !== null)
+        const legHits   = allLegs.filter((l) => l.hit === true)
+        const parlayPct = settled.length > 0 ? Math.round(hits.length / settled.length * 100) : null
+        const legPct    = allLegs.length  > 0 ? Math.round(legHits.length / allLegs.length * 100) : null
+        const STAT_SHORT: Record<string, string> = { points: 'PTS', rebounds: 'REB', assists: 'AST', steals: 'STL', blocks: 'BLK', three_pointers: '3PM', pra: 'PRA' }
+
+        return (
+          <div key={label} className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-[11px] text-white/35 uppercase tracking-widest">{label}</p>
+                <p className="text-[10px] text-white/20">{sublabel}</p>
+              </div>
+              <span className="text-[10px] text-white/20">{parlays.length} parlay{parlays.length !== 1 ? 's' : ''} · last 30 days</span>
+            </div>
+
+            {parlays.length === 0 ? (
+              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.01] p-8 text-center">
+                <p className="text-sm text-white/25">No {label.toLowerCase()} tracked yet</p>
+              </div>
+            ) : (
+              <>
+                {/* Summary stats */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { stat: 'Parlay Hit Rate', value: parlayPct !== null ? `${parlayPct}%` : '—', sub: `${hits.length}/${settled.length} settled`, color: parlayPct !== null && parlayPct >= minHitPct ? accent : 'text-white' },
+                    { stat: 'Leg Hit Rate',    value: legPct    !== null ? `${legPct}%`    : '—', sub: `${legHits.length}/${allLegs.length} legs`,   color: legPct    !== null && legPct    >= 60       ? accent : 'text-white' },
+                    { stat: 'Pending',         value: String(parlays.filter((p) => p.is_pending).length), sub: 'awaiting results', color: 'text-[#f0c060]' },
+                  ].map(({ stat, value, sub, color }) => (
+                    <div key={stat} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 flex flex-col gap-1">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-white/30">{stat}</span>
+                      <span className={`text-2xl font-black mt-1 ${color}`}>{value}</span>
+                      <span className="text-xs text-white/25">{sub}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Per-parlay list */}
+                <div className="flex flex-col gap-2">
+                  {parlays.map((parlay) => {
+                    const statusColor = parlay.is_pending ? 'text-[#f0c060]'
+                      : parlay.hit === null ? 'text-white/25'
+                      : parlay.hit ? 'text-emerald-400' : 'text-red-400'
+                    const statusText  = parlay.is_pending ? 'PENDING'
+                      : parlay.hit === null ? 'VOID'
+                      : parlay.hit ? `HIT ~${parlay.est_multiplier}×` : 'MISS'
+                    const settledLegs = parlay.legs.filter((l) => l.hit !== null)
+                    const hitCount    = settledLegs.filter((l) => l.hit).length
+
+                    return (
+                      <details key={parlay.id} className="group rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+                        <summary className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer select-none hover:bg-white/[0.02] transition-colors list-none">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${
+                              parlay.is_pending ? `${dot} animate-pulse`
+                              : parlay.hit === null ? 'bg-white/20'
+                              : parlay.hit ? 'bg-emerald-400' : 'bg-red-400'
+                            }`} />
+                            <span className="text-sm font-semibold text-white/70 truncate">{parlay.title}</span>
+                            <span className="text-xs text-white/25 shrink-0">{parlay.game_date}</span>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            {!parlay.is_pending && settledLegs.length > 0 && (
+                              <span className="text-xs text-white/30">{hitCount}/{settledLegs.length} legs</span>
+                            )}
+                            <span className={`text-xs font-black ${statusColor}`}>{statusText}</span>
+                          </div>
+                        </summary>
+
+                        <div className="border-t border-white/[0.05] px-4 py-3 flex flex-col gap-1.5">
+                          {parlay.legs.map((leg, i) => (
+                            <div key={i} className="flex items-center justify-between gap-2 py-1">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-xs text-white/50 truncate">{leg.player_name}</span>
+                                <span className="text-xs text-white/25 shrink-0">
+                                  {leg.direction === 'over' ? 'O' : 'U'}{leg.line} {STAT_SHORT[leg.stat_type] ?? leg.stat_type}
+                                </span>
+                                <span className="text-[10px] text-white/20 shrink-0">{leg.l10_hits}/{leg.l10_total} L{leg.l10_total}</span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {leg.actual !== null && (
+                                  <span className="text-xs font-mono text-white/30">actual: {leg.actual}</span>
+                                )}
+                                <span className={`text-xs font-bold ${leg.hit === null ? 'text-white/20' : leg.hit ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  {leg.hit === null ? (parlay.is_pending ? '—' : 'VOID') : leg.hit ? '✓' : '✗'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })}
 
       {/* Pending props callout */}
       {pending.length > 0 && (

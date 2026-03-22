@@ -45,6 +45,8 @@ export interface Prop {
   confidence_score?: number
   confidence_label?: ConfidenceLabel
   confidence_reason?: string
+  prev_confidence_score?: number | null
+  opening_line?: number | null          // first line seen for this prop (for movement tracking)
   risk_tier?: RiskTier
   cached_at?: string
   home_team?: string
@@ -117,6 +119,12 @@ export interface BDLSeasonAverage {
   blk: number
   fg3m: number
   min: string
+}
+
+export interface OpponentCtx {
+  oppAbbr:     string
+  rank:        number | null   // 1–30, 1 = toughest D, 30 = easiest D for this stat
+  overHitRate: number | null   // 0–1, fraction of OVERs that hit vs this opponent/stat
 }
 
 export interface ConfidenceFactors {

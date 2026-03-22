@@ -18,26 +18,29 @@ import { dateRange } from '@/lib/espn-gamelogs'
 
 export const maxDuration = 60
 
-// Calibrated median ratios from /api/synthetic/analyze
+// Calibrated ratios from /api/synthetic/calibrate — tuned so synthetic OVER
+// hit rates match real sportsbook line hit rates per stat (target ~47% overall).
+// Last calibrated: 2026-03-22
+//
+// NOTE: blocks and steals are intentionally excluded — they are high-variance
+// discrete stats where L10-average lines cannot be reliably calibrated (integer
+// actuals + 0.5 line rounding creates step discontinuities). Real sportsbook
+// lines are used exclusively for blocks and steals in all backtests.
 const MEDIAN_RATIO: Record<string, number> = {
-  points:         0.991,
-  rebounds:       1.000,
-  assists:        0.972,
-  pra:            1.004,
-  blocks:         0.938,
-  steals:         1.000,
-  three_pointers: 0.938,
+  points:         1.001,
+  rebounds:       0.978,
+  assists:        0.932,
+  pra:            1.013,
+  three_pointers: 0.704,
 }
 
 // Minimum L10 average required to generate a line for this stat
-// (avoids generating blocks lines for guards, steals lines for bigs, etc.)
+// (avoids generating 3PM lines for non-shooters, etc.)
 const MIN_AVG: Record<string, number> = {
   points:         5.0,
   rebounds:       2.0,
   assists:        1.5,
   pra:            10.0,
-  blocks:         0.5,
-  steals:         0.5,
   three_pointers: 0.5,
 }
 
@@ -47,12 +50,30 @@ const STAT_COL: Record<string, string> = {
   rebounds:       'rebounds',
   assists:        'assists',
   pra:            'pra',
-  blocks:         'blocks',
-  steals:         'steals',
   three_pointers: 'fg3m',
 }
 
 const STAT_TYPES = Object.keys(MEDIAN_RATIO)
+
+// Map stat type → team_defense_stats column for opponent adjustment
+const DEF_RANK_COL: Record<string, string> = {
+  points:         'pts_rank',
+  rebounds:       'reb_rank',
+  assists:        'ast_rank',
+  pra:            'pts_rank',  // PRA proxied by pts rank
+  three_pointers: 'fg3m_rank',
+}
+
+/** Scale synthetic line ±4% based on opponent defensive rank (1=toughest, 30=easiest).
+ *  Softer defense → book sets line higher; tougher defense → line set lower. */
+function oppAdjustment(defStats: Record<string, number> | null | undefined, statType: string): number {
+  if (!defStats) return 1.0
+  const col  = DEF_RANK_COL[statType]
+  const rank = col ? (defStats[col] as number) : null
+  if (!rank || rank < 1 || rank > 30) return 1.0
+  // rank 1 → −4%; rank 30 → +4%; rank 15.5 → 0%
+  return 1.0 + ((rank - 15.5) / 29) * 0.08
+}
 
 /** Round to nearest 0.5 — sportsbooks always use half-point lines */
 function roundHalf(v: number): number {
@@ -92,6 +113,14 @@ export async function GET(req: Request) {
     }
   }
   console.log(`[synthetic/generate] ${eligiblePlayers.size} eligible players from historical_prop_lines`)
+
+  // ── 0b. Load team defensive rankings for opponent adjustment ─────────────────
+  const { data: defRows } = await supabase.from('team_defense_stats').select('*')
+  const defMap = new Map<string, Record<string, number>>()
+  for (const row of defRows ?? []) {
+    defMap.set(row.team_abbreviation as string, row as Record<string, number>)
+  }
+  console.log(`[synthetic/generate] ${defMap.size} teams in team_defense_stats`)
 
   // ── 1. Load all game logs for the batch dates + 90 days prior ────────────────
   // We need prior logs to compute L10 averages. The earliest prior date is
@@ -169,17 +198,21 @@ export async function GET(req: Request) {
       // Skip fringe players that sportsbooks never offer props for
       if (!eligiblePlayers.has(player_name)) continue
 
-      // Parse home/away from matchup string e.g. "BOS vs. MIA" or "BOS @ MIA"
+      // Parse home/away and opponent from matchup string e.g. "BOS vs. MIA" or "BOS @ MIA"
+      // Player's team is always the first part; opponent is always the second part.
       let home_team: string | null = null
       let away_team: string | null = null
+      let opponentAbbr: string | null = null
       if (matchup.includes(' vs. ')) {
         const [team, opp] = matchup.split(' vs. ')
-        home_team = team?.trim() ?? null
-        away_team = opp?.trim() ?? null
+        home_team    = team?.trim() ?? null
+        away_team    = opp?.trim()  ?? null
+        opponentAbbr = away_team
       } else if (matchup.includes(' @ ')) {
         const [team, opp] = matchup.split(' @ ')
-        away_team = team?.trim() ?? null
-        home_team = opp?.trim() ?? null
+        away_team    = team?.trim() ?? null
+        home_team    = opp?.trim()  ?? null
+        opponentAbbr = home_team
       }
 
       // Approximate commence time: 7:30 PM ET on game date
@@ -201,7 +234,8 @@ export async function GET(req: Request) {
         const avg = l10.reduce((s, g) => s + (g[col as keyof typeof g] as number), 0) / l10.length
         if (avg < minAvg) continue // player doesn't typically get this prop
 
-        const rawLine = avg * ratio
+        const oppDef   = opponentAbbr ? defMap.get(opponentAbbr) : null
+        const rawLine  = avg * ratio * oppAdjustment(oppDef, statType)
         const line = roundHalf(rawLine)
         if (line < 0.5) continue // sanity floor
 

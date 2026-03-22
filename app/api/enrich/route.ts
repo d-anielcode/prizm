@@ -150,7 +150,24 @@ async function runEnrichment(force = false) {
   const keyUsed = process.env.SUPABASE_SERVICE_KEY ? 'service_role' : 'anon'
   console.log('[/api/enrich] key:', keyUsed, force ? '(force)' : '')
 
+  // Snapshot current scores before wiping — used for trend arrows
+  const prevScoreMap = new Map<string, number>()
   if (force) {
+    const snap: { id: string; confidence_score: number }[] = []
+    let snapFrom = 0
+    while (true) {
+      const { data: page } = await supabase
+        .from('props')
+        .select('id, confidence_score')
+        .not('confidence_score', 'is', null)
+        .range(snapFrom, snapFrom + 999)
+      if (!page || page.length === 0) break
+      for (const row of page) prevScoreMap.set(row.id, Number(row.confidence_score))
+      snap.push(...page)
+      if (page.length < 1000) break
+      snapFrom += 1000
+    }
+
     await supabase.from('props').update({
       confidence_score: null,
       confidence_label: null,
@@ -374,6 +391,10 @@ async function runEnrichment(force = false) {
       }
     }
 
+    const lineMovementDelta = (prop.opening_line != null && prop.line != null)
+      ? prop.line - prop.opening_line
+      : null
+
     const ctx: ScoringContext = {
       defStats,
       isHome,
@@ -382,10 +403,11 @@ async function runEnrichment(force = false) {
       gameTotal,
       playerStatus,
       injuredTeammates,
-      seasonStats:     seasonMap.get(prop.player_name) ?? null,
-      historicalLines: histMap.get(prop.player_name)  ?? [],
-      playerBias:      biasMap.get(`${prop.player_name}|${prop.stat_type}`) ?? null,
-      opponentLeak:    opponentAbbr ? (leakMap.get(`${opponentAbbr}|${prop.stat_type}`) ?? null) : null,
+      seasonStats:      seasonMap.get(prop.player_name) ?? null,
+      historicalLines:  histMap.get(prop.player_name)  ?? [],
+      playerBias:       biasMap.get(`${prop.player_name}|${prop.stat_type}`) ?? null,
+      opponentLeak:     opponentAbbr ? (leakMap.get(`${opponentAbbr}|${prop.stat_type}`) ?? null) : null,
+      lineMovementDelta,
     }
 
     return scoreProps(prop, logs, null, ctx)
@@ -394,8 +416,13 @@ async function runEnrichment(force = false) {
   // ── Batch-upsert main props to Supabase ──────────────────────────────────
   let enriched = 0
   const BATCH = 200
-  for (let i = 0; i < updates.length; i += BATCH) {
-    const batch = updates.slice(i, i + BATCH)
+  // Inject prev_confidence_score from snapshot taken before the force-wipe
+  const updatesWithPrev = updates.map((u) => ({
+    ...u,
+    prev_confidence_score: (u.id && prevScoreMap.has(u.id)) ? prevScoreMap.get(u.id) : (u as Record<string, unknown>).prev_confidence_score ?? null,
+  }))
+  for (let i = 0; i < updatesWithPrev.length; i += BATCH) {
+    const batch = updatesWithPrev.slice(i, i + BATCH)
     const { error: upsertError } = await supabase
       .from('props')
       .upsert(batch, { onConflict: 'id' })
@@ -467,12 +494,61 @@ async function runEnrichment(force = false) {
     }
   }
 
+  // ── Auto-snapshot enriched props to prop_history ─────────────────────────
+  // Runs after every enrichment so prop_history always has today's scored props.
+  // Upsert on (id, game_date) is idempotent — safe to call multiple times per day.
+  const fallbackDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const historyRows = (updates as unknown as Record<string, unknown>[])
+    .filter((u) => u.confidence_label != null)
+    .map((u) => {
+      const gameDate = u.commence_time
+        ? new Date(u.commence_time as string).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+        : fallbackDate
+      return {
+        id:                u.id,
+        player_name:       u.player_name,
+        stat_type:         u.stat_type,
+        direction:         u.direction,
+        line:              u.line,
+        odds:              u.odds ?? null,
+        confidence_score:  u.confidence_score,
+        confidence_label:  u.confidence_label,
+        risk_tier:         u.risk_tier,
+        confidence_reason: u.confidence_reason,
+        commence_time:     u.commence_time ?? null,
+        home_team:         u.home_team ?? null,
+        away_team:         u.away_team ?? null,
+        game_id:           u.game_id ?? '',
+        cached_at:         new Date().toISOString(),
+        game_date:         gameDate,
+      }
+    })
+
+  let snapshotted = 0
+  for (let i = 0; i < historyRows.length; i += BATCH) {
+    const { error } = await supabase
+      .from('prop_history')
+      .upsert(historyRows.slice(i, i + BATCH), { onConflict: 'id,game_date' })
+    if (!error) snapshotted += historyRows.slice(i, i + BATCH).length
+    else console.error('[/api/enrich] prop_history upsert error:', error.message)
+  }
+  console.log(`[/api/enrich] Snapshotted ${snapshotted} props to prop_history for ${fallbackDate}`)
+
+  // Auto-generate curated parlay for the game date (idempotent — skips if one already exists)
+  // Derive game date from enriched props so tomorrow's props generate correctly
+  const parlayGameDate = (historyRows[0]?.game_date as string | undefined) ?? fallbackDate
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+    fetch(`${baseUrl}/api/feed/generate/parlay?date=${parlayGameDate}`, { method: 'POST' }).catch(() => {})
+  } catch { /* fire-and-forget */ }
+
   const injuredCount = [...injuryMap.values()].filter((i) => i.status !== 'active').length
 
   return {
     message: `Enriched ${enriched} props + ${enrichedAlts} alt lines`,
     enriched,
     enrichedAlts,
+    snapshotted,
     total: props.length,
     playersWithGameLogs: playersWithLogs,
     teamsWithDefenseData: defMap.size,

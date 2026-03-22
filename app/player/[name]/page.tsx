@@ -93,7 +93,7 @@ function formatGameTime(iso: string): string {
 }
 
 function hitRate(logs: GameLog[], statType: StatType, line: number, direction: 'over' | 'under') {
-  const recent = logs.slice(0, 10)
+  const recent = logs.filter((g) => g.minutes >= 5).slice(0, 10)
   const hits = recent.filter((g) => {
     const v = getStatValue(g, statType)
     return direction === 'over' ? v > line : v < line
@@ -110,6 +110,53 @@ function deduplicateProps(props: Prop[]): Prop[] {
     }
   }
   return [...best.values()].sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
+}
+
+// ── Hit/Miss game-by-game bubbles ─────────────────────────────────────────────
+function HitMissRow({
+  logs,
+  statType,
+  line,
+  direction,
+}: {
+  logs:      GameLog[]
+  statType:  StatType
+  line:      number
+  direction: 'over' | 'under'
+}) {
+  const relevant = logs.filter((g) => g.minutes >= 5).slice(0, 10)
+  if (relevant.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[10px] text-white/25 uppercase tracking-wider font-semibold">
+        Last {relevant.length} games vs {line} line
+      </p>
+      <div className="flex items-end gap-2 flex-wrap">
+        {relevant.map((g, i) => {
+          const val = getStatValue(g, statType)
+          const hit = direction === 'over' ? val > line : val < line
+          const opp = extractOpponent(g.matchup) ?? '—'
+          return (
+            <div key={i} className="flex flex-col items-center gap-1" title={`${formatDate(g.date)} vs ${opp}: ${val}`}>
+              <span className="text-[9px] text-white/20 font-medium">{opp}</span>
+              <div className={[
+                'w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold border-2',
+                hit
+                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                  : 'bg-red-500/15 border-red-500/40 text-red-400',
+              ].join(' ')}>
+                {val}
+              </div>
+              <span className={`text-[9px] font-bold ${hit ? 'text-emerald-500' : 'text-red-500/70'}`}>
+                {hit ? '✓' : '✗'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 // ── Reusable stat grid ────────────────────────────────────────────────────────
@@ -475,6 +522,13 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
               {prop.confidence_reason && (
                 <p className="text-sm text-white/45 leading-relaxed">{prop.confidence_reason}</p>
               )}
+
+              <HitMissRow
+                logs={gameLogs}
+                statType={prop.stat_type}
+                line={prop.line}
+                direction={prop.direction}
+              />
 
               {chartData.length > 0 ? (
                 <StatChart

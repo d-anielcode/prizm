@@ -5,6 +5,10 @@
       "schedule": "10 4 * * *"
     },
     {
+      "path": "/api/feed/grade",
+      "schedule": "15 4 * * *"
+    },
+    {
       "path": "/api/seasonstats",
       "schedule": "20 4 * * *"
     },
@@ -17,8 +21,16 @@
       "schedule": "35 4 * * *"
     },
     {
+      "path": "/api/grade",
+      "schedule": "40 4 * * *"
+    },
+    {
       "path": "/api/enrich?force=true",
       "schedule": "50 4 * * *"
+    },
+    {
+      "path": "/api/feed/generate",
+      "schedule": "5 5 * * *"
     },
     {
       "path": "/api/gamelogs",
@@ -39,6 +51,10 @@
     {
       "path": "/api/enrich?force=true",
       "schedule": "35 14 * * *"
+    },
+    {
+      "path": "/api/props/snapshot",
+      "schedule": "0 23 * * *"
     }
   ]
 }

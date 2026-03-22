@@ -92,11 +92,26 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
       console.log(`[/api/props] Snapshotted ${existing.length} props to prop_history for ${dates}`)
     }
 
+    // Snapshot opening lines before delete — carry forward so movement is visible
+    const { data: prevLines } = await supabase
+      .from('props')
+      .select('player_name, stat_type, direction, line, opening_line')
+    const openingLineMap = new Map<string, number>()
+    for (const row of prevLines ?? []) {
+      const key = `${row.player_name}|${row.stat_type}|${row.direction}`
+      // COALESCE(opening_line, line) — keep original opening line if it exists
+      openingLineMap.set(key, Number((row as Record<string, unknown>).opening_line ?? row.line))
+    }
+
     // Clear and insert main props
     const BATCH = 500
     await supabase.from('props').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    for (let i = 0; i < mainProps.length; i += BATCH) {
-      const { error } = await supabase.from('props').insert(mainProps.slice(i, i + BATCH))
+    const propsWithOpening = mainProps.map((p) => {
+      const key = `${p.player_name}|${p.stat_type}|${p.direction}`
+      return { ...p, opening_line: openingLineMap.get(key) ?? p.line }
+    })
+    for (let i = 0; i < propsWithOpening.length; i += BATCH) {
+      const { error } = await supabase.from('props').insert(propsWithOpening.slice(i, i + BATCH))
       if (error) console.error(`[/api/props] props insert error:`, error.message)
     }
 
