@@ -44,7 +44,8 @@ for (const ppd of [1, 2, 3] as const) {
   for (const lpp of [3, 4] as const) {
     for (const market of Object.keys(MARKET_FILTERS) as (keyof typeof MARKET_FILTERS)[]) {
       for (const tiers of [['LOCK','PLAY'], ['LOCK','PLAY','LEAN']] as const) {
-        const tierLabel = tiers.includes('LEAN') ? 'LOCK+PLAY+LEAN' : 'LOCK+PLAY'
+        const tiersArr = tiers as readonly string[]
+        const tierLabel = tiersArr.includes('LEAN') ? 'LOCK+PLAY+LEAN' : 'LOCK+PLAY'
         CONFIGS.push({
           id:            `${ppd}p_${lpp}l_${market}_${tierLabel.replace(/\+/g,'_')}`,
           label:         `${ppd} parlays/day · ${lpp}-leg · ${market} · ${tierLabel}`,

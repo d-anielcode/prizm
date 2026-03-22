@@ -419,7 +419,7 @@ async function runEnrichment(force = false) {
   // Inject prev_confidence_score from snapshot taken before the force-wipe
   const updatesWithPrev = updates.map((u) => ({
     ...u,
-    prev_confidence_score: (u.id && prevScoreMap.has(u.id)) ? prevScoreMap.get(u.id) : (u as Record<string, unknown>).prev_confidence_score ?? null,
+    prev_confidence_score: (u.id && prevScoreMap.has(u.id)) ? prevScoreMap.get(u.id) : (u as unknown as Record<string, unknown>).prev_confidence_score ?? null,
   }))
   for (let i = 0; i < updatesWithPrev.length; i += BATCH) {
     const batch = updatesWithPrev.slice(i, i + BATCH)

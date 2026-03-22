@@ -148,7 +148,7 @@ const W = {
   blowout:        0.11,
   homeAway:       0.18,
   vsOpponent:     0.04,
-} as const  // sum = 1.00
+}  // sum = 1.00
 
 // Steals + Blocks: ultra-volatile, integer-valued, opponent-style-driven.
 //   matchupEdge ↑↑ — defensive schemes drive steal/block opportunities far more than form
@@ -169,7 +169,7 @@ const W_VOLATILE: typeof W = {
   blowout:        0.08,
   homeAway:       0.10,
   vsOpponent:     0.16,
-} as const  // sum = 1.00
+}  // sum = 1.00
 
 // Three-pointers: streaky but higher volume than steals/blocks.
 //   trend ↑         — shooter streaks are the most predictive signal for 3PM
@@ -189,7 +189,7 @@ const W_THREE_POINTERS: typeof W = {
   blowout:        0.09,
   homeAway:       0.12,
   vsOpponent:     0.04,
-} as const  // sum = 1.00
+}  // sum = 1.00
 
 /** Pick the right weight set for the stat type */
 function getWeights(statType: StatType): typeof W {

@@ -186,7 +186,7 @@ function buildResult(
     : tier === 'jackpot'           ? `Jackpot · ${gameDate}`
     : `High Roller ${premiumLabels[idx] ?? idx + 1} · ${gameDate}`
   const description = legStrs.join(' · ') + ` — ~${multiplier}x payout`
-  return { legs, multiplier, title, description }
+  return { legs, multiplier, title, description, tier }
 }
 
 async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]> {
