@@ -126,15 +126,33 @@ interface ParlayResult {
 }
 
 // Pick N legs from a pool. globalUsed prevents reusing the same player|stat within
-// this parlay group. usedPlayers prevents the same player appearing twice in one parlay.
+// this parlay group. Correlation rules (enforced strictly then relaxed on fallback):
+//   - No same player twice (always enforced)
+//   - Max 1 player per team (avoids same-team correlation — strictly enforced first, relaxed on fallback)
+//   - Max 2 legs from the same game (cross-game independence — relaxed last)
 function pickParlay(
   pool:        ScoredProp[],
   globalUsed:  Set<string>,
   legsNeeded:  number,
   minMins:     number = 0,
 ): { legs: ParlayLeg[]; used: Set<string> } | null {
+  // Try strict first (max 1 per team), then relax team constraint if needed.
+  const strict  = _pickParlay(pool, globalUsed, legsNeeded, minMins, true)
+  if (strict && strict.legs.length === legsNeeded) return strict
+  return _pickParlay(pool, globalUsed, legsNeeded, minMins, false)
+}
+
+function _pickParlay(
+  pool:        ScoredProp[],
+  globalUsed:  Set<string>,
+  legsNeeded:  number,
+  minMins:     number,
+  strictTeams: boolean,
+): { legs: ParlayLeg[]; used: Set<string> } | null {
   const selected: ParlayLeg[] = []
   const usedPlayers = new Set<string>()
+  const usedTeams   = new Set<string>()    // for strict mode: max 1 per team
+  const gameLegs    = new Map<string, number>()  // game_id → legs from that game
 
   for (const prop of pool) {
     if (selected.length >= legsNeeded) break
@@ -142,6 +160,14 @@ function pickParlay(
     if (globalUsed.has(key)) continue
     if (usedPlayers.has(prop.player_name)) continue
     if (minMins > 0 && (prop.avgMins == null || prop.avgMins < minMins)) continue
+
+    // Team correlation guard (strict mode: skip if team already used)
+    const team = prop.resolvedTeam ?? ''
+    if (strictTeams && team && team !== 'TBD' && usedTeams.has(team)) continue
+
+    // Game diversity: max 2 legs from the same game (both teams)
+    const gameId = prop.game_id ?? ''
+    if (gameId && (gameLegs.get(gameId) ?? 0) >= 2) continue
 
     selected.push({
       player_name:      prop.player_name,
@@ -161,6 +187,8 @@ function pickParlay(
     })
 
     usedPlayers.add(prop.player_name)
+    if (team && team !== 'TBD') usedTeams.add(team)
+    if (gameId) gameLegs.set(gameId, (gameLegs.get(gameId) ?? 0) + 1)
   }
 
   if (selected.length < legsNeeded) return null

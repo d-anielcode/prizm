@@ -33,7 +33,8 @@
 //
 // Additive adjustments (not in weight sum):
 //   - minutesTrendAdj: ±2–3 pts if L5 minutes significantly above/below L20 baseline
-//   - lineMovAdj:      ±2–6 pts for sharp money signal (line movement vs pick direction)
+//   - lineMovAdj:      ±2–6 pts for sharp money signal (line value movement vs pick direction)
+//   - oddsMovAdj:     ±3–7 pts for odds movement (P(over) shift ≥3pp since morning snapshot)
 //   - biasAdj:         ±0–5 pts from player-specific historical over/under bias
 //   - leakAdj:         ±0–4 pts from opponent team defensive leak for this stat
 //   - starBonus:       +3 pts for ≥36 min avg stars with generous line + hot hit rate
@@ -125,6 +126,7 @@ export interface ScoringContext {
   playerBias?:        PlayerLineBias | null      // systematic over/under bias for this player+stat
   opponentLeak?:      OpponentStatLeak | null    // team-specific defensive leak for this stat
   lineMovementDelta?: number | null              // current line − opening line (positive = line moved up)
+  oddsMovementDelta?: number | null              // P(over) now − P(over) open (positive = sharp OVER money)
 }
 
 export interface ScoredProp extends Prop {
@@ -887,6 +889,22 @@ export function scoreProps(
     lineMovAdj = confirming ? magnitude : -magnitude
   }
 
+  // Odds movement adjustment (sharp money signal):
+  // Books move juice before moving the line — when implied probability shifts ≥3pp
+  // without a corresponding line move, it's a stronger signal of syndicate action.
+  // Uses P(over) computed from American odds: |odds|/(|odds|+100) for negative, 100/(odds+100) for positive.
+  // oddsMovementDelta = P_now − P_open (positive = more OVER action since morning snapshot)
+  // Confirming direction → +3/5/7 pts; counter → −3/5/7 pts.
+  // Only triggers when |delta| ≥ 0.03 (3pp implied prob shift) to filter noise.
+  const oddsMovementDelta = ctx.oddsMovementDelta ?? null
+  let oddsMovAdj = 0
+  if (oddsMovementDelta != null && Math.abs(oddsMovementDelta) >= 0.03) {
+    const absDelta  = Math.abs(oddsMovementDelta)
+    const magnitude = absDelta >= 0.10 ? 7 : absDelta >= 0.06 ? 5 : 3
+    const confirming = direction === 'over' ? oddsMovementDelta > 0 : oddsMovementDelta < 0
+    oddsMovAdj = confirming ? magnitude : -magnitude
+  }
+
   // Minutes trend adjustment: if a player's recent minutes (L5) are significantly
   // higher than their rolling baseline (L20), they're getting more time = more counting
   // stat volume. ±2 pts at ≥10% change, ±3 pts at ≥20% change. Applies to all stat types.
@@ -913,12 +931,14 @@ export function scoreProps(
   }
 
   const score = Math.round(Math.min(95, Math.max(18,
-    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + minutesTrendAdj
+    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
   const reason = buildReason(
     prop, gameLogs, fLineValue, hr20, f3, f6, f2, hasLogs, defStats, vsOpp, isHome,
     spread, playerStatus, injuredTeammates, seasonStats, gameTotal, freshness, playerTier,
+    ctx.lineMovementDelta ?? null,
+    ctx.oddsMovementDelta ?? null,
   )
 
   return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason }
@@ -999,6 +1019,8 @@ function buildReason(
   gameTotal?: number | null,
   freshness?: number,
   playerTier?: 'star' | 'starter' | 'rotation',
+  lineMovementDelta?: number | null,
+  oddsMovementDelta?: number | null,
 ): string {
   const { stat_type, line, direction, player_name, opponent } = prop
   const stat = STAT_WORD[stat_type] ?? stat_type
@@ -1246,6 +1268,27 @@ function buildReason(
         sentences.push(`⚠️ Minutes vary significantly (σ≈${stdev.toFixed(0)} min/game) — playing time uncertainty is high.`)
       }
     }
+  }
+
+  // 10. Sharp money signals (line movement + odds movement)
+  if (lineMovementDelta != null && Math.abs(lineMovementDelta) >= 0.5) {
+    const confirming = dir === 'over' ? lineMovementDelta > 0 : lineMovementDelta < 0
+    const moved = Math.abs(lineMovementDelta).toFixed(1)
+    const dirStr = lineMovementDelta > 0 ? 'up' : 'down'
+    sentences.push(
+      confirming
+        ? `📈 Line moved ${dirStr} ${moved} pts since opening — sharp money confirming the ${dir.toUpperCase()}.`
+        : `📉 Line moved ${dirStr} ${moved} pts since opening — market action going against the ${dir.toUpperCase()}.`
+    )
+  }
+  if (oddsMovementDelta != null && Math.abs(oddsMovementDelta) >= 0.03) {
+    const confirming = dir === 'over' ? oddsMovementDelta > 0 : oddsMovementDelta < 0
+    const pctShift   = (Math.abs(oddsMovementDelta) * 100).toFixed(0)
+    sentences.push(
+      confirming
+        ? `💰 Odds juice shifted +${pctShift}pp toward the ${dir.toUpperCase()} since morning — sharp syndicate action detected.`
+        : `⚠️ Odds juice shifted ${pctShift}pp away from the ${dir.toUpperCase()} since morning — books taking ${dir === 'over' ? 'under' : 'over'} action.`
+    )
   }
 
   return sentences.join(' ') || 'Limited data available for this pick.'

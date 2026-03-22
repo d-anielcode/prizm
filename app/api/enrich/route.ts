@@ -329,6 +329,39 @@ async function runEnrichment(force = false) {
   }
   console.log(`[/api/enrich] Line bias: ${biasMap.size} player/stat entries`)
 
+  // ── Load morning odds snapshot for odds movement signal ───────────────────
+  // Morning cron (4:50 AM UTC) snapshots props to prop_history. Afternoon cron
+  // re-enriches — compare current odds to morning snapshot to detect sharp action.
+  // Implied prob: |odds|/(|odds|+100) for neg odds, 100/(odds+100) for pos.
+  function toImpliedProb(odds: number | null | undefined): number | null {
+    if (odds == null) return null
+    if (odds < 0) return Math.abs(odds) / (Math.abs(odds) + 100)
+    if (odds > 0) return 100 / (odds + 100)
+    return 0.5
+  }
+
+  const gameDates = [...new Set(
+    props.map((p) => p.commence_time
+      ? new Date(p.commence_time).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      : null
+    ).filter((d): d is string => d !== null)
+  )]
+
+  const openingOddsMap = new Map<string, number | null>()
+  if (gameDates.length > 0) {
+    const { data: morningRows } = await supabase
+      .from('prop_history')
+      .select('player_name, stat_type, direction, odds, game_date')
+      .in('game_date', gameDates)
+    for (const row of morningRows ?? []) {
+      const key = `${row.player_name}|${row.stat_type}|${row.direction}|${row.game_date}`
+      if (!openingOddsMap.has(key)) {
+        openingOddsMap.set(key, toImpliedProb(row.odds as number | null))
+      }
+    }
+    console.log(`[/api/enrich] Morning odds snapshot: ${openingOddsMap.size} entries`)
+  }
+
   // ── Load opponent stat leaks ───────────────────────────────────────────────
   const { data: leakRows } = await supabase
     .from('opponent_stat_leaks')
@@ -397,6 +430,17 @@ async function runEnrichment(force = false) {
       ? prop.line - prop.opening_line
       : null
 
+    // Odds movement: compare current implied prob to morning snapshot
+    const gameDate = prop.commence_time
+      ? new Date(prop.commence_time).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      : null
+    const openingKey = `${prop.player_name}|${prop.stat_type}|${prop.direction}|${gameDate}`
+    const openingProb = gameDate ? openingOddsMap.get(openingKey) ?? null : null
+    const currentProb = toImpliedProb((prop as unknown as Record<string, unknown>).odds as number | null)
+    const oddsMovementDelta = (openingProb != null && currentProb != null)
+      ? currentProb - openingProb
+      : null
+
     const ctx: ScoringContext = {
       defStats,
       isHome,
@@ -410,6 +454,7 @@ async function runEnrichment(force = false) {
       playerBias:       biasMap.get(`${prop.player_name}|${prop.stat_type}`) ?? null,
       opponentLeak:     opponentAbbr ? (leakMap.get(`${opponentAbbr}|${prop.stat_type}`) ?? null) : null,
       lineMovementDelta,
+      oddsMovementDelta,
     }
 
     return scoreProps(prop, logs, null, ctx)
