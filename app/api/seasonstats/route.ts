@@ -9,6 +9,8 @@ import { supabase } from '@/lib/supabase'
 import { getEspnVariants } from '@/lib/player-aliases'
 import { CURRENT_SEASON } from '@/lib/constants'
 
+export const maxDuration = 120
+
 const SEASON = CURRENT_SEASON
 const PAGE   = 1000
 

@@ -6,6 +6,8 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { fetchGameLogsFromESPN } from '@/lib/espn-gamelogs'
 
+export const maxDuration = 120
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
 

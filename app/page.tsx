@@ -173,7 +173,8 @@ async function getData(): Promise<{ games: GameInfo[]; allProps: Prop[]; stale: 
   const unscoredCount = allRows.filter((p) => p.confidence_score == null).length
   if (unscoredCount > 0) {
     // Fire-and-forget — don't block page render on enrichment (30-60s)
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
+      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
     fetch(`${baseUrl}/api/enrich`, { method: 'GET' }).catch(() => {})
   }
 

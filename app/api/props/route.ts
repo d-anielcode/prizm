@@ -5,6 +5,8 @@
 import { NextResponse } from 'next/server'
 import { supabase, isCacheStale } from '@/lib/supabase'
 import { fetchTodaysNBAEvents, fetchAllPropsForEvents } from '@/lib/odds-api'
+
+export const maxDuration = 120
 import { deduplicatePropsWithAlts } from '@/lib/dedup'
 import type { Prop } from '@/types'
 

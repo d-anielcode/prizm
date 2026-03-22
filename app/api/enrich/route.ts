@@ -10,6 +10,8 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { TEAM_ABBR } from '@/lib/team-abbr'
+
+export const maxDuration = 300
 import {
   scoreProps,
   type GameLog,
@@ -538,7 +540,8 @@ async function runEnrichment(force = false) {
   // Derive game date from enriched props so tomorrow's props generate correctly
   const parlayGameDate = (historyRows[0]?.game_date as string | undefined) ?? fallbackDate
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
+      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
     fetch(`${baseUrl}/api/feed/generate/parlay?date=${parlayGameDate}`, { method: 'POST' }).catch(() => {})
   } catch { /* fire-and-forget */ }
 

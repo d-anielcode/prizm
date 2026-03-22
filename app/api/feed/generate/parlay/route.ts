@@ -1,4 +1,5 @@
 // /api/feed/generate/parlay
+export const maxDuration = 60
 //
 // Auto-generates three tiers of curated parlays per day:
 //

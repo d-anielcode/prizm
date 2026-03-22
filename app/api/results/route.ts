@@ -10,6 +10,8 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import type { Prop, StatType } from '@/types'
 
+export const maxDuration = 120
+
 function getStatValue(log: Record<string, number>, statType: StatType): number {
   switch (statType) {
     case 'points':         return log.points ?? 0

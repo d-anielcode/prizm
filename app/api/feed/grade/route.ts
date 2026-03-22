@@ -1,4 +1,5 @@
 // /api/feed/grade — Grade settled curated_parlays and store results
+export const maxDuration = 60
 //
 // GET  — preview grading for all ungraded past parlays (no DB writes)
 // POST — grade and persist result to curated_parlays.result

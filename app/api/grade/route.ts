@@ -6,6 +6,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { StatType } from '@/types'
 
+export const maxDuration = 120
+
 // Explicit service-role client — bypasses RLS unconditionally
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
