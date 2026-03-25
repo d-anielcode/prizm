@@ -14,6 +14,9 @@ import { createClient } from '@supabase/supabase-js'
 import { scoreProps, type GameLog, type PlayerLineBias, type OpponentStatLeak, type ScoringContext } from '@/lib/confidence'
 import type { Prop, StatType } from '@/types'
 
+// GameLog doesn't include player_name (it's stripped before scoring), so extend it locally
+type GameLogRow = GameLog & { player_name: string }
+
 export const maxDuration = 120
 
 function getServiceClient() {
@@ -80,7 +83,7 @@ export async function GET(req: Request) {
 
     // ── 2. Load all game logs for relevant players ────────────────────────────
     const playerSet = [...new Set(propRows.map((r) => r.player_name as string))]
-    const allLogs: GameLog[] = []
+    const allLogs: GameLogRow[] = []
     {
       let from = 0
       const PAGE = 1000
@@ -93,7 +96,7 @@ export async function GET(req: Request) {
           .range(from, from + PAGE - 1)
         if (error) throw new Error(`player_game_logs read: ${error.message}`)
         if (!page || page.length === 0) break
-        allLogs.push(...(page as unknown as GameLog[]))
+        allLogs.push(...(page as unknown as GameLogRow[]))
         if (page.length < PAGE) break
         from += PAGE
       }
@@ -125,9 +128,9 @@ export async function GET(req: Request) {
       })
     }
 
-    // Index logs
-    const logsByPlayer = new Map<string, GameLog[]>()
-    const logByPlayerDate = new Map<string, GameLog>()
+    // Index logs by player
+    const logsByPlayer = new Map<string, GameLogRow[]>()
+    const logByPlayerDate = new Map<string, GameLogRow>()
     for (const log of allLogs) {
       const pn = log.player_name
       if (!logsByPlayer.has(pn)) logsByPlayer.set(pn, [])
