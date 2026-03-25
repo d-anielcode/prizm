@@ -49,6 +49,13 @@ const PARLAY_VIG_FACTOR = 0.85
 const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers'])  // no assists (40% hit rate)
 const ALLOWED_TIERS    = new Set(['LOCK', 'PLAY'])
 
+// Minimum lines per stat — filter out trivial/gimme props that aren't real bets
+const MIN_LINE: Record<string, number> = {
+  points:         10.5,  // must be a meaningful scoring line
+  rebounds:       3.5,   // must require real rebounding effort
+  three_pointers: 1.5,   // "over 0.5 threes" is a coinflip, not a pick
+}
+
 const STAT_LABELS: Record<string, string> = {
   points:         'PTS',
   rebounds:       'REB',
@@ -136,10 +143,9 @@ function pickParlay(
   legsNeeded:  number,
   minMins:     number = 0,
 ): { legs: ParlayLeg[]; used: Set<string> } | null {
-  // Try strict first (max 1 per team), then relax team constraint if needed.
-  const strict  = _pickParlay(pool, globalUsed, legsNeeded, minMins, true)
-  if (strict && strict.legs.length === legsNeeded) return strict
-  return _pickParlay(pool, globalUsed, legsNeeded, minMins, false)
+  // Always enforce strict team correlation (max 1 per team, max 2 per game).
+  // No relaxed fallback — better to return null than build a same-team parlay.
+  return _pickParlay(pool, globalUsed, legsNeeded, minMins)
 }
 
 function _pickParlay(
@@ -147,7 +153,6 @@ function _pickParlay(
   globalUsed:  Set<string>,
   legsNeeded:  number,
   minMins:     number,
-  strictTeams: boolean,
 ): { legs: ParlayLeg[]; used: Set<string> } | null {
   const selected: ParlayLeg[] = []
   const usedPlayers = new Set<string>()
@@ -161,9 +166,9 @@ function _pickParlay(
     if (usedPlayers.has(prop.player_name)) continue
     if (minMins > 0 && (prop.avgMins == null || prop.avgMins < minMins)) continue
 
-    // Team correlation guard (strict mode: skip if team already used)
+    // Team correlation guard — always strict: max 1 player per team
     const team = prop.resolvedTeam ?? ''
-    if (strictTeams && team && team !== 'TBD' && usedTeams.has(team)) continue
+    if (team && team !== 'TBD' && usedTeams.has(team)) continue
 
     // Game diversity: max 2 legs from the same game (both teams)
     const gameId = prop.game_id ?? ''
@@ -229,12 +234,13 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
 
   if (error || !propsRaw || propsRaw.length === 0) return []
 
-  // Filter to target date + allowed markets
+  // Filter to target date + allowed markets + minimum line thresholds
   const eligible = propsRaw.filter((p) =>
     p.commence_time &&
     toEasternDate(p.commence_time) === gameDate &&
     ALLOWED_MARKETS.has(p.stat_type) &&
-    ALLOWED_TIERS.has(p.confidence_label ?? '')
+    ALLOWED_TIERS.has(p.confidence_label ?? '') &&
+    p.line >= (MIN_LINE[p.stat_type] ?? 0)
   )
 
   if (eligible.length === 0) return []
@@ -387,32 +393,17 @@ export async function POST(req: Request) {
   const force    = url.searchParams.get('force') === 'true'
 
   try {
-    // Idempotency: skip if we already have value + premium parlays for this date (unless force=true)
-    const { data: existing } = await adminClient
-      .from('curated_parlays')
-      .select('id, parlay_type')
-      .eq('game_date', gameDate)
-      .in('parlay_type', ['value', 'premium', 'jackpot'])
-      .eq('active', true)
-
-    const existingValue   = (existing ?? []).filter((r) => r.parlay_type === 'value').length
-    const existingPremium = (existing ?? []).filter((r) => r.parlay_type === 'premium').length
-    const existingJackpot = (existing ?? []).filter((r) => r.parlay_type === 'jackpot').length
-    const alreadyFull     = existingValue >= 1 && existingPremium >= PREMIUM_COUNT && existingJackpot >= 1
-
-    if (alreadyFull && !force) {
-      return NextResponse.json({
-        message: `Parlays already generated for ${gameDate} — skipping`,
-        date: gameDate,
-        saved: 0,
-        skipped: true,
-      })
-    }
-
-    // force=true: delete existing auto-generated parlays so we can regenerate fresh
-    if (force && existing && existing.length > 0) {
-      const ids = existing.map((r) => r.id)
-      await adminClient.from('curated_parlays').delete().in('id', ids)
+    // force=true: delete existing auto-generated parlays and regenerate fresh
+    if (force) {
+      const { data: existing } = await adminClient
+        .from('curated_parlays')
+        .select('id')
+        .eq('game_date', gameDate)
+        .in('parlay_type', ['value', 'premium', 'jackpot'])
+        .eq('active', true)
+      if (existing && existing.length > 0) {
+        await adminClient.from('curated_parlays').delete().in('id', existing.map((r) => r.id))
+      }
     }
 
     const results = await generateCuratedParlays(gameDate)
@@ -425,13 +416,27 @@ export async function POST(req: Request) {
       })
     }
 
-    // Only insert tiers we don't already have; force cleared them so insert all
-    const toInsert = force ? results : results.filter((r) => {
-      if (r.tier === 'value')   return existingValue   < 1
-      if (r.tier === 'premium') return existingPremium < PREMIUM_COUNT
-      if (r.tier === 'jackpot') return existingJackpot < 1
-      return true
-    })
+    // Idempotency: fetch existing titles for this date so we skip any already saved.
+    // Using title as a natural unique key prevents race conditions — concurrent calls
+    // that generate the same parlay will simply skip on the duplicate-title check.
+    const { data: existingTitles } = await adminClient
+      .from('curated_parlays')
+      .select('title')
+      .eq('game_date', gameDate)
+      .in('parlay_type', ['value', 'premium', 'jackpot'])
+      .eq('active', true)
+
+    const savedTitles = new Set((existingTitles ?? []).map((r: { title: string }) => r.title))
+    const toInsert = results.filter((r) => !savedTitles.has(r.title))
+
+    if (toInsert.length === 0) {
+      return NextResponse.json({
+        message: `Parlays already generated for ${gameDate} — skipping`,
+        date: gameDate,
+        saved: 0,
+        skipped: true,
+      })
+    }
 
     const rows = toInsert.map((result) => ({
       title:          result.title,
