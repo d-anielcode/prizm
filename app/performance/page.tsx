@@ -62,20 +62,14 @@ function tally(map: TierMap, label: string, hit: boolean) {
 
 // ── Data loading ──────────────────────────────────────────────────────────────
 
-// All-time totals: lean query — only confidence_label + hit, 60-day window
+// All-time totals: lean query — only confidence_label + hit, no date cutoff
 async function loadAllTimeTotals(): Promise<{ totals: TierMap; days: number }> {
-  const cutoff = new Date(Date.now() - 60 * 86400000)
-    .toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-
   const { data } = await supabase
     .from('prop_grades')
     .select('game_date, confidence_label, hit')
     .not('confidence_label', 'is', null)
     .not('hit', 'is', null)
-    .gte('game_date', cutoff)
-    .lte('game_date', today)
-    .limit(30000)
+    .limit(100000)
 
   const totals = blankTierMap()
   const dates  = new Set<string>()
