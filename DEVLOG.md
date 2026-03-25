@@ -220,3 +220,95 @@ Default odds: -130 (fallback for synthetic/missing odds)
 - `enrich/route.ts`: double-cast `ScoredProp` via `unknown` before `Record<string, unknown>`
 - `feed/generate/parlay`: `buildResult()` was missing `tier` in return object
 - `lib/confidence.ts`: removed `as const` from weight objects — literal types prevented `W_VOLATILE` and `W_THREE_POINTERS` from using different values
+
+---
+
+## 2026-03-25 — Model Post-Mortem, v6.2 Engine, Dead Code Cleanup, Parlay Fixes
+
+### Codebase Audit & Dead Code Removal
+- Full audit of all 27 API routes, 7 pages, 12 components, 11 lib files
+- Deleted `lib/nba-api.ts` — never imported anywhere (634 lines dead code)
+- Deleted `components/ParlayBuilder.tsx` — never imported anywhere
+- Deleted `app/api/feed/generate/route.ts` — old SGP generator, replaced by parlay route
+- Disabled Claude Code "Daily sgp generate" scheduled task (was calling deleted route)
+- Confirmed `lib/odds-api.ts` (live props) and `lib/the-odds-api.ts` (historical backfill) are both needed for different purposes
+- All 9 cron-called routes confirmed to have GET handlers (Vercel crons use GET)
+
+### Model Post-Mortem: Mar 22–24
+Analyzed 835 graded props across 3 days against actual box scores. Key findings:
+
+| Date | LOCK | PLAY | LEAN | FADE |
+|------|------|------|------|------|
+| Mar 22 | 2/8 (25%) | 17/34 (50%) | 67/133 (50%) | — |
+| Mar 23 | 2/3 (67%) | 18/41 (44%) | 81/177 (46%) | — |
+| Mar 24 | 0/4 (0%) | 9/18 (50%) | 35/82 (43%) | — |
+
+**Root causes identified:**
+- OVER props hit only **43.4%** vs UNDER at **50.1%** — systematic over-pricing of overs by books
+- PRA hit only **40.5%** — combined 3-stat prop has too much variance
+- LOCKs were scoring 68–73 (barely above PLAY range) — threshold too low for quality
+- Bench/role players (< 20 min avg) hit at **65.7%** — but when they get surprise low minutes, their props collapse (Ochai Agbaji 9 min destroyed 2 LOCKs)
+- Same-game concentration: Mar 24 had 4 LOCKs from CHAvsSAC; all failed when that game went sideways
+- 4 separate half-point near-misses across the 3 days (off by exactly 0.5)
+
+### Confidence Engine v6.2
+Three data-driven fixes applied to `lib/confidence.ts`:
+
+1. **Minutes uncertainty penalty** (new additive adjustment)
+   - `avg_mins L10 < 20`: −8pts (deep bench / Ochai Agbaji situation)
+   - `avg_mins L10 < 24`: −4pts (fringe starter)
+   - `stdev > 6 min`: additional −3pts (high rotation variance)
+   - Prevents bench players from reaching LOCK/PLAY without overwhelming signal elsewhere
+
+2. **Over bias correction** (new additive adjustment)
+   - −3pts applied to ALL OVER props
+   - Corrects for books systematically pricing popular OVERs above fair value
+   - Empirically: OVERs hit 43.4% vs UNDERs 50.1% (sample: 835 props, 3 days)
+
+3. **PRA threshold increase**
+   - LOCK: 74 → 78 (base 68 + 10pp offset, up from +6pp)
+   - PLAY: 66 → 68
+   - PRA empirically hit at 40.5%, lowest of any stat type
+
+### Auto-Enrich After Props Refresh
+- `/api/props` now fires `fetch(/api/enrich?force=true)` as fire-and-forget after every fresh prop fetch
+- Fixes blank LOCK/PLAY/LEAN/FADE counts seen after manual or cron prop refreshes
+- Applies to all triggers: morning cron, midday refresh, manual `?refresh=true`
+
+### Parlay Generator Fixes (`/api/feed/generate/parlay`)
+
+**Quality filters — minimum line thresholds:**
+- Points: line ≥ 10.5 (removes trivial 5pt lines)
+- Rebounds: line ≥ 3.5
+- Three pointers: line ≥ 1.5 (removes "OVER 0.5 threes" coinflips)
+
+**Strict team correlation — removed same-team fallback:**
+- Previously: tried strict (1 player/team), fell back to relaxed if pool was thin
+- Now: strict-only. If full parlay can't be built with all-different teams, return null
+- Better to skip a tier than publish a same-team correlation parlay
+
+**Race condition fix — duplicate parlays:**
+- Root cause: 3 concurrent cron calls all read `existingValue=0` before any wrote → 3 identical VALUE parlays inserted (same timestamp, same legs)
+- Fix: use parlay `title` as natural unique key. After generating, fetch existing titles for the date and only insert parlays whose title isn't already saved. Concurrent duplicates harmlessly skip.
+- Deleted the 3 duplicate Mar 25 VALUE parlays from DB
+
+### Updated Vercel Cron Schedule (corrected)
+| Time (UTC) | Route | Purpose |
+|-----------|-------|---------|
+| 04:10 | `/api/gamelogs` | Fetch ESPN box scores |
+| 04:15 | `/api/feed/grade` | Grade completed parlays |
+| 04:20 | `/api/seasonstats` | Update season averages |
+| 04:25 | `/api/results?force=true` | Aggregate prop results |
+| 04:35 | `/api/props?refresh=true` | Fetch next day's props |
+| 04:40 | `/api/grade` | Grade individual prop model performance |
+| 04:50 | `/api/enrich?force=true` | Score props (also auto-triggered by props refresh) |
+| 05:05 | `/api/feed/generate/parlay` | Generate VALUE/PREMIUM/JACKPOT parlays |
+| 12:00 | `/api/props?refresh=true` | Midday line refresh |
+| 12:15 | `/api/enrich?force=true` | Re-score with updated lines |
+| 12:30 | `/api/feed/generate/parlay` | Regenerate parlays with fresh scores |
+| 13:55 | `/api/gamelogs` | Afternoon game log update |
+| 14:05 | `/api/seasonstats` | Afternoon season stats update |
+| 14:10 | `/api/results?force=true` | Afternoon results update |
+| 14:20 | `/api/props?refresh=true` | Afternoon line refresh |
+| 14:35 | `/api/enrich?force=true` | Afternoon re-score |
+| 23:00 | `/api/props/snapshot` | Pre-game odds snapshot (morning baseline) |
