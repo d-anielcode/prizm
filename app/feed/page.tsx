@@ -169,9 +169,10 @@ export default async function FeedPage() {
                 {/* Legs */}
                 <div className="flex flex-col gap-1.5">
                   {(parlay.legs as FeedLeg[]).map((leg, i) => (
-                    <div
+                    <Link
                       key={`${leg.player_name}-${leg.stat_type}-${i}`}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 bg-white/[0.03] border border-white/[0.06]"
+                      href={`/player/${encodeURIComponent(leg.player_name)}`}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12] transition-colors"
                     >
                       <span className="text-xs font-black text-white/15 w-3 shrink-0">{i + 1}</span>
 
@@ -203,7 +204,7 @@ export default async function FeedPage() {
                           </span>
                         )}
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
 

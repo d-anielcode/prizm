@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase'
 import { PropsTable } from '@/components/PropsTable'
 import type { AltLine, Prop, PropWithAlts } from '@/types'
 
-export const revalidate = 0
+export const dynamic = 'force-dynamic'
 
 async function getProps(): Promise<PropWithAlts[]> {
   const now = new Date().toISOString()
@@ -36,13 +36,22 @@ async function getProps(): Promise<PropWithAlts[]> {
     return (b.confidence_score ?? 0) - (a.confidence_score ?? 0)
   })
 
-  // Fetch alt lines for these games (filter out null game_ids)
+  // Fetch alt lines for these games — paginated to avoid 1000-row Supabase default limit
   const gameIds = [...new Set(allRows.map((p) => p.game_id).filter(Boolean))]
-  const { data: alts } = await supabase
-    .from('prop_alts')
-    .select('*')
-    .in('game_id', gameIds)
-  const altRows = (alts ?? []) as (AltLine & { player_name: string; stat_type: string; game_id: string })[]
+  const altRows: (AltLine & { player_name: string; stat_type: string; game_id: string })[] = []
+  let altFrom = 0
+  const ALT_PAGE = 1000
+  while (true) {
+    const { data: altPage } = await supabase
+      .from('prop_alts')
+      .select('*')
+      .in('game_id', gameIds)
+      .range(altFrom, altFrom + ALT_PAGE - 1)
+    if (!altPage || altPage.length === 0) break
+    altRows.push(...(altPage as typeof altRows))
+    if (altPage.length < ALT_PAGE) break
+    altFrom += ALT_PAGE
+  }
 
   return allRows.map((p) => ({
     ...p,

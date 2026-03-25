@@ -1,6 +1,7 @@
 {
   "crons": [
     {
+      "comment": "── Morning pipeline (all times UTC; ET = UTC-4) ──────────────────",
       "path": "/api/gamelogs?days=3",
       "schedule": "10 4 * * *"
     },
@@ -33,6 +34,7 @@
       "schedule": "5 5 * * *"
     },
     {
+      "comment": "── Mid-morning refresh (8 AM ET) ─────────────────────────────────",
       "path": "/api/props?refresh=true",
       "schedule": "0 12 * * *"
     },
@@ -45,7 +47,8 @@
       "schedule": "30 12 * * *"
     },
     {
-      "path": "/api/gamelogs",
+      "comment": "── Pre-noon refresh (9:55 AM ET) ─────────────────────────────────",
+      "path": "/api/gamelogs?days=3",
       "schedule": "55 13 * * *"
     },
     {
@@ -65,6 +68,20 @@
       "schedule": "35 14 * * *"
     },
     {
+      "path": "/api/feed/generate/parlay?force=true",
+      "schedule": "50 14 * * *"
+    },
+    {
+      "comment": "── Afternoon refresh (3 PM ET) — captures line movements ─────────",
+      "path": "/api/props?refresh=true",
+      "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/enrich?force=true",
+      "schedule": "15 19 * * *"
+    },
+    {
+      "comment": "── Pre-tipoff snapshot (7 PM ET) — locks scored props for grading",
       "path": "/api/props/snapshot",
       "schedule": "0 23 * * *"
     }

@@ -23,7 +23,7 @@ import {
   type PlayerLineBias,
   type OpponentStatLeak,
 } from '@/lib/confidence'
-import type { Prop, StatType, Direction } from '@/types'
+import type { Prop, StatType, Direction, ConfidenceLabel } from '@/types'
 
 // ── ESPN free APIs ─────────────────────────────────────────────────────────────
 // Both are undocumented but widely stable — wrapped in try/catch so failures
@@ -483,6 +483,28 @@ async function runEnrichment(force = false) {
     altFrom += PAGE
   }
 
+  // Build main line lookup so easier alt lines get a score boost.
+  // Without this, the trend factor gets dampened for very easy lines (high baseline
+  // hit rate → less room to show momentum), causing "safer" alts to score lower
+  // than the main line. We add +2 pts per step easier to correct for this.
+  const mainLineMap = new Map<string, number>()
+  for (const p of props) {
+    mainLineMap.set(`${p.player_name}|${p.stat_type}|${p.direction}`, p.line)
+  }
+  const ALT_STEP: Record<string, number> = {
+    points: 2, pra: 2, rebounds: 1, assists: 1, steals: 1, blocks: 1, three_pointers: 1,
+  }
+  const ALT_LOCK_T: Partial<Record<string, number>> = {
+    assists: 74, pra: 78, steals: 72, blocks: 72, three_pointers: 72,
+  }
+  const ALT_PLAY_T: Partial<Record<string, number>> = { assists: 70, pra: 68 }
+  function adjAltLabel(score: number, statType: string): ConfidenceLabel {
+    if (score >= (ALT_LOCK_T[statType] ?? 68)) return 'LOCK'
+    if (score >= (ALT_PLAY_T[statType] ?? 60)) return 'PLAY'
+    if (score >= 50) return 'LEAN'
+    return 'FADE'
+  }
+
   let enrichedAlts = 0
   if (altRows.length > 0) {
     const altUpdates = altRows.map((alt) => {
@@ -521,7 +543,24 @@ async function runEnrichment(force = false) {
       }
       const ctx: ScoringContext = { defStats, isHome, opponentAbbr, spread, gameTotal, playerStatus, injuredTeammates }
       const scored = scoreProps(pseudoProp, logs, null, ctx)
-      return { ...alt, confidence_score: scored.confidence_score, confidence_label: scored.confidence_label }
+
+      // Line-easiness adjustment: for alt lines easier than the main line,
+      // add +2 pts per step so "safer" alts always score >= the main line score.
+      const mainKey = `${pseudoProp.player_name}|${pseudoProp.stat_type}|${pseudoProp.direction}`
+      const mainLine = mainLineMap.get(mainKey)
+      let adjScore = scored.confidence_score
+      if (mainLine != null) {
+        const step = ALT_STEP[pseudoProp.stat_type] ?? 1
+        const rawShift = pseudoProp.direction === 'over'
+          ? mainLine - pseudoProp.line   // positive = alt is lower = easier for OVER
+          : pseudoProp.line - mainLine   // positive = alt is higher = easier for UNDER
+        const stepsEasier = rawShift / step
+        if (stepsEasier > 0) {
+          adjScore = Math.min(scored.confidence_score + stepsEasier * 2, 99)
+        }
+      }
+
+      return { ...alt, confidence_score: adjScore, confidence_label: adjAltLabel(adjScore, pseudoProp.stat_type) }
     })
 
     for (let i = 0; i < altUpdates.length; i += BATCH) {
