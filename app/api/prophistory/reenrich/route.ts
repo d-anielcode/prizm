@@ -11,7 +11,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { scoreProps, type PlayerLineBias, type OpponentStatLeak, type ScoringContext } from '@/lib/confidence'
+import { scoreProps, type GameLog, type PlayerLineBias, type OpponentStatLeak, type ScoringContext } from '@/lib/confidence'
 import type { Prop, StatType } from '@/types'
 
 export const maxDuration = 120
@@ -23,9 +23,17 @@ function getServiceClient() {
   return createClient(url, key, { auth: { persistSession: false } })
 }
 
-function getStatValue(row: Record<string, unknown>, statType: StatType): number | null {
-  const map: Record<string, string> = { points: 'points', rebounds: 'rebounds', assists: 'assists', steals: 'steals', blocks: 'blocks', three_pointers: 'fg3m', pra: 'pra' }
-  const f = map[statType]; return f != null && row[f] != null ? Number(row[f]) : null
+function getStatValue(log: GameLog, statType: StatType): number | null {
+  switch (statType) {
+    case 'points':         return log.points   != null ? Number(log.points)   : null
+    case 'rebounds':       return log.rebounds != null ? Number(log.rebounds) : null
+    case 'assists':        return log.assists  != null ? Number(log.assists)  : null
+    case 'steals':         return log.steals   != null ? Number(log.steals)   : null
+    case 'blocks':         return log.blocks   != null ? Number(log.blocks)   : null
+    case 'three_pointers': return log.fg3m     != null ? Number(log.fg3m)     : null
+    case 'pra':            return log.pra      != null ? Number(log.pra)      : null
+    default:               return null
+  }
 }
 
 export async function GET(req: Request) {
@@ -72,7 +80,7 @@ export async function GET(req: Request) {
 
     // ── 2. Load all game logs for relevant players ────────────────────────────
     const playerSet = [...new Set(propRows.map((r) => r.player_name as string))]
-    const allLogs: Record<string, unknown>[] = []
+    const allLogs: GameLog[] = []
     {
       let from = 0
       const PAGE = 1000
@@ -118,10 +126,10 @@ export async function GET(req: Request) {
     }
 
     // Index logs
-    const logsByPlayer = new Map<string, Record<string, unknown>[]>()
-    const logByPlayerDate = new Map<string, Record<string, unknown>>()
+    const logsByPlayer = new Map<string, GameLog[]>()
+    const logByPlayerDate = new Map<string, GameLog>()
     for (const log of allLogs) {
-      const pn = log.player_name as string
+      const pn = log.player_name
       if (!logsByPlayer.has(pn)) logsByPlayer.set(pn, [])
       logsByPlayer.get(pn)!.push(log)
       logByPlayerDate.set(`${pn}|${log.game_date}`, log)
@@ -136,13 +144,13 @@ export async function GET(req: Request) {
     for (const prop of propRows) {
       const gameDate  = prop.game_date as string
       const allPlayerLogs = logsByPlayer.get(prop.player_name as string) ?? []
-      const priorLogs = allPlayerLogs.filter((g) => (g.game_date as string) < gameDate)
+      const priorLogs = allPlayerLogs.filter((g) => g.game_date < gameDate)
       if (priorLogs.length < 3) { skipped++; continue }
 
       const gameLog = logByPlayerDate.get(`${prop.player_name}|${gameDate}`)
       let opponentAbbr: string | null = null
       if (gameLog) {
-        const parts = (gameLog.matchup as string).split('@')
+        const parts = gameLog.matchup.split('@')
         if (parts.length === 2)
           opponentAbbr = gameLog.is_home ? parts[0].trim() : parts[1].trim()
       }
