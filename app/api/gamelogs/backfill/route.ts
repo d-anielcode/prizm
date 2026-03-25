@@ -18,8 +18,16 @@
 //   …or just follow the `nextUrl` field each time.
 
 import { NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import { fetchGameLogsFromESPN, dateRange } from '@/lib/espn-gamelogs'
+
+function getDb() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!,
+    { auth: { persistSession: false } },
+  )
+}
 
 const NBA_SEASON_START = '2025-10-22'
 const BATCH_SIZE = 200
@@ -30,6 +38,7 @@ function yesterday(): string {
 }
 
 export async function GET(req: Request) {
+  const db = getDb()
   const url = new URL(req.url)
   const start   = url.searchParams.get('start') ?? NBA_SEASON_START
   const end     = url.searchParams.get('end')   ?? yesterday()
@@ -59,14 +68,22 @@ export async function GET(req: Request) {
 
       totalGames += games
 
+      // Pre-filter existing rows to avoid unique constraint errors
+      const { data: existing } = await db
+        .from('player_game_logs')
+        .select('player_name')
+        .eq('game_date', date)
+      const existingNames = new Set((existing ?? []).map((r) => r.player_name as string))
+      const newRows = rows.filter((r) => !existingNames.has(r.player_name))
+
       let upserted = 0
-      for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-        const slice = rows.slice(i, i + BATCH_SIZE)
-        const { error } = await supabase
+      for (let i = 0; i < newRows.length; i += BATCH_SIZE) {
+        const slice = newRows.slice(i, i + BATCH_SIZE)
+        const { error } = await db
           .from('player_game_logs')
-          .upsert(slice, { onConflict: 'player_name,game_date' })
+          .insert(slice)
         if (!error) upserted += slice.length
-        else console.error(`[backfill] upsert error on ${date}:`, error.message)
+        else console.error(`[backfill] insert error on ${date}:`, error.message)
       }
 
       totalUpserted += upserted

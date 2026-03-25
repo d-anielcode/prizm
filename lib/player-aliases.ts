@@ -18,11 +18,11 @@ export const ESPN_TO_ODDS: Record<string, string> = {
   'Rob Williams':       'Robert Williams III',
   'Marcus Morris Sr.':  'Marcus Morris',
   'GG Jackson':         'GG Jackson II',
-  'GG Jackson II':      'G.G. Jackson',
+  // GG Jackson II — props uses "GG Jackson II", no further alias needed
 
-  // Initials: ESPN omits periods, The Odds API includes them
+  // Initials: ESPN omits periods — only alias if The Odds API actually includes them
+  // (Verified: CJ McCollum — props uses "CJ McCollum", no alias needed)
   'AJ Green':           'A.J. Green',
-  'CJ McCollum':        'C.J. McCollum',
   'RJ Barrett':         'R.J. Barrett',
 
   // Nickname vs full name
@@ -31,20 +31,32 @@ export const ESPN_TO_ODDS: Record<string, string> = {
   // Suffix: The Odds API omits "II" suffix
   'Ronald Holland II':  'Ron Holland',
 
+  // Unicode: ESPN uses ASCII, The Odds API uses accented characters
+  'Luka Doncic':        'Luka Dončić',
+  'Alperen Sengun':     'Alperen Sengün',
+  'Nikola Jokic':       'Nikola Jokić',
+  'Bogdan Bogdanovic':  'Bogdan Bogdanović',
+  'Bojan Bogdanovic':   'Bojan Bogdanović',
+  'Kristaps Porzingis': 'Kristaps Porziņģis',
+  'Dario Saric':        'Dario Šarić',
+  'Vlatko Cancar':      'Vlatko Čančar',
+
   // Jr. suffix: ESPN uses period, The Odds API omits it
   'Michael Porter Jr.': 'Michael Porter Jr',
-  'Jabari Smith Jr.':   'Jabari Smith Jr',
+  'Jabari Smith Jr.':   'Jabari Smith Jr.',  // props keeps the period
   'Craig Porter Jr.':   'Craig Porter Jr',
-  'Paul Reed Jr.':      'Paul Reed Jr',
-  'Paul Reed':          'Paul Reed Jr',
-  'Jaime Jaquez Jr.':   'Jaime Jaquez Jr',
+  'Paul Reed Jr.':      'Paul Reed',
+  'Paul Reed':          'Paul Reed',
   'Gary Trent Jr.':     'Gary Trent Jr',
   'Tim Hardaway Jr.':   'Tim Hardaway Jr',
   'Scotty Pippen Jr.':  'Scotty Pippen Jr',
   'Kelly Oubre Jr.':    'Kelly Oubre Jr',
   'Wendell Carter Jr.': 'Wendell Carter Jr',
-  'Derrick Jones Jr.':  'Derrick Jones',
+  'Derrick Jones Jr.':  'Derrick Jones Jr.',  // props uses "Derrick Jones Jr."
   'Isaiah Stewart':     'Isaiah Stewart II',
+
+  // Jr. with period: ESPN includes period, The Odds API keeps period — no transform needed
+  // (Jaime Jaquez Jr. removed: ESPN and odds-api both use "Jaime Jaquez Jr." exactly)
 }
 
 /** Normalize an ESPN displayName to match how it appears in the props/odds tables. */

@@ -5,8 +5,14 @@
 //                          Use ?days=3 in cron to self-heal missed nights
 
 import { NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import { fetchGameLogsFromESPN } from '@/lib/espn-gamelogs'
+
+function getDb() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const key = process.env.SUPABASE_SERVICE_KEY!
+  return createClient(url, key, { auth: { persistSession: false } })
+}
 
 export const maxDuration = 120
 
@@ -16,6 +22,7 @@ function nDaysAgo(n: number): string {
 }
 
 async function fetchAndUpsert(targetDate: string) {
+  const db = getDb()
   const { rows, games, total } = await fetchGameLogsFromESPN(targetDate)
 
   if (rows.length === 0) {
@@ -33,15 +40,25 @@ async function fetchAndUpsert(targetDate: string) {
     }
   }
 
+  // Pre-filter: skip rows that already exist to avoid unique constraint errors
+  const { data: existing } = await db
+    .from('player_game_logs')
+    .select('player_name')
+    .eq('game_date', targetDate)
+  const existingNames = new Set((existing ?? []).map((r) => r.player_name as string))
+  const newRows = rows.filter((r) => !existingNames.has(r.player_name))
+
+  if (newRows.length === 0) return { date: targetDate, games, players: 0, skipped: false }
+
   const BATCH = 200
   let upserted = 0
-  for (let i = 0; i < rows.length; i += BATCH) {
-    const slice = rows.slice(i, i + BATCH)
-    const { error } = await supabase
+  for (let i = 0; i < newRows.length; i += BATCH) {
+    const slice = newRows.slice(i, i + BATCH)
+    const { error } = await db
       .from('player_game_logs')
-      .upsert(slice, { onConflict: 'player_name,game_date' })
+      .insert(slice)
     if (!error) upserted += slice.length
-    else console.error(`[/api/gamelogs] upsert error on ${targetDate}:`, error.message)
+    else console.error(`[/api/gamelogs] insert error on ${targetDate}:`, error.message)
   }
 
   return { date: targetDate, games, players: upserted, skipped: false }

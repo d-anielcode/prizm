@@ -58,12 +58,16 @@ export async function fetchGameLogsFromESPN(
     const homeScore = parseInt((homeComp.score as string) ?? '0') || 0
     const awayScore = parseInt((awayComp.score as string) ?? '0') || 0
 
-    // 2. Fetch box score for this game
+    // 2. Fetch box score for this game (throttle to avoid ESPN rate limiting on multi-game days)
+    await new Promise((r) => setTimeout(r, 200))
     const boxRes = await fetch(
       `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${eventId}`,
       { cache: 'no-store' },
     )
-    if (!boxRes.ok) continue
+    if (!boxRes.ok) {
+      console.warn(`[espn-gamelogs] box score ${boxRes.status} for event ${eventId} — skipping`)
+      continue
+    }
 
     const boxData = (await boxRes.json()) as EspnRecord
     const teamPlayers = ((boxData.boxscore as EspnRecord)?.players as EspnRecord[]) ?? []
