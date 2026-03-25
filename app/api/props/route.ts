@@ -206,10 +206,9 @@ export async function GET(req: Request) {
       })
     }
 
-    // Fire-and-forget enrich so confidence scores are always fresh after a props refresh
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
-      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
-    fetch(`${baseUrl}/api/enrich?force=true`).catch(() => {/* best-effort */})
+    // Enrich runs via cron 15 min after props refresh — with full ESPN data.
+    // Removed fire-and-forget here: it raced the cron, always had ESPN=0 games
+    // (fired before ESPN scoreboard loaded), and caused prop_history deadlocks.
 
     return NextResponse.json({
       props: freshProps,

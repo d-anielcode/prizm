@@ -49,14 +49,6 @@
       "schedule": "55 13 * * *"
     },
     {
-      "path": "/api/seasonstats",
-      "schedule": "5 14 * * *"
-    },
-    {
-      "path": "/api/results?force=true",
-      "schedule": "10 14 * * *"
-    },
-    {
       "path": "/api/props?refresh=true",
       "schedule": "20 14 * * *"
     },
@@ -79,6 +71,14 @@
     {
       "path": "/api/props/snapshot",
       "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/player-bias?action=analyze",
+      "schedule": "0 5 * * 0"
+    },
+    {
+      "path": "/api/opponent-leaks?action=analyze",
+      "schedule": "30 5 * * 0"
     }
   ]
 }
