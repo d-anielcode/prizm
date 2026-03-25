@@ -117,18 +117,29 @@ export async function POST(req: Request) {
       matched++
     }
 
-    // 4. Upsert into prop_grades
+    // 4. Dedup grades before upserting — prop_history may have duplicate rows for the same
+    //    (game_date, player_name, stat_type, line, direction) key. Postgres throws
+    //    "ON CONFLICT DO UPDATE command cannot affect row a second time" if duplicates
+    //    exist within the same batch, so we keep only the first occurrence per key.
+    const dedupMap = new Map<string, Record<string, unknown>>()
+    for (const g of grades) {
+      const key = `${g.game_date}|${g.player_name}|${g.stat_type}|${g.line}|${g.direction}`
+      if (!dedupMap.has(key)) dedupMap.set(key, g)
+    }
+    const dedupedGrades = [...dedupMap.values()]
+    console.log(`[/api/grade] After dedup: ${dedupedGrades.length} rows (removed ${grades.length - dedupedGrades.length} duplicates)`)
+
     const BATCH = 500
     let upserted = 0
-    for (let i = 0; i < grades.length; i += BATCH) {
+    for (let i = 0; i < dedupedGrades.length; i += BATCH) {
       const { error } = await db
         .from('prop_grades')
-        .upsert(grades.slice(i, i + BATCH), { onConflict: 'game_date,player_name,stat_type,line,direction' })
+        .upsert(dedupedGrades.slice(i, i + BATCH), { onConflict: 'game_date,player_name,stat_type,line,direction' })
       if (error) console.error(`[/api/grade] upsert error:`, error.message)
-      else upserted += grades.slice(i, i + BATCH).length
+      else upserted += dedupedGrades.slice(i, i + BATCH).length
     }
 
-    console.log(`[/api/grade] Done — ${matched} graded, ${dnp} DNP, ${upserted} upserted`)
+    console.log(`[/api/grade] Done — ${matched} graded, ${dnp} DNP, ${upserted} upserted (${dedupedGrades.length} unique rows)`)
     return NextResponse.json({ gradeDate, graded: matched, dnp, upserted })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
