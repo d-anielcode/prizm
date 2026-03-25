@@ -62,20 +62,26 @@ function tally(map: TierMap, label: string, hit: boolean) {
 
 // ── Data loading ──────────────────────────────────────────────────────────────
 
-// All-time totals: lean query — only confidence_label + hit, no date cutoff
+// All-time totals: paginated lean query — only 3 columns, no date cutoff
 async function loadAllTimeTotals(): Promise<{ totals: TierMap; days: number }> {
-  const { data } = await supabase
-    .from('prop_grades')
-    .select('game_date, confidence_label, hit')
-    .not('confidence_label', 'is', null)
-    .not('hit', 'is', null)
-    .limit(100000)
-
   const totals = blankTierMap()
   const dates  = new Set<string>()
-  for (const row of data ?? []) {
-    tally(totals, row.confidence_label as string, row.hit as boolean)
-    dates.add(row.game_date as string)
+  let from = 0
+  const PAGE = 1000
+  while (true) {
+    const { data: page } = await supabase
+      .from('prop_grades')
+      .select('game_date, confidence_label, hit')
+      .not('confidence_label', 'is', null)
+      .not('hit', 'is', null)
+      .range(from, from + PAGE - 1)
+    if (!page || page.length === 0) break
+    for (const row of page) {
+      tally(totals, row.confidence_label as string, row.hit as boolean)
+      dates.add(row.game_date as string)
+    }
+    if (page.length < PAGE) break
+    from += PAGE
   }
   return { totals, days: dates.size }
 }
