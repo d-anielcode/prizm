@@ -1,5 +1,7 @@
 'use client'
 
+import React from 'react'
+
 interface ResultRow {
   date: string
   confidence_label: string
@@ -141,8 +143,8 @@ export default function ResultsHistory({ results }: Props) {
                   const tiers = byDate.get(date) ?? {}
                   const all   = allByDate.get(date)
                   return (
-                    <>
-                      <div key={`${date}-d`} className="text-white/40">{formatDate(date)}</div>
+                    <React.Fragment key={date}>
+                      <div className="text-white/40">{formatDate(date)}</div>
                       {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as const).map((label) => {
                         const row = tiers[label]
                         if (!row) return <div key={`${date}-${label}`} className="text-white/20 text-right">—</div>
@@ -157,10 +159,10 @@ export default function ResultsHistory({ results }: Props) {
                           </div>
                         )
                       })}
-                      <div key={`${date}-all`} className="text-white/50 font-bold text-right">
+                      <div className="text-white/50 font-bold text-right">
                         {all ? `${Math.round(all.hit_rate * 100)}%` : '—'}
                       </div>
-                    </>
+                    </React.Fragment>
                   )
                 })}
               </div>

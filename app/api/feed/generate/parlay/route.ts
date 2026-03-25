@@ -374,21 +374,10 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
   return results
 }
 
+// GET aliases POST so Vercel cron (which uses GET) saves parlays to DB.
+// Idempotent by default — skips if already generated. Pass ?force=true to regenerate.
 export async function GET(req: Request) {
-  const url      = new URL(req.url)
-  const gameDate = url.searchParams.get('date')
-    ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-
-  try {
-    const results = await generateCuratedParlays(gameDate)
-    if (results.length === 0) {
-      return NextResponse.json({ message: 'Not enough qualifying props to build any parlay', date: gameDate })
-    }
-    return NextResponse.json({ date: gameDate, preview: true, count: results.length, parlays: results })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Unknown error'
-    return NextResponse.json({ error: msg }, { status: 500 })
-  }
+  return POST(req)
 }
 
 export async function POST(req: Request) {

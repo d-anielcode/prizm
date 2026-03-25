@@ -29,7 +29,7 @@
       "schedule": "50 4 * * *"
     },
     {
-      "path": "/api/feed/generate",
+      "path": "/api/feed/generate/parlay",
       "schedule": "5 5 * * *"
     },
     {
@@ -41,7 +41,7 @@
       "schedule": "15 12 * * *"
     },
     {
-      "path": "/api/feed/generate",
+      "path": "/api/feed/generate/parlay",
       "schedule": "30 12 * * *"
     },
     {
