@@ -16,8 +16,8 @@ export const maxDuration = 60
 //     · 24+ avg minutes filter — max quality, max payout
 //
 //   All tiers:
-//     · Markets: PTS / REB / 3PM  (assists removed — only 40% hit rate)
-//     · Tiers: LOCK + PLAY (direction = over)
+//     · Markets: PTS / REB / 3PM / AST  (assists 52.2% hit rate — best performing stat)
+//     · Tiers: LOCK + PLAY, both OVER and UNDER (UNDERs hit 50.1% vs OVERs 43.4%)
 //     · Sort by confidence_score descending
 //     · No SGP discount (cross-game parlay)
 //     · Independent pools — picks can overlap across tiers
@@ -46,7 +46,7 @@ const JACKPOT_MIN_MINS = 24   // jackpot: same 24+ min filter for quality
 // Sportsbooks apply extra vig on parlays — displayed multiplier is discounted ~15%
 // to give a realistic estimate rather than the raw mathematical product.
 const PARLAY_VIG_FACTOR = 0.85
-const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers'])  // no assists (40% hit rate)
+const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers', 'assists'])  // assists hits 52.2% — best stat type
 const ALLOWED_TIERS    = new Set(['LOCK', 'PLAY'])
 
 // Minimum lines per stat — filter out trivial/gimme props that aren't real bets
@@ -54,6 +54,7 @@ const MIN_LINE: Record<string, number> = {
   points:         10.5,  // must be a meaningful scoring line
   rebounds:       3.5,   // must require real rebounding effort
   three_pointers: 1.5,   // "over 0.5 threes" is a coinflip, not a pick
+  assists:        2.5,   // meaningful assist line (52.2% hit rate — best stat type)
 }
 
 const STAT_LABELS: Record<string, string> = {
@@ -213,7 +214,8 @@ function buildResult(
   const legStrs = legs.map((l) => {
     const stat   = STAT_LABELS[l.stat_type] ?? l.stat_type
     const l10str = l.l10_total > 0 ? ` (${l.l10_hits}/${l.l10_total} L${l.l10_total})` : ''
-    return `${l.player_name} O ${l.line} ${stat}${l10str}`
+    const dir = l.direction === 'under' ? 'U' : 'O'
+    return `${l.player_name} ${dir} ${l.line} ${stat}${l10str}`
   })
   const premiumLabels = ['Alpha', 'Beta', 'Gamma']
   const title = tier === 'value'   ? `Consistent Pick · ${gameDate}`
@@ -224,12 +226,11 @@ function buildResult(
 }
 
 async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]> {
-  // 1. Load LOCK/PLAY over props for target date
+  // 1. Load LOCK/PLAY props for target date (both OVER and UNDER — UNDERs hit 50.1% vs OVERs 43.4%)
   const { data: propsRaw, error } = await supabase
     .from('props')
     .select('player_name, team, stat_type, line, direction, odds, confidence_label, confidence_score, game_id, home_team, away_team, commence_time')
     .in('confidence_label', ['LOCK', 'PLAY'])
-    .eq('direction', 'over')
     .order('confidence_score', { ascending: false })
 
   if (error || !propsRaw || propsRaw.length === 0) return []
@@ -391,6 +392,82 @@ export async function POST(req: Request) {
   const gameDate = url.searchParams.get('date')
     ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
   const force    = url.searchParams.get('force') === 'true'
+  const stats    = url.searchParams.get('stats') === 'true'
+
+  // ?stats=true — return pool breakdown without saving anything
+  if (stats) {
+    const { data: propsRaw } = await supabase
+      .from('props')
+      .select('player_name, team, stat_type, line, direction, confidence_label, confidence_score, game_id, home_team, away_team, commence_time')
+      .in('confidence_label', ['LOCK', 'PLAY'])
+      .order('confidence_score', { ascending: false })
+
+    const eligible = (propsRaw ?? []).filter((p) =>
+      p.commence_time &&
+      toEasternDate(p.commence_time) === gameDate &&
+      ALLOWED_MARKETS.has(p.stat_type) &&
+      (p.line ?? 0) >= (MIN_LINE[p.stat_type] ?? 0)
+    )
+
+    const playerNames = [...new Set(eligible.map((p) => p.player_name))]
+    const { data: logsRaw } = await supabase
+      .from('player_game_logs')
+      .select('player_name, game_date, minutes')
+      .in('player_name', playerNames)
+      .order('game_date', { ascending: false })
+      .limit(playerNames.length * 25)
+
+    const avgMinsMap = new Map<string, number | null>()
+    const logsByPlayer = new Map<string, number[]>()
+    for (const log of logsRaw ?? []) {
+      if (!logsByPlayer.has(log.player_name)) logsByPlayer.set(log.player_name, [])
+      if (Number(log.minutes ?? 0) >= 5) logsByPlayer.get(log.player_name)!.push(Number(log.minutes))
+    }
+    for (const name of playerNames) {
+      const mins = (logsByPlayer.get(name) ?? []).slice(0, 20)
+      avgMinsMap.set(name, mins.length > 0 ? mins.reduce((s, m) => s + m, 0) / mins.length : null)
+    }
+
+    const poolSummary = eligible.map((p) => ({
+      player: p.player_name,
+      team: p.team,
+      stat: p.stat_type,
+      line: p.line,
+      label: p.confidence_label,
+      score: p.confidence_score,
+      avgMins: avgMinsMap.get(p.player_name) ?? null,
+      meetsMinMins: (avgMinsMap.get(p.player_name) ?? 0) >= 24,
+    }))
+
+    // Show what got filtered out and why
+    const allLockPlay = (propsRaw ?? []).filter((p) =>
+      p.commence_time && toEasternDate(p.commence_time) === gameDate
+    )
+    const byStatDir = new Map<string, number>()
+    for (const p of allLockPlay) {
+      const k = `${p.stat_type}|${p.direction ?? 'unknown'}`
+      byStatDir.set(k, (byStatDir.get(k) ?? 0) + 1)
+    }
+    const filtered = allLockPlay.filter((p) => !ALLOWED_MARKETS.has(p.stat_type) || (p.line ?? 0) < (MIN_LINE[p.stat_type] ?? 0))
+    const filteredReasons = filtered.map((p) => ({
+      player: p.player_name,
+      stat: p.stat_type,
+      line: p.line,
+      dir: p.direction,
+      label: p.confidence_label,
+      reason: !ALLOWED_MARKETS.has(p.stat_type) ? 'market excluded' : 'below min line',
+    }))
+
+    return NextResponse.json({
+      date: gameDate,
+      totalLockPlayToday: allLockPlay.length,
+      totalEligible: eligible.length,
+      with24MinFilter: poolSummary.filter((p) => p.meetsMinMins).length,
+      breakdownByStatDir: Object.fromEntries(byStatDir),
+      filteredOut: filteredReasons,
+      pool: poolSummary,
+    })
+  }
 
   try {
     // force=true: delete existing auto-generated parlays and regenerate fresh
