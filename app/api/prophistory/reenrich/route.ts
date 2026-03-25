@@ -210,17 +210,25 @@ export async function GET(req: Request) {
       }
     }
 
-    console.log(`[reenrich] Re-scored ${updatedHistory.length} props (${skipped} skipped — < 3 prior logs)`)
+    // Dedup prop_history by id+game_date before upserting
+    const historyDedup = new Map<string, Record<string, unknown>>()
+    for (const r of updatedHistory) {
+      const key = `${r.id}|${r.game_date}`
+      if (!historyDedup.has(key)) historyDedup.set(key, r)
+    }
+    const dedupedHistory = [...historyDedup.values()]
+
+    console.log(`[reenrich] Re-scored ${updatedHistory.length} props (${skipped} skipped — < 3 prior logs), ${dedupedHistory.length} unique after dedup`)
 
     // ── 5. Upsert updated prop_history labels ─────────────────────────────────
     const BATCH = 500
     let reenriched = 0
-    for (let i = 0; i < updatedHistory.length; i += BATCH) {
+    for (let i = 0; i < dedupedHistory.length; i += BATCH) {
       const { error } = await db
         .from('prop_history')
-        .upsert(updatedHistory.slice(i, i + BATCH), { onConflict: 'id,game_date' })
+        .upsert(dedupedHistory.slice(i, i + BATCH), { onConflict: 'id,game_date' })
       if (error) console.error(`[reenrich] prop_history upsert error:`, error.message)
-      else reenriched += updatedHistory.slice(i, i + BATCH).length
+      else reenriched += dedupedHistory.slice(i, i + BATCH).length
     }
 
     // ── 6. Dedup and upsert prop_grades ───────────────────────────────────────
