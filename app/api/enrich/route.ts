@@ -225,7 +225,7 @@ async function runEnrichment(force = false) {
   async function loadPagedGameLogs(): Promise<Record<string, unknown>[]> {
     const rows: Record<string, unknown>[] = []
     let from = 0
-    const PAGE = 2000
+    const PAGE = 1000  // Supabase caps at 1000 rows/response; PAGE=2000 caused early exit
     while (true) {
       const { data: page, error } = await supabase
         .from('player_game_logs').select('*')
@@ -244,7 +244,7 @@ async function runEnrichment(force = false) {
   async function loadPagedHistLines(): Promise<Record<string, unknown>[]> {
     const rows: Record<string, unknown>[] = []
     let from = 0
-    const PAGE = 2000
+    const PAGE = 1000  // Supabase caps at 1000 rows/response; PAGE=2000 caused early exit
     while (true) {
       const { data: page } = await supabase
         .from('historical_prop_lines')
