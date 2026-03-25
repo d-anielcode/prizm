@@ -93,7 +93,7 @@ export async function GET(req: Request) {
           .range(from, from + PAGE - 1)
         if (error) throw new Error(`player_game_logs read: ${error.message}`)
         if (!page || page.length === 0) break
-        allLogs.push(...(page as Record<string, unknown>[]))
+        allLogs.push(...(page as unknown as GameLog[]))
         if (page.length < PAGE) break
         from += PAGE
       }
