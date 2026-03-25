@@ -960,7 +960,10 @@ export function scoreProps(
   // correction to all OVER props to offset this systematic pricing edge.
   const overBiasAdj = direction === 'over' ? -3 : 0
 
-  const score = Math.round(Math.min(95, Math.max(18,
+  // No-log cap: props without sufficient game log history (injury returns, new acquisitions)
+  // are capped at 65 (top of PLAY) — insufficient data to justify LOCK confidence.
+  const scoreMax = hasLogs ? 95 : 65
+  const score = Math.round(Math.min(scoreMax, Math.max(18,
     adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj
   )))
   const { label, tier } = getLabel(score, stat_type)

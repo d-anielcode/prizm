@@ -541,7 +541,12 @@ async function runEnrichment(force = false) {
           injuredTeammates.push({ name: tName, status: tInjury.status, impactScore: 1 / Math.max(teammates.length + 1, 1) })
         }
       }
-      const ctx: ScoringContext = { defStats, isHome, opponentAbbr, spread, gameTotal, playerStatus, injuredTeammates }
+      const ctx: ScoringContext = {
+        defStats, isHome, opponentAbbr, spread, gameTotal, playerStatus, injuredTeammates,
+        seasonStats:  seasonMap.get(pseudoProp.player_name) ?? null,
+        playerBias:   biasMap.get(`${pseudoProp.player_name}|${pseudoProp.stat_type}`) ?? null,
+        opponentLeak: opponentAbbr ? (leakMap.get(`${opponentAbbr}|${pseudoProp.stat_type}`) ?? null) : null,
+      }
       const scored = scoreProps(pseudoProp, logs, null, ctx)
 
       // Line-easiness adjustment: for alt lines easier than the main line,
