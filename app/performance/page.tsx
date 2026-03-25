@@ -183,7 +183,7 @@ async function loadGradedProps(): Promise<GradedProp[]> {
         .not('confidence_label', 'is', null)
         .not('hit', 'is', null)
         .gte('game_date', cutoffDate)
-        .lt('game_date', today)
+        .lte('game_date', today)          // ← was .lt — now includes today's graded results
         .order('game_date', { ascending: false })
         .range(from, from + PAGE - 1)
       if (!page || page.length === 0) break
@@ -192,6 +192,9 @@ async function loadGradedProps(): Promise<GradedProp[]> {
       from += PAGE
     }
   }
+
+  // Track which dates are already covered by prop_grades so Section B doesn't double-count
+  const gradedDates = new Set(gradesRaw.map((r) => r.game_date as string))
 
   const historicalGraded: GradedProp[] = gradesRaw.map((r) => ({
     player_name:      r.player_name as string,
@@ -223,7 +226,9 @@ async function loadGradedProps(): Promise<GradedProp[]> {
   for (const p of props) {
     if (!p.commence_time) continue
     const gameDate = toEasternDate(p.commence_time as string)
-    // Only include props for today (historical dates are covered by prop_grades above)
+    // Skip dates already covered by prop_grades (avoids double-counting)
+    if (gradedDates.has(gameDate)) continue
+    // Only include props for today or future (historical dates use prop_grades)
     if (gameDate < today) continue
     if (!propsByDate.has(gameDate)) propsByDate.set(gameDate, [])
     propsByDate.get(gameDate)!.push(p)
@@ -369,7 +374,7 @@ export default async function PerformancePage() {
     if (!byDate.has(g.game_date)) byDate.set(g.game_date, [])
     byDate.get(g.game_date)!.push(g)
   }
-  const sortedDates = [...byDate.keys()].sort((a, b) => b.localeCompare(a)).slice(0, 3)
+  const sortedDates = [...byDate.keys()].sort((a, b) => b.localeCompare(a))
 
   const hasData = resolved.length > 0
 

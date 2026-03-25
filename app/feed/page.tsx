@@ -45,6 +45,7 @@ async function getFeedParlays(): Promise<CuratedParlay[]> {
     .from('curated_parlays')
     .select('*')
     .eq('active', true)
+    .in('parlay_type', ['value', 'premium', 'jackpot'])
     .order('created_at', { ascending: false })
     .limit(50)
 

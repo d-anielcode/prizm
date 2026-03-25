@@ -202,39 +202,100 @@ async function runEnrichment(force = false) {
     return { message: 'No props to enrich', enriched: 0, total: 0 }
   }
 
-  // ── Fetch real-time data (spreads + injuries) in parallel ─────────────────
-  console.log('[/api/enrich] Fetching ESPN spreads + injury report...')
-  const [spreadMap, injuryMap] = await Promise.all([
-    fetchEspnSpreads(),
-    fetchEspnInjuries(),
-  ])
-  const totalsLoaded = [...spreadMap.values()].filter((g) => g.total != null).length / 2
-  console.log(`[/api/enrich] ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U totals), ${injuryMap.size} injured players`)
-
-  // ── Load game logs from Supabase (paginated — 78 players × 66 games > 1000 row limit) ──
+  // ── Pre-compute keys needed for parallel fetches ─────────────────────────
   const uniqueNames = [...new Set(props.map((p) => p.player_name))]
-  console.log(`[/api/enrich] Loading game logs for ${uniqueNames.length} players...`)
+  const gameDates   = [...new Set(
+    props.map((p) => p.commence_time
+      ? new Date(p.commence_time).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      : null
+    ).filter((d): d is string => d !== null)
+  )]
 
-  const allLogRows: Record<string, unknown>[] = []
-  {
+  function toImpliedProb(odds: number | null | undefined): number | null {
+    if (odds == null) return null
+    if (odds < 0) return Math.abs(odds) / (Math.abs(odds) + 100)
+    if (odds > 0) return 100 / (odds + 100)
+    return 0.5
+  }
+
+  // ── Fetch ALL data in parallel (ESPN + all Supabase tables) ───────────────
+  // Previously sequential — now runs everything concurrently to fit Hobby 60s limit.
+  console.log(`[/api/enrich] Fetching all data in parallel for ${uniqueNames.length} players...`)
+
+  async function loadPagedGameLogs(): Promise<Record<string, unknown>[]> {
+    const rows: Record<string, unknown>[] = []
     let from = 0
-    const PAGE = 1000
+    const PAGE = 2000
     while (true) {
-      const { data: page, error: pageErr } = await supabase
-        .from('player_game_logs')
-        .select('*')
+      const { data: page, error } = await supabase
+        .from('player_game_logs').select('*')
         .in('player_name', uniqueNames)
         .order('game_date', { ascending: false })
         .range(from, from + PAGE - 1)
-      if (pageErr) { console.error('[/api/enrich] game log page error:', pageErr.message); break }
+      if (error) { console.error('[/api/enrich] game log error:', error.message); break }
       if (!page || page.length === 0) break
-      allLogRows.push(...page)
+      rows.push(...page)
       if (page.length < PAGE) break
       from += PAGE
     }
+    return rows
   }
-  console.log(`[/api/enrich] Loaded ${allLogRows.length} game log rows`)
 
+  async function loadPagedHistLines(): Promise<Record<string, unknown>[]> {
+    const rows: Record<string, unknown>[] = []
+    let from = 0
+    const PAGE = 2000
+    while (true) {
+      const { data: page } = await supabase
+        .from('historical_prop_lines')
+        .select('player_name, stat_type, direction, line, game_date')
+        .in('player_name', uniqueNames)
+        .range(from, from + PAGE - 1)
+      if (!page || page.length === 0) break
+      rows.push(...page)
+      if (page.length < PAGE) break
+      from += PAGE
+    }
+    return rows
+  }
+
+  async function loadMorningOdds(): Promise<Map<string, number | null>> {
+    const map = new Map<string, number | null>()
+    if (gameDates.length === 0) return map
+    const { data: rows } = await supabase
+      .from('prop_history')
+      .select('player_name, stat_type, direction, odds, game_date')
+      .in('game_date', gameDates)
+    for (const row of rows ?? []) {
+      const key = `${row.player_name}|${row.stat_type}|${row.direction}|${row.game_date}`
+      if (!map.has(key)) map.set(key, toImpliedProb(row.odds as number | null))
+    }
+    return map
+  }
+
+  const [
+    allLogRows,
+    histRows,
+    { data: defRows },
+    { data: seasonRows },
+    { data: biasRows },
+    { data: leakRows },
+    openingOddsMap,
+    spreadMap,
+    injuryMap,
+  ] = await Promise.all([
+    loadPagedGameLogs(),
+    loadPagedHistLines(),
+    supabase.from('team_defense_stats').select('*'),
+    supabase.from('player_season_stats').select('*'),
+    supabase.from('player_line_bias').select('player_name, stat_type, hit_rate, median_ratio, sample_count'),
+    supabase.from('opponent_stat_leaks').select('opponent_team, stat_type, over_hit_rate, median_ratio, sample_count'),
+    loadMorningOdds(),
+    fetchEspnSpreads(),
+    fetchEspnInjuries(),
+  ])
+
+  // ── Build in-memory maps from raw rows ────────────────────────────────────
   const logsMap = new Map<string, GameLog[]>()
   for (const row of allLogRows) {
     const name = row.player_name as string
@@ -254,27 +315,6 @@ async function runEnrichment(force = false) {
     })
   }
 
-  const playersWithLogs = [...logsMap.values()].filter((l) => l.length >= 3).length
-  console.log(`[/api/enrich] Game logs: ${playersWithLogs}/${uniqueNames.length} players`)
-
-  // ── Load historical prop lines (actual market lines for past games) ────────
-  const histRows: Record<string, unknown>[] = []
-  {
-    let from = 0
-    const PAGE = 1000
-    while (true) {
-      const { data: page } = await supabase
-        .from('historical_prop_lines')
-        .select('player_name, stat_type, direction, line, game_date')
-        .in('player_name', uniqueNames)
-        .range(from, from + PAGE - 1)
-      if (!page || page.length === 0) break
-      histRows.push(...page)
-      if (page.length < PAGE) break
-      from += PAGE
-    }
-  }
-  // Index by player_name → HistoricalLine[]
   const histMap = new Map<string, HistoricalLine[]>()
   for (const row of histRows) {
     const name = row.player_name as string
@@ -286,18 +326,10 @@ async function runEnrichment(force = false) {
       line:       Number(row.line),
     })
   }
-  console.log(`[/api/enrich] Historical lines: ${histRows.length} rows for ${histMap.size} players`)
 
-  // ── Load team defensive rankings ──────────────────────────────────────────
-  const { data: defRows } = await supabase.from('team_defense_stats').select('*')
   const defMap = new Map<string, TeamDefenseStats>()
-  for (const row of defRows ?? []) {
-    defMap.set(row.team_abbreviation as string, row as TeamDefenseStats)
-  }
-  console.log(`[/api/enrich] Team defense stats: ${defMap.size} teams`)
+  for (const row of defRows ?? []) defMap.set(row.team_abbreviation as string, row as TeamDefenseStats)
 
-  // ── Load season stats ──────────────────────────────────────────────────────
-  const { data: seasonRows } = await supabase.from('player_season_stats').select('*')
   const seasonMap = new Map<string, SeasonStats>()
   for (const row of seasonRows ?? []) {
     seasonMap.set(row.player_name as string, {
@@ -312,13 +344,7 @@ async function runEnrichment(force = false) {
       games_played: row.games_played != null ? Number(row.games_played) : null,
     })
   }
-  console.log(`[/api/enrich] Season stats: ${seasonMap.size} players`)
 
-  // ── Load player line bias ──────────────────────────────────────────────────
-  const { data: biasRows } = await supabase
-    .from('player_line_bias')
-    .select('player_name, stat_type, hit_rate, median_ratio, sample_count')
-  // Index by "player|stat" for O(1) lookup
   const biasMap = new Map<string, PlayerLineBias>()
   for (const row of biasRows ?? []) {
     biasMap.set(`${row.player_name}|${row.stat_type}`, {
@@ -327,45 +353,7 @@ async function runEnrichment(force = false) {
       sample_count: Number(row.sample_count),
     })
   }
-  console.log(`[/api/enrich] Line bias: ${biasMap.size} player/stat entries`)
 
-  // ── Load morning odds snapshot for odds movement signal ───────────────────
-  // Morning cron (4:50 AM UTC) snapshots props to prop_history. Afternoon cron
-  // re-enriches — compare current odds to morning snapshot to detect sharp action.
-  // Implied prob: |odds|/(|odds|+100) for neg odds, 100/(odds+100) for pos.
-  function toImpliedProb(odds: number | null | undefined): number | null {
-    if (odds == null) return null
-    if (odds < 0) return Math.abs(odds) / (Math.abs(odds) + 100)
-    if (odds > 0) return 100 / (odds + 100)
-    return 0.5
-  }
-
-  const gameDates = [...new Set(
-    props.map((p) => p.commence_time
-      ? new Date(p.commence_time).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-      : null
-    ).filter((d): d is string => d !== null)
-  )]
-
-  const openingOddsMap = new Map<string, number | null>()
-  if (gameDates.length > 0) {
-    const { data: morningRows } = await supabase
-      .from('prop_history')
-      .select('player_name, stat_type, direction, odds, game_date')
-      .in('game_date', gameDates)
-    for (const row of morningRows ?? []) {
-      const key = `${row.player_name}|${row.stat_type}|${row.direction}|${row.game_date}`
-      if (!openingOddsMap.has(key)) {
-        openingOddsMap.set(key, toImpliedProb(row.odds as number | null))
-      }
-    }
-    console.log(`[/api/enrich] Morning odds snapshot: ${openingOddsMap.size} entries`)
-  }
-
-  // ── Load opponent stat leaks ───────────────────────────────────────────────
-  const { data: leakRows } = await supabase
-    .from('opponent_stat_leaks')
-    .select('opponent_team, stat_type, over_hit_rate, median_ratio, sample_count')
   const leakMap = new Map<string, OpponentStatLeak>()
   for (const row of leakRows ?? []) {
     leakMap.set(`${row.opponent_team}|${row.stat_type}`, {
@@ -374,7 +362,10 @@ async function runEnrichment(force = false) {
       sample_count:  Number(row.sample_count),
     })
   }
-  console.log(`[/api/enrich] Opponent leaks: ${leakMap.size} team/stat entries`)
+
+  const playersWithLogs = [...logsMap.values()].filter((l) => l.length >= 3).length
+  const totalsLoaded    = [...spreadMap.values()].filter((g) => g.total != null).length / 2
+  console.log(`[/api/enrich] Parallel load done — logs: ${allLogRows.length} rows (${playersWithLogs}/${uniqueNames.length} players), hist: ${histRows.length} rows, ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U), injuries: ${injuryMap.size}, morning odds: ${openingOddsMap.size}`)
 
   // ── Build a map of team → prop players (for injured teammate detection) ────
   // We identify prop players on each team so we can flag injured teammates who
