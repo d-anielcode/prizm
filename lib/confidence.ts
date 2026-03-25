@@ -1,4 +1,4 @@
-// Prizm Confidence Engine v6.1
+// Prizm Confidence Engine v6.2
 //
 // Weights from optimizer run 4 (50,000 Dirichlet samples + hill-climbing, min 80 LOCK props):
 //   Training set: 33,644 OVER props (real sportsbook lines only).
@@ -32,13 +32,18 @@
 //  11.  vsOpponent     ( 4%) — hit rate vs this specific team (Bayesian-blended)
 //
 // Additive adjustments (not in weight sum):
-//   - minutesTrendAdj: ±2–3 pts if L5 minutes significantly above/below L20 baseline
-//   - lineMovAdj:      ±2–6 pts for sharp money signal (line value movement vs pick direction)
-//   - oddsMovAdj:     ±3–7 pts for odds movement (P(over) shift ≥3pp since morning snapshot)
-//   - biasAdj:         ±0–5 pts from player-specific historical over/under bias
-//   - leakAdj:         ±0–4 pts from opponent team defensive leak for this stat
-//   - starBonus:       +3 pts for ≥36 min avg stars with generous line + hot hit rate
-//   - consensusAdj:    +3/0/−4/−10 based on how many primary factors agree
+//   - minutesTrendAdj:        ±2–3 pts if L5 minutes significantly above/below L20 baseline
+//   - minutesUncertaintyPenalty: −4/−8 pts for fringe/bench players (avg < 24/20 min);
+//                               additional −3 pts if minute variance stdev > 6 min.
+//                               Prevents bench players from reaching LOCK/PLAY without dominant signal.
+//   - overBiasAdj:            −3 pts for all OVER props. Empirical data shows OVERs hit 43%
+//                               vs UNDERs at 50% — books systematically price OVERs above fair value.
+//   - lineMovAdj:              ±2–6 pts for sharp money signal (line value movement vs pick direction)
+//   - oddsMovAdj:              ±3–7 pts for odds movement (P(over) shift ≥3pp since morning snapshot)
+//   - biasAdj:                 ±0–5 pts from player-specific historical over/under bias
+//   - leakAdj:                 ±0–4 pts from opponent team defensive leak for this stat
+//   - starBonus:               +3 pts for ≥36 min avg stars with generous line + hot hit rate
+//   - consensusAdj:            +3/0/−4/−10 based on how many primary factors agree
 //
 // Data freshness: if a player's last game was >7 days ago, all log-based factor scores
 // are compressed toward 0.50 proportionally. A 2-month absence = ~35% of signal retained.
@@ -930,8 +935,33 @@ export function scoreProps(
     }
   }
 
+  // Minutes uncertainty penalty: bench and fringe-starter players have high minute
+  // variance — a coaching decision or foul trouble can kill their prop entirely.
+  // avg_mins < 20 → -8pts (deep bench); avg_mins < 24 → -4pts (fringe starter).
+  // Stdev > 6 min adds another -3pts for unpredictable rotation players.
+  // Uses L10 games including short-minute games (not filtered to ≥5 min) to
+  // accurately capture the full distribution of how often they sit.
+  let minutesUncertaintyPenalty = 0
+  if (hasLogs) {
+    const mRecent = gameLogs.slice(0, 10).filter((g) => g.minutes >= 1)
+    if (mRecent.length >= 4) {
+      const avgMinsR = mRecent.reduce((s, g) => s + g.minutes, 0) / mRecent.length
+      const variance = mRecent.reduce((s, g) => s + (g.minutes - avgMinsR) ** 2, 0) / mRecent.length
+      const stdevMins = Math.sqrt(variance)
+      if (avgMinsR < 20)      minutesUncertaintyPenalty = -8
+      else if (avgMinsR < 24) minutesUncertaintyPenalty = -4
+      if (stdevMins > 6) minutesUncertaintyPenalty -= 3
+    }
+  }
+
+  // Over bias correction: empirically, OVER props hit at ~43% vs UNDER at ~50%
+  // across 835 graded props (Mar 22-24 sample). Books price popular OVERs above
+  // fair value, capturing recency bias from the betting public. Apply -3pt
+  // correction to all OVER props to offset this systematic pricing edge.
+  const overBiasAdj = direction === 'over' ? -3 : 0
+
   const score = Math.round(Math.min(95, Math.max(18,
-    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj
+    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
   const reason = buildReason(
@@ -959,14 +989,14 @@ export function scoreProps(
 // PLAY thresholds: LOCK - 8.
 const LOCK_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
   assists:        74,  // volatile: require higher bar (base 68 + 6)
-  pra:            74,
+  pra:            78,  // PRA empirically hits at 40.5% — raised from 74 to 78 (base 68 + 10)
   steals:         72,  // ultra-volatile: higher bar (base 68 + 4)
   blocks:         72,
   three_pointers: 72,  // discrete/streaky stat (base 68 + 4)
 }
 const PLAY_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
   assists:        70,
-  pra:            66,
+  pra:            68,  // raised from 66 to match stricter LOCK filter on PRA
   steals:         64,
   blocks:         64,
   three_pointers: 64,
