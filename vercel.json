@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/gamelogs",
+      "path": "/api/gamelogs?days=3",
       "schedule": "10 4 * * *"
     },
     {
