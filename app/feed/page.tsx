@@ -202,7 +202,7 @@ export default async function FeedPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-white truncate">
                         {leg.player_name}
-                        {leg.team && <span className="text-[11px] text-white/25 font-normal ml-1.5">{leg.team}</span>}
+                        {leg.team && leg.team !== 'TBD' && <span className="text-[11px] text-white/25 font-normal ml-1.5">{leg.team}</span>}
                       </p>
                       <p className="text-xs text-white/40 mt-0.5">
                         <span className={`font-bold ${leg.direction === 'over' ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -306,7 +306,7 @@ export default async function FeedPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-white truncate">
                           {leg.player_name}
-                          {leg.team && (
+                          {leg.team && leg.team !== 'TBD' && (
                             <span className="text-[11px] text-white/25 font-normal ml-1.5">{leg.team}</span>
                           )}
                         </p>

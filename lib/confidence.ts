@@ -55,6 +55,7 @@
 // Star bonus: +3 pts for star players (≥36 min avg) with lineValue ≥0.58 + hitRate ≥0.55.
 
 import type { Prop, StatType, ConfidenceLabel, RiskTier } from '@/types'
+import { ABBR_TO_TEAM } from '@/lib/team-abbr'
 
 export interface GameLog {
   game_date:  string
@@ -967,11 +968,17 @@ export function scoreProps(
     adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
+  // Derive correct opponent display name from game-log-based opponentAbbr.
+  // prop.opponent is unreliable (always set to away_team regardless of which side the player is on).
+  const opponentDisplayName = opponentAbbr
+    ? (ABBR_TO_TEAM[opponentAbbr] ?? null)
+    : (prop.opponent && prop.opponent !== 'TBD' ? prop.opponent : null)
   const reason = buildReason(
     prop, gameLogs, fLineValue, hr20, f3, f6, f2, hasLogs, defStats, vsOpp, isHome,
     spread, playerStatus, injuredTeammates, seasonStats, gameTotal, freshness, playerTier,
     ctx.lineMovementDelta ?? null,
     ctx.oddsMovementDelta ?? null,
+    opponentDisplayName,
   )
 
   return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason }
@@ -1054,8 +1061,12 @@ function buildReason(
   playerTier?: 'star' | 'starter' | 'rotation',
   lineMovementDelta?: number | null,
   oddsMovementDelta?: number | null,
+  opponentName?: string | null,
 ): string {
-  const { stat_type, line, direction, player_name, opponent } = prop
+  const { stat_type, line, direction, player_name, opponent: rawOpponent } = prop
+  // Use game-log-derived opponent name when available (more reliable than prop.opponent,
+  // which is always set to away_team regardless of which side the player is on).
+  const opponent = opponentName ?? (rawOpponent && rawOpponent !== 'TBD' ? rawOpponent : null)
   const stat = STAT_WORD[stat_type] ?? stat_type
   const dir  = direction
 
@@ -1159,7 +1170,7 @@ function buildReason(
 
   // 2. Head-to-head vs this opponent
   if (vsOpp.gamesFound >= 2) {
-    const oppName = opponent && opponent !== 'TBD' ? opponent : 'this opponent'
+    const oppName = opponent ?? 'this opponent'
     const avgStr  = vsOpp.avgStat > 0 ? `, averaging ${vsOpp.avgStat.toFixed(1)} in those games` : ''
     sentences.push(
       `In ${vsOpp.gamesFound} previous matchups against ${oppName}, ` +
@@ -1244,7 +1255,7 @@ function buildReason(
     const rankKey = defRankKey(stat_type)
     const rank    = defStats[rankKey] as number
     if (rank >= 1 && rank <= 30) {
-      const oppName = opponent && opponent !== 'TBD' ? opponent : "tonight's opponent"
+      const oppName = opponent ?? "tonight's opponent"
       const tierStr = defenseTierLabel(rank)
       if (rank <= 8 || rank >= 23) {
         sentences.push(
