@@ -34,7 +34,7 @@ const securityHeaders = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // unsafe-eval needed by Next.js dev
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
+      "img-src 'self' data: blob: https://a.espncdn.com",
       "font-src 'self'",
       "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
       "frame-ancestors 'none'",
