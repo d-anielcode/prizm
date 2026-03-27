@@ -285,7 +285,9 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     const l10     = logs.slice(0, 10)
     const last20  = logs.slice(0, 20)
     const field   = STAT_FIELD[prop.stat_type] ?? prop.stat_type
-    const l10Hits = l10.filter((g) => Number(g[field] ?? 0) > prop.line).length
+    const l10Hits = prop.direction === 'under'
+      ? l10.filter((g) => Number(g[field] ?? 0) < prop.line).length
+      : l10.filter((g) => Number(g[field] ?? 0) > prop.line).length
     const avgMins = last20.length > 0
       ? last20.reduce((sum, g) => sum + Number(g.minutes ?? 0), 0) / last20.length
       : null

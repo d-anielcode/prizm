@@ -63,6 +63,10 @@ export async function GET(req: Request) {
     }
 
     // ── Fetch today's LOCK props, sorted by confidence desc ─────────────────
+    // Exclude STL/BLK — integer stats with too much game-to-game variance for a
+    // "high confidence" daily challenge. Focus on PTS/REB/AST/3PM/PRA.
+    const STREAK_EXCLUDED_STATS = new Set(['steals', 'blocks'])
+
     const { data: propsRaw } = await supabase
       .from('props')
       .select('player_name, team, stat_type, line, direction, confidence_score, confidence_label, odds, commence_time')
@@ -70,10 +74,12 @@ export async function GET(req: Request) {
       .order('confidence_score', { ascending: false })
 
     const todayProps = (propsRaw ?? []).filter((p) =>
-      p.commence_time && toEasternDate(p.commence_time) === gameDate
+      p.commence_time &&
+      toEasternDate(p.commence_time) === gameDate &&
+      !STREAK_EXCLUDED_STATS.has(p.stat_type)
     )
 
-    // Fall back to PLAY tier if not enough LOCKs
+    // Fall back to LOCK+PLAY if not enough LOCKs after exclusions
     if (todayProps.length < 2) {
       const { data: playProps } = await supabase
         .from('props')
@@ -81,12 +87,16 @@ export async function GET(req: Request) {
         .in('confidence_label', ['LOCK', 'PLAY'])
         .order('confidence_score', { ascending: false })
       const playToday = (playProps ?? []).filter((p) =>
-        p.commence_time && toEasternDate(p.commence_time) === gameDate
+        p.commence_time &&
+        toEasternDate(p.commence_time) === gameDate &&
+        !STREAK_EXCLUDED_STATS.has(p.stat_type)
       )
       todayProps.push(...playToday.filter((p) => !todayProps.find((e) => e.player_name === p.player_name)))
     }
 
-    // Pick top 2 unique players
+    // Pick top 2 unique players, enforcing at least 1 OVER.
+    // Strategy: greedily pick by confidence, then if both are UNDERs,
+    // swap the lower-confidence one for the best available OVER.
     const seen = new Set<string>()
     const picks: typeof todayProps = []
     for (const p of todayProps) {
@@ -94,6 +104,19 @@ export async function GET(req: Request) {
       seen.add(p.player_name)
       picks.push(p)
       if (picks.length === 2) break
+    }
+
+    // Enforce at least 1 OVER — if both are UNDERs, replace the lower-confidence
+    // one with the highest-confidence OVER from a different player
+    if (picks.length === 2 && picks.every((p) => p.direction === 'under')) {
+      const pickedPlayers = new Set(picks.map((p) => p.player_name))
+      const bestOver = todayProps.find(
+        (p) => p.direction === 'over' && !pickedPlayers.has(p.player_name)
+      )
+      if (bestOver) {
+        // Replace the lower-confidence UNDER (index 1, since sorted desc)
+        picks[1] = bestOver
+      }
     }
 
     if (picks.length < 2) {
