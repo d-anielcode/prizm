@@ -422,20 +422,39 @@ function HitBar({ rate, colorClass }: { rate: number; colorClass: string }) {
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-export default async function PerformancePage() {
-  const [{ totals, days }, dailyBreakdown, calibration, gradedParlays, streakData] = await Promise.all([
-    loadAllTimeTotals(),
-    loadDailyBreakdown(),
-    loadCalibrationData(),
-    loadGradedParlays(),
-    loadStreakData(),
+export default async function PerformancePage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab: rawTab } = await searchParams
+  const tab = rawTab === 'parlays' ? 'parlays' : rawTab === 'streaks' ? 'streaks' : 'props'
+
+  // Only load data needed for the active tab
+  const [
+    propsData,
+    gradedParlays,
+    streakData,
+  ] = await Promise.all([
+    tab === 'props'
+      ? Promise.all([loadAllTimeTotals(), loadDailyBreakdown(), loadCalibrationData()])
+          .then(([a, b, c]) => ({ totals: a.totals, days: a.days, dailyBreakdown: b, calibration: c }))
+      : Promise.resolve(null),
+    tab === 'parlays' ? loadGradedParlays() : Promise.resolve([] as GradedParlay[]),
+    tab === 'streaks' ? loadStreakData()    : Promise.resolve(null as StreakData | null),
   ])
 
-  const hasData = totals.ALL.total > 0
+  const totals        = propsData?.totals        ?? null
+  const days          = propsData?.days          ?? 0
+  const dailyBreakdown = propsData?.dailyBreakdown ?? new Map<string, TierMap>()
+  const calibration   = propsData?.calibration   ?? null
+  const hasData       = (totals?.ALL.total ?? 0) > 0
 
   const valueParlays   = gradedParlays.filter((p) => p.parlay_type === 'value')
   const premiumParlays = gradedParlays.filter((p) => p.parlay_type === 'premium')
   const jackpotParlays = gradedParlays.filter((p) => p.parlay_type === 'jackpot')
+
+  const tabs = [
+    { key: 'props',   label: 'Prop History' },
+    { key: 'parlays', label: 'Parlays'      },
+    { key: 'streaks', label: 'Streaks'      },
+  ] as const
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 flex flex-col gap-10">
@@ -448,7 +467,26 @@ export default async function PerformancePage() {
         </p>
       </div>
 
-      {!hasData ? (
+      {/* Tab nav */}
+      <div className="flex items-center gap-1 rounded-xl border border-white/[0.07] bg-white/[0.02] p-1 w-fit">
+        {tabs.map(({ key, label }) => (
+          <a
+            key={key}
+            href={`/performance${key === 'props' ? '' : `?tab=${key}`}`}
+            className={[
+              'px-4 py-2 rounded-lg text-sm font-semibold transition-colors',
+              tab === key
+                ? 'bg-white/[0.08] text-white'
+                : 'text-white/35 hover:text-white/60',
+            ].join(' ')}
+          >
+            {label}
+          </a>
+        ))}
+      </div>
+
+      {/* ═══ PROP HISTORY TAB ═══ */}
+      {tab === 'props' && (!hasData ? (
         <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-16 flex flex-col items-center gap-4 text-center">
           <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-center">
             <svg className="w-7 h-7 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -467,11 +505,11 @@ export default async function PerformancePage() {
           {/* ── All-time rolling stats ── */}
           <div className="flex flex-col gap-3">
             <p className="text-[11px] text-white/35 uppercase tracking-widest">
-              All-time ({days} day{days !== 1 ? 's' : ''} tracked · {totals.ALL.total} props graded)
+              All-time ({days} day{days !== 1 ? 's' : ''} tracked · {totals!.ALL.total} props graded)
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {(['LOCK', 'PLAY', 'LEAN', 'FADE', 'ALL'] as const).map((label) => {
-                const t = totals[label]
+                const t = totals![label]
                 if (!t || t.total === 0) return null
                 const pct = Math.round((t.hits / t.total) * 100)
                 const c   = label !== 'ALL' ? TIER_COLORS[label] : null
@@ -494,19 +532,19 @@ export default async function PerformancePage() {
           </div>
 
           {/* ── OVER vs UNDER breakdown ── */}
-          {calibration.sampleSize >= 20 && (() => {
+          {calibration!.sampleSize >= 20 && (() => {
             const STAT_SHORT: Record<string, string> = { points: 'PTS', rebounds: 'REB', assists: 'AST', steals: 'STL', blocks: 'BLK', three_pointers: '3PM', pra: 'PRA' }
-            const { over, under } = calibration.byDirection
+            const { over, under } = calibration!.byDirection
             const overRate  = over.total  > 0 ? over.hits  / over.total  : null
             const underRate = under.total > 0 ? under.hits / under.total : null
             const gap = overRate != null && underRate != null ? Math.round((underRate - overRate) * 100) : null
-            const adjDiffers = calibration.recommendedOverAdj !== calibration.currentOverAdj
+            const adjDiffers = calibration!.recommendedOverAdj !== calibration!.currentOverAdj
 
             return (
               <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                   <p className="text-[11px] text-white/35 uppercase tracking-widest">OVER vs UNDER</p>
-                  <span className="text-[10px] text-white/20">{calibration.sampleSize} graded props</span>
+                  <span className="text-[10px] text-white/20">{calibration!.sampleSize} graded props</span>
                 </div>
 
                 {/* Direction cards */}
@@ -531,7 +569,7 @@ export default async function PerformancePage() {
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-white/40">UNDER outperforms OVER by <span className="text-white/70 font-bold">{gap}pp</span></span>
                       <span className={`text-[10px] font-black ${adjDiffers ? 'text-[#e8a820]' : 'text-white/25'}`}>
-                        {adjDiffers ? `Suggest ${calibration.recommendedOverAdj > 0 ? '+' : ''}${calibration.recommendedOverAdj}pt adj (current: ${calibration.currentOverAdj})` : `Current ${calibration.currentOverAdj}pt adj is calibrated ✓`}
+                        {adjDiffers ? `Suggest ${calibration!.recommendedOverAdj > 0 ? '+' : ''}${calibration!.recommendedOverAdj}pt adj (current: ${calibration!.currentOverAdj})` : `Current ${calibration!.currentOverAdj}pt adj is calibrated ✓`}
                       </span>
                     </div>
                   </div>
@@ -548,7 +586,7 @@ export default async function PerformancePage() {
                   </div>
                   <div className="divide-y divide-white/[0.04]">
                     {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as const).map((label) => {
-                      const d = calibration.byLabelDir[label]
+                      const d = calibration!.byLabelDir[label]
                       if (!d) return null
                       const oRate = d.over.total  > 0 ? d.over.hits  / d.over.total  : null
                       const uRate = d.under.total > 0 ? d.under.hits / d.under.total : null
@@ -583,7 +621,7 @@ export default async function PerformancePage() {
                     <span className="text-xs text-white/40 font-semibold">Hit Rate by Stat Type</span>
                   </div>
                   <div className="divide-y divide-white/[0.04]">
-                    {Object.entries(calibration.byStatType)
+                    {Object.entries(calibration!.byStatType)
                       .sort((a, b) => (b[1].total) - (a[1].total))
                       .map(([stat, d]) => {
                         if (d.total < 5) return null
@@ -608,8 +646,8 @@ export default async function PerformancePage() {
           })()}
 
           {/* ── Score calibration ── */}
-          {calibration.sampleSize >= 20 && (() => {
-            const filledBuckets = calibration.buckets.filter((b) => b.total >= 5)
+          {calibration!.sampleSize >= 20 && (() => {
+            const filledBuckets = calibration!.buckets.filter((b) => b.total >= 5)
             if (filledBuckets.length === 0) return null
             return (
               <div className="flex flex-col gap-4">
@@ -627,7 +665,7 @@ export default async function PerformancePage() {
                     <span className="text-right">Sample</span>
                   </div>
                   <div className="divide-y divide-white/[0.04]">
-                    {calibration.buckets.map((b) => {
+                    {calibration!.buckets.map((b) => {
                       if (b.total < 5) return (
                         <div key={b.label} className="px-4 py-2.5 grid grid-cols-4 items-center">
                           <span className="text-xs text-white/30">{b.label}</span>
@@ -722,11 +760,10 @@ export default async function PerformancePage() {
             })}
           </div>
         </>
-      )}
+      ))}
 
-      {/* ── Curated Parlays ── */}
-      {/* ── Streaks ── */}
-      {(() => {
+      {/* ═══ STREAKS TAB ═══ */}
+      {tab === 'streaks' && streakData && (() => {
         const { currentStreak, longestStreak, totalDays, hitRate, currentStreakPicks, allHistory } = streakData
         const STAT_SHORT: Record<string, string> = { points: 'PTS', rebounds: 'REB', assists: 'AST', steals: 'STL', blocks: 'BLK', three_pointers: '3PM', pra: 'PRA' }
 
@@ -900,8 +937,8 @@ export default async function PerformancePage() {
         )
       })()}
 
-      {/* ── Curated Parlays ── */}
-      {([
+      {/* ═══ PARLAYS TAB ═══ */}
+      {tab === 'parlays' && ([
         { label: 'Consistent Picks', sublabel: '3-leg · PTS/REB/AST/3PM · LOCK+PLAY · ~33% hit rate',  parlays: valueParlays,   accent: 'text-emerald-400', dot: 'bg-emerald-400', minHitPct: 28 },
         { label: 'High Rollers',     sublabel: '4-leg · PTS/REB/AST/3PM · 24+ min avg · ~10x payout',  parlays: premiumParlays, accent: 'text-[#e8a820]',   dot: 'bg-[#e8a820]',   minHitPct: 12 },
         { label: 'Jackpot',          sublabel: '5-leg · PTS/REB/AST/3PM · 24+ min avg · ~17x payout',  parlays: jackpotParlays, accent: 'text-violet-400', dot: 'bg-violet-400', minHitPct: 8  },

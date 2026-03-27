@@ -325,7 +325,16 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
     .in('player_name', nameVariants)
     .order('game_date', { ascending: false })
 
-  // ── 3. Season stats ───────────────────────────────────────────────────────────
+  // ── 3. Grade history (past Prizm picks for this player) ──────────────────────
+  const { data: gradeRows } = await supabase
+    .from('prop_grades')
+    .select('game_date, stat_type, line, direction, confidence_label, confidence_score, actual_value, hit')
+    .in('player_name', nameVariants)
+    .not('hit', 'is', null)
+    .order('game_date', { ascending: false })
+    .limit(20)
+
+  // ── 4. Season stats ───────────────────────────────────────────────────────────
   const { data: seasonRows } = await supabase
     .from('player_season_stats')
     .select('*')
@@ -338,7 +347,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
     ? (seasonRows[0] as unknown as SeasonStats)
     : null
 
-  // ── 4. Derive team / opponent context ─────────────────────────────────────────
+  // ── 5. Derive team / opponent context ─────────────────────────────────────────
   const latestMatchup   = (logRows?.[0]?.matchup as string) ?? ''
   const matchParts      = latestMatchup.split(/\s+vs\.\s+|\s+@\s+/)
   const playerTeamAbbr  = matchParts[0]?.trim().toUpperCase() ?? ''
@@ -363,7 +372,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
   const team     = playerTeamAbbr || (firstProp?.team !== 'TBD' ? (firstProp?.team ?? '') : '')
   const opponent = opponentDisplay && opponentDisplay !== 'TBD' ? opponentDisplay : ''
 
-  // ── 5. Map all game logs ──────────────────────────────────────────────────────
+  // ── 6. Map all game logs ──────────────────────────────────────────────────────
   const gameLogs: GameLog[] = (logRows ?? []).map((g) => ({
     date:     String(g.game_date ?? ''),
     matchup:  String(g.matchup ?? ''),
@@ -379,7 +388,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
     win:      Boolean(g.win),
   }))
 
-  // ── 6. Compute splits ─────────────────────────────────────────────────────────
+  // ── 7. Compute splits ─────────────────────────────────────────────────────────
   const homeGames = gameLogs.filter((g) => g.isHome)
   const awayGames = gameLogs.filter((g) => !g.isHome)
   const homeAvgs  = computeAvgs(homeGames)
@@ -588,6 +597,66 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
           </div>
         )}
       </div>
+
+      {/* ── Pick History (past Prizm graded picks) ── */}
+      {gradeRows && gradeRows.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold text-white">Pick History</h2>
+          <p className="text-xs text-white/30 -mt-1">Prizm&apos;s past confidence picks for {playerName} — graded after games</p>
+          <div className="overflow-x-auto rounded-xl border border-white/[0.08]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/[0.08] bg-white/[0.04] text-white/40 text-xs uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left">Date</th>
+                  <th className="px-4 py-3 text-left">Pick</th>
+                  <th className="px-4 py-3 text-left">Label</th>
+                  <th className="px-4 py-3 text-right">Actual</th>
+                  <th className="px-4 py-3 text-center">Result</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {gradeRows.map((g, i) => {
+                  const labelColors: Record<string, string> = {
+                    LOCK: 'text-violet-400',
+                    PLAY: 'text-emerald-400',
+                    LEAN: 'text-[#f0c060]',
+                    FADE: 'text-red-400',
+                  }
+                  const hit = g.hit as boolean | null
+                  return (
+                    <tr key={i} className="hover:bg-white/[0.03] transition-colors">
+                      <td className="px-4 py-2.5 text-white/55 whitespace-nowrap font-medium">
+                        {formatDate(String(g.game_date ?? ''))}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full inline-block ${(g.direction as string) === 'over' ? 'bg-blue-500/15 text-blue-400' : 'bg-orange-500/15 text-orange-400'}`}>
+                          {(g.direction as string) === 'over' ? 'O' : 'U'}{g.line} {STAT_LABELS[g.stat_type as StatType] ?? String(g.stat_type)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`text-xs font-black ${labelColors[String(g.confidence_label ?? '')] ?? 'text-white/40'}`}>
+                          {g.confidence_label}
+                        </span>
+                        {g.confidence_score != null && (
+                          <span className="text-[10px] text-white/20 ml-1">({g.confidence_score})</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-white/60">
+                        {g.actual_value != null ? g.actual_value : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className={`text-xs font-black ${hit === true ? 'text-emerald-400' : hit === false ? 'text-red-400' : 'text-white/25'}`}>
+                          {hit === true ? '✓ HIT' : hit === false ? '✗ MISS' : 'VOID'}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* ── Recent game log table ── */}
       {tableGames.length > 0 && (
