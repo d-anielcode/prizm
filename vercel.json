@@ -42,7 +42,7 @@
     },
     {
       "path": "/api/feed/grade",
-      "schedule": "5 14 * * *"
+      "schedule": "5 12 * * *"
     },
     {
       "path": "/api/props?refresh=true",
