@@ -16,10 +16,14 @@
 
 import { NextResponse } from 'next/server'
 import { supabase }     from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 export const maxDuration = 30
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
   try {
     // Load all enriched props (only those with confidence scores are useful for grading).
     // Select only columns that exist in prop_history to avoid schema mismatch errors.

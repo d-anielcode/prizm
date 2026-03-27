@@ -9,6 +9,8 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import type { Prop, StatType } from '@/types'
+import { requireCronAuth } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 export const maxDuration = 120
 
@@ -200,8 +202,10 @@ async function calculateResults(forDate?: string) {
 export async function GET(req: Request) {
   const url = new URL(req.url)
 
-  // ?force=true → recalculate. Optional ?date=YYYY-MM-DD to grade a specific date.
+  // ?force=true → recalculate (write operation — requires cron auth)
   if (url.searchParams.get('force') === 'true') {
+    const authError = requireCronAuth(req)
+    if (authError) return authError
     try {
       const forDate = url.searchParams.get('date') ?? undefined
       const result = await calculateResults(forDate)
@@ -223,12 +227,16 @@ export async function GET(req: Request) {
   return NextResponse.json({ results: data ?? [] })
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   try {
     const result = await calculateResults()
     return NextResponse.json(result)
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error'
+    logger.error('[/api/results] Error', { err: msg })
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

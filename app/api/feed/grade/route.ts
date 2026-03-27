@@ -15,6 +15,8 @@ import { NextResponse } from 'next/server'
 import { createClient }  from '@supabase/supabase-js'
 import { supabase }      from '@/lib/supabase'
 import type { StatType } from '@/types'
+import { requireCronAuth } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 const adminClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -139,11 +141,15 @@ async function gradePendingParlays(): Promise<ParlayGrade[]> {
 // ── Route handlers ────────────────────────────────────────────────────────────
 
 // GET aliases POST so Vercel cron jobs (which always send GET) persist results
-export async function GET() {
-  return POST()
+export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+  return POST(req)
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
   try {
     const grades = await gradePendingParlays()
 

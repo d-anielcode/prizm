@@ -5,6 +5,8 @@
 import { NextResponse } from 'next/server'
 import { supabase, isCacheStale } from '@/lib/supabase'
 import { fetchTodaysNBAEvents, fetchAllPropsForEvents } from '@/lib/odds-api'
+import { requireCronAuth } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 export const maxDuration = 120
 import { deduplicatePropsWithAlts } from '@/lib/dedup'
@@ -164,6 +166,10 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
 }
 
 export async function GET(req: Request) {
+  // Protect all calls — this route writes to the DB when refreshing props
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   try {
     const forceRefresh = new URL(req.url).searchParams.get('refresh') === 'true'
 

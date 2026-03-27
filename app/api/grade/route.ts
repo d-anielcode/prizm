@@ -5,6 +5,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { StatType } from '@/types'
+import { requireCronAuth } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 export const maxDuration = 120
 
@@ -30,6 +32,9 @@ function getStatValue(row: Record<string, unknown>, statType: StatType): number 
 }
 
 export async function POST(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   try {
     const db = getServiceClient()
     const { searchParams } = new URL(req.url)
@@ -149,5 +154,7 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
   return POST(req)
 }

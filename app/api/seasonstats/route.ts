@@ -8,6 +8,8 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getEspnVariants } from '@/lib/player-aliases'
 import { CURRENT_SEASON } from '@/lib/constants'
+import { requireCronAuth } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 export const maxDuration = 120
 
@@ -50,6 +52,9 @@ function buildRow(
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url       = new URL(req.url)
   const playerArg = url.searchParams.get('player')?.trim()
 

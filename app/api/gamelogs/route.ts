@@ -7,6 +7,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { fetchGameLogsFromESPN } from '@/lib/espn-gamelogs'
+import { requireCronAuth } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 function getDb() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -65,6 +67,9 @@ async function fetchAndUpsert(targetDate: string) {
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url = new URL(req.url)
 
   try {

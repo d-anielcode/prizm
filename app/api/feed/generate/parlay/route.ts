@@ -30,6 +30,8 @@ export const maxDuration = 60
 import { NextResponse }  from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase }     from '@/lib/supabase'
+import { requireCronAuth, internalAuthHeaders } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 const adminClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -386,10 +388,14 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
 // GET aliases POST so Vercel cron (which uses GET) saves parlays to DB.
 // Idempotent by default — skips if already generated. Pass ?force=true to regenerate.
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
   return POST(req)
 }
 
 export async function POST(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
   const url      = new URL(req.url)
   const gameDate = url.searchParams.get('date')
     ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -560,11 +566,11 @@ export async function POST(req: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     // Fire-and-forget streak generation alongside parlays (same cron, no extra slot needed)
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000'
-    fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}${force ? '&force=true' : ''}`)
-      .catch((e) => console.error('[generate/parlay] streak fire-and-forget error:', e))
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+    fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}${force ? '&force=true' : ''}`, {
+      headers: internalAuthHeaders(),
+    }).catch((e) => logger.error('[generate/parlay] streak fire-and-forget error', { err: String(e) }))
 
     return NextResponse.json({
       message: `Generated and saved ${rows.length} curated parlay(s) for ${gameDate}`,

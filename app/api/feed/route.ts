@@ -1,30 +1,14 @@
 // /api/feed — CRUD for curated parlays posted to the feed
 //
-// GET  — returns active parlays (most recent first, last 30 days)
-// POST — creates a new curated parlay
-//
-// Body for POST:
-// {
-//   title:         string           // e.g. "Tonight's SGP — LAL @ GSW"
-//   description?:  string           // optional context / reasoning
-//   parlay_type:   'sgp' | 'multi'  // same-game or cross-game
-//   game_date:     string           // YYYY-MM-DD
-//   est_multiplier?: number         // estimated payout multiplier
-//   legs: Array<{
-//     player_name:       string
-//     team:              string
-//     stat_type:         string
-//     line:              number
-//     direction:         'over' | 'under'
-//     odds?:             number
-//     confidence_label?: string
-//     confidence_score?: number
-//   }>
-// }
+// GET  — returns active parlays (most recent first, last 30 days) — PUBLIC
+// POST — creates a new curated parlay                              — CRON AUTH REQUIRED
+// DELETE — soft-deletes a parlay by id                            — CRON AUTH REQUIRED
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 const adminClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,6 +16,7 @@ const adminClient = createClient(
   { auth: { persistSession: false } },
 )
 
+// GET — public (read-only)
 export async function GET() {
   const { data, error } = await supabase
     .from('curated_parlays')
@@ -49,7 +34,11 @@ export async function GET() {
   return NextResponse.json({ parlays: data ?? [] })
 }
 
+// POST — requires cron auth
 export async function POST(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   let body: unknown
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
 
@@ -73,11 +62,18 @@ export async function POST(req: Request) {
     .select()
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    logger.error('[/api/feed] POST insert error', { err: error.message })
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
   return NextResponse.json({ parlay: data }, { status: 201 })
 }
 
+// DELETE — requires cron auth
 export async function DELETE(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url = new URL(req.url)
   const id  = url.searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
@@ -87,6 +83,9 @@ export async function DELETE(req: Request) {
     .update({ active: false })
     .eq('id', id)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    logger.error('[/api/feed] DELETE error', { id, err: error.message })
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
   return NextResponse.json({ ok: true })
 }

@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 
 export const maxDuration = 120
 
@@ -74,6 +75,12 @@ function parseOpponent(matchup: string, isHome: boolean): string | null {
 export async function GET(req: Request) {
   const url    = new URL(req.url)
   const action = url.searchParams.get('action') ?? 'view'
+
+  // Analyze action writes to the DB — require cron auth
+  if (action !== 'view') {
+    const authError = requireCronAuth(req)
+    if (authError) return authError
+  }
 
   if (action === 'view') {
     const { data, error } = await supabase

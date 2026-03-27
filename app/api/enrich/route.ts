@@ -10,6 +10,8 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { TEAM_ABBR } from '@/lib/team-abbr'
+import { requireCronAuth } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
 
 export const maxDuration = 300
 import {
@@ -649,25 +651,31 @@ async function runEnrichment(force = false) {
 
 // ── Route handlers ────────────────────────────────────────────────────────────
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   try {
     const force = new URL(req.url).searchParams.get('force') === 'true'
     const result = await runEnrichment(force)
     return NextResponse.json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[/api/enrich] Error:', message)
+    logger.error('[/api/enrich] Error', { err: message })
     return NextResponse.json({ error: 'Enrichment failed', details: message }, { status: 500 })
   }
 }
 
 export async function POST(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   try {
     const force = new URL(req.url).searchParams.get('force') === 'true'
     const result = await runEnrichment(force)
     return NextResponse.json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[/api/enrich] Error:', message)
+    logger.error('[/api/enrich] Error', { err: message })
     return NextResponse.json({ error: 'Enrichment failed', details: message }, { status: 500 })
   }
 }
