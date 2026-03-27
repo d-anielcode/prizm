@@ -471,7 +471,21 @@ export async function POST(req: Request) {
 
   try {
     // force=true: delete existing auto-generated parlays and regenerate fresh
+    // Safety guard: if props aren't scored yet (enrich may have failed), abort without
+    // deleting so the morning parlays are preserved until scores are available.
     if (force) {
+      const { count: scoredCount } = await adminClient
+        .from('props')
+        .select('id', { count: 'exact', head: true })
+        .in('confidence_label', ['LOCK', 'PLAY'])
+      if ((scoredCount ?? 0) < 10) {
+        console.warn(`[generate/parlay] force=true aborted — only ${scoredCount ?? 0} scored props, preserving existing parlays`)
+        return NextResponse.json({
+          message: 'Not enough scored props to safely regenerate parlays — existing parlays preserved',
+          scoredCount: scoredCount ?? 0,
+          date: gameDate,
+        })
+      }
       const { data: existing } = await adminClient
         .from('curated_parlays')
         .select('id')
@@ -542,6 +556,13 @@ export async function POST(req: Request) {
       .select()
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Fire-and-forget streak generation alongside parlays (same cron, no extra slot needed)
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : 'http://localhost:3000'
+    fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}${force ? '&force=true' : ''}`)
+      .catch((e) => console.error('[generate/parlay] streak fire-and-forget error:', e))
 
     return NextResponse.json({
       message: `Generated and saved ${rows.length} curated parlay(s) for ${gameDate}`,

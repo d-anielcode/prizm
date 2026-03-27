@@ -66,6 +66,7 @@ async function gradePendingParlays(): Promise<ParlayGrade[]> {
     .eq('active', true)
     .is('result', null)
     .lt('game_date', today)
+    .in('parlay_type', ['value', 'premium', 'jackpot', 'streak'])
     .order('game_date', { ascending: false })
     .limit(100)
 

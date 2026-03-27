@@ -27,36 +27,43 @@ export const ESPN_TO_ODDS: Record<string, string> = {
 
   // Nickname vs full name
   'Bub Carrington':     'Carlton Carrington',
+  'Alex Sarr':          'Alexandre Sarr',
 
   // Suffix: The Odds API omits "II" suffix
   'Ronald Holland II':  'Ron Holland',
 
   // Unicode: ESPN uses ASCII, The Odds API uses accented characters
+  'Moussa Diabate':     'Moussa Diabaté',
+  'Nolan Traore':       'Nolan Traoré',
   'Luka Doncic':        'Luka Dončić',
   'Alperen Sengun':     'Alperen Sengün',
   'Nikola Jokic':       'Nikola Jokić',
   'Bogdan Bogdanovic':  'Bogdan Bogdanović',
   'Bojan Bogdanovic':   'Bojan Bogdanović',
-  'Kristaps Porzingis': 'Kristaps Porziņģis',
+  // Temporary reverse alias to fix wrongly-renamed rows — remove after running fix-names once
+  'Kristaps Porziņģis': 'Kristaps Porzingis',
   'Dario Saric':        'Dario Šarić',
   'Vlatko Cancar':      'Vlatko Čančar',
 
   // Jr. suffix: ESPN uses period, The Odds API omits it
+  // IMPORTANT: Only add here if CONFIRMED The Odds API omits the period.
+  // If both ESPN and Odds API use the period, DO NOT add an alias — it will break lookups.
   'Michael Porter Jr.': 'Michael Porter Jr',
   'Jabari Smith Jr.':   'Jabari Smith Jr.',  // props keeps the period
   'Craig Porter Jr.':   'Craig Porter Jr',
   'Paul Reed Jr.':      'Paul Reed',
   'Paul Reed':          'Paul Reed',
   'Gary Trent Jr.':     'Gary Trent Jr',
-  'Tim Hardaway Jr.':   'Tim Hardaway Jr',
+  // Temporary reverse alias to fix wrongly-stored rows — remove after running fix-names once
+  'Tim Hardaway Jr':    'Tim Hardaway Jr.',  // both ESPN and Odds API use the period
   'Scotty Pippen Jr.':  'Scotty Pippen Jr',
   'Kelly Oubre Jr.':    'Kelly Oubre Jr',
-  'Wendell Carter Jr.': 'Wendell Carter Jr',
+  // 'Wendell Carter Jr.': REMOVED — both ESPN and Odds API use "Wendell Carter Jr." (with period)
   'Derrick Jones Jr.':  'Derrick Jones Jr.',  // props uses "Derrick Jones Jr."
   'Isaiah Stewart':     'Isaiah Stewart II',
 
   // Jr. with period: ESPN includes period, The Odds API keeps period — no transform needed
-  // (Jaime Jaquez Jr. removed: ESPN and odds-api both use "Jaime Jaquez Jr." exactly)
+  // Confirmed: Wendell Carter Jr., Tim Hardaway Jr., Jaime Jaquez Jr. — both systems use exact same name
 }
 
 /** Normalize an ESPN displayName to match how it appears in the props/odds tables. */

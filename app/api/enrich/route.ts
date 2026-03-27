@@ -367,6 +367,13 @@ async function runEnrichment(force = false) {
   const totalsLoaded    = [...spreadMap.values()].filter((g) => g.total != null).length / 2
   console.log(`[/api/enrich] Parallel load done — logs: ${allLogRows.length} rows (${playersWithLogs}/${uniqueNames.length} players), hist: ${histRows.length} rows, ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U), injuries: ${injuryMap.size}, morning odds: ${openingOddsMap.size}`)
 
+  // Flag players with no game logs so they show up in Vercel logs for easy backfill
+  const missingLogPlayers = uniqueNames.filter((name) => (logsMap.get(name)?.length ?? 0) < 3)
+  if (missingLogPlayers.length > 0) {
+    console.warn(`[/api/enrich] ⚠ Players with no/insufficient game logs (${missingLogPlayers.length}): ${missingLogPlayers.join(', ')}`)
+    console.warn(`[/api/enrich] ⚠ Fix with: /api/gamelogs/player?name=<player+name> for each`)
+  }
+
   // ── Build a map of team → prop players (for injured teammate detection) ────
   // We identify prop players on each team so we can flag injured teammates who
   // are relevant enough to have their own props set (= meaningful usage).

@@ -114,6 +114,119 @@ async function loadDailyBreakdown(): Promise<Map<string, TierMap>> {
   return new Map(top5.map((d) => [d, byDate.get(d)!]))
 }
 
+// ── Streak data ───────────────────────────────────────────────────────────────
+interface StreakEntry {
+  id:        string
+  game_date: string
+  legs:      GradedLeg[]
+  result:    'hit' | 'miss' | 'void' | null
+  isPending: boolean
+}
+
+interface StreakData {
+  currentStreak:      number
+  longestStreak:      number
+  totalDays:          number
+  hitRate:            number | null
+  currentStreakPicks: StreakEntry[]
+  allHistory:         StreakEntry[]
+}
+
+async function loadStreakData(): Promise<StreakData> {
+  const { data: raw } = await supabase
+    .from('curated_parlays')
+    .select('id, game_date, legs, result')
+    .eq('active', true)
+    .eq('parlay_type', 'streak')
+    .order('game_date', { ascending: false })
+    .limit(60)
+
+  if (!raw || raw.length === 0) {
+    return { currentStreak: 0, longestStreak: 0, totalDays: 0, hitRate: null, currentStreakPicks: [], allHistory: [] }
+  }
+
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
+  // Fetch game logs for actual results
+  const playerNames = [...new Set(raw.flatMap((p) => ((p.legs as GradedLeg[]) ?? []).map((l) => l.player_name)))]
+  const gameDates   = [...new Set(raw.map((p) => p.game_date as string))]
+
+  const { data: logsRaw } = await supabase
+    .from('player_game_logs')
+    .select('player_name, game_date, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
+    .in('player_name', playerNames)
+    .in('game_date', gameDates)
+
+  const logIndex = new Map<string, Record<string, unknown>>()
+  for (const log of logsRaw ?? [])
+    logIndex.set(`${log.player_name}|${log.game_date}`, log as Record<string, unknown>)
+
+  function getActual(log: Record<string, unknown>, stat: string): number | null {
+    const map: Record<string, string> = { points: 'points', rebounds: 'rebounds', assists: 'assists', steals: 'steals', blocks: 'blocks', three_pointers: 'fg3m', pra: 'pra' }
+    const f = map[stat]; return f != null && log[f] != null ? Number(log[f]) : null
+  }
+
+  const entries: StreakEntry[] = raw.map((p) => {
+    const isPending = (p.game_date as string) >= today
+    const legs = ((p.legs as Array<Record<string, unknown>>) ?? []).map((l) => {
+      const log    = logIndex.get(`${l.player_name}|${p.game_date}`)
+      const mins   = log ? Number(log.minutes ?? 0) : null
+      const noData = !log || (mins !== null && mins < 5)
+      const actual = (noData || isPending) ? null : getActual(log!, l.stat_type as string)
+      const hit    = actual === null ? null
+        : l.direction === 'over' ? actual > Number(l.line) : actual < Number(l.line)
+      return {
+        player_name: l.player_name as string,
+        team:        (l.team ?? '') as string,
+        stat_type:   l.stat_type as string,
+        line:        Number(l.line),
+        direction:   l.direction as 'over' | 'under',
+        actual, hit,
+        l10_hits:  Number(l.l10_hits ?? 0),
+        l10_total: Number(l.l10_total ?? 1),
+      }
+    })
+    return {
+      id:        p.id as string,
+      game_date: p.game_date as string,
+      legs,
+      result:    p.result as 'hit' | 'miss' | 'void' | null,
+      isPending,
+    }
+  })
+
+  // Current streak: consecutive hits from most recent graded day
+  let currentStreak = 0
+  const currentStreakPicks: StreakEntry[] = []
+  for (const e of entries) {
+    if (e.isPending) { currentStreakPicks.unshift(e); continue }
+    if (e.result === 'hit') { currentStreak++; currentStreakPicks.unshift(e) }
+    else break
+  }
+
+  // Longest streak ever
+  let longestStreak = 0
+  let run = 0
+  for (const e of [...entries].reverse()) {
+    if (e.result === 'hit') { run++; longestStreak = Math.max(longestStreak, run) }
+    else if (e.result === 'miss') run = 0
+  }
+
+  // Hit rate
+  const graded = entries.filter((e) => e.result === 'hit' || e.result === 'miss')
+  const hits   = graded.filter((e) => e.result === 'hit')
+  const hitRate = graded.length > 0 ? hits.length / graded.length : null
+
+  return {
+    currentStreak,
+    longestStreak,
+    totalDays: entries.length,
+    hitRate,
+    currentStreakPicks,
+    allHistory: entries,
+  }
+}
+
 async function loadGradedParlays(): Promise<GradedParlay[]> {
   const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
 
@@ -222,10 +335,11 @@ function HitBar({ rate, colorClass }: { rate: number; colorClass: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default async function PerformancePage() {
-  const [{ totals, days }, dailyBreakdown, gradedParlays] = await Promise.all([
+  const [{ totals, days }, dailyBreakdown, gradedParlays, streakData] = await Promise.all([
     loadAllTimeTotals(),
     loadDailyBreakdown(),
     loadGradedParlays(),
+    loadStreakData(),
   ])
 
   const hasData = totals.ALL.total > 0
@@ -346,6 +460,182 @@ export default async function PerformancePage() {
           </div>
         </>
       )}
+
+      {/* ── Curated Parlays ── */}
+      {/* ── Streaks ── */}
+      {(() => {
+        const { currentStreak, longestStreak, totalDays, hitRate, currentStreakPicks, allHistory } = streakData
+        const STAT_SHORT: Record<string, string> = { points: 'PTS', rebounds: 'REB', assists: 'AST', steals: 'STL', blocks: 'BLK', three_pointers: '3PM', pra: 'PRA' }
+
+        // Build 10-bubble tracker from last 5 entries (oldest → newest left→right)
+        const TOTAL = 10
+        const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = Array(TOTAL).fill('empty')
+        const last5 = [...allHistory].slice(0, 5).reverse() // newest-first → reverse for oldest-first
+        last5.forEach((e, i) => {
+          const b0 = i * 2
+          const b1 = i * 2 + 1
+          const state = e.result === 'hit' ? 'hit' : e.result === 'miss' ? 'miss' : 'pending'
+          if (b0 < TOTAL) bubbles[b0] = state
+          if (b1 < TOTAL) bubbles[b1] = state
+        })
+
+        return (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-[11px] text-white/35 uppercase tracking-widest">Daily Streak</p>
+                <p className="text-[10px] text-white/20">2 picks/day · both must hit to continue</p>
+              </div>
+              <span className="text-[10px] text-white/20">{totalDays} day{totalDays !== 1 ? 's' : ''} tracked</span>
+            </div>
+
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Current Streak', value: currentStreak > 0 ? `${currentStreak}` : '0', sub: currentStreak > 0 ? `day${currentStreak !== 1 ? 's' : ''} in a row` : 'start a new one!', color: currentStreak >= 3 ? 'text-emerald-400' : currentStreak > 0 ? 'text-[#f0c060]' : 'text-white/50', glow: currentStreak >= 3 ? 'shadow-[0_0_12px_rgba(16,185,129,0.2)]' : '' },
+                { label: 'Longest Streak', value: `${longestStreak}`, sub: longestStreak > 0 ? `day${longestStreak !== 1 ? 's' : ''} all-time best` : 'no streak yet', color: 'text-violet-400', glow: longestStreak >= 3 ? 'shadow-[0_0_12px_rgba(139,92,246,0.2)]' : '' },
+                { label: 'Hit Rate', value: hitRate !== null ? `${Math.round(hitRate * 100)}%` : '—', sub: `${allHistory.filter((e) => e.result === 'hit').length}/${allHistory.filter((e) => e.result === 'hit' || e.result === 'miss').length} days hit`, color: hitRate !== null && hitRate >= 0.6 ? 'text-emerald-400' : hitRate !== null ? 'text-[#f0c060]' : 'text-white/50', glow: '' },
+                { label: 'Days Tracked', value: `${totalDays}`, sub: 'total streak days', color: 'text-white/70', glow: '' },
+              ].map(({ label, value, sub, color, glow }) => (
+                <div key={label} className={`rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 flex flex-col gap-1 ${glow}`}>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-white/30">{label}</span>
+                  <span className={`text-3xl font-black mt-1 ${color}`}>{value}</span>
+                  <span className="text-xs text-white/25">{sub}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* 10-bubble tracker */}
+            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/30 font-semibold">Streak Progress</span>
+                <span className="text-[10px] text-white/20">last 5 days · 2 picks each</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {bubbles.map((state, i) => (
+                  <div
+                    key={i}
+                    className={`flex-1 h-4 rounded-full transition-all ${
+                      state === 'hit'     ? 'bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+                      : state === 'miss' ? 'bg-red-400'
+                      : state === 'pending' ? 'bg-orange-400 animate-pulse'
+                      : 'bg-white/[0.08]'
+                    }`}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center gap-4 flex-wrap">
+                {[
+                  { color: 'bg-emerald-400', label: 'Hit' },
+                  { color: 'bg-red-400',     label: 'Miss' },
+                  { color: 'bg-orange-400 animate-pulse', label: 'Pending' },
+                  { color: 'bg-white/[0.08]', label: 'Empty' },
+                ].map(({ color, label }) => (
+                  <div key={label} className="flex items-center gap-1.5">
+                    <div className={`w-2.5 h-2.5 rounded-full ${color}`} />
+                    <span className="text-[10px] text-white/30">{label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Current streak picks */}
+            {currentStreakPicks.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-white/25 uppercase tracking-widest">
+                  {currentStreak > 0 ? `Current Streak · ${currentStreak} day${currentStreak !== 1 ? 's' : ''}` : 'Today\'s Picks'}
+                </p>
+                {currentStreakPicks.map((entry) => (
+                  <div key={entry.id} className={`rounded-2xl border overflow-hidden ${entry.isPending ? 'border-orange-400/20 bg-orange-400/[0.03]' : 'border-emerald-400/20 bg-emerald-400/[0.03]'}`}>
+                    <div className="px-4 py-2.5 flex items-center justify-between border-b border-white/[0.05]">
+                      <span className="text-xs text-white/50 font-semibold">{formatDate(entry.game_date)}</span>
+                      <span className={`text-[10px] font-black uppercase ${entry.isPending ? 'text-orange-400' : 'text-emerald-400'}`}>
+                        {entry.isPending ? '⏳ Pending' : '✓ Hit'}
+                      </span>
+                    </div>
+                    <div className="px-4 py-3 flex flex-col gap-2">
+                      {entry.legs.map((leg, i) => (
+                        <div key={i} className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${leg.hit === null ? 'bg-orange-400 animate-pulse' : leg.hit ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                            <span className="text-sm text-white/70 font-medium truncate">{leg.player_name}</span>
+                            <span className="text-xs text-white/35 shrink-0">
+                              {leg.direction === 'over' ? 'O' : 'U'}{leg.line} {STAT_SHORT[leg.stat_type] ?? leg.stat_type}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {leg.actual !== null && (
+                              <span className="text-xs font-mono text-white/30">actual: {leg.actual}</span>
+                            )}
+                            <span className={`text-xs font-bold ${leg.hit === null ? 'text-orange-400' : leg.hit ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {leg.hit === null ? '—' : leg.hit ? '✓' : '✗'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Full history */}
+            {allHistory.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-white/25 uppercase tracking-widest">Full History</p>
+                {allHistory.map((entry) => {
+                  const statusColor = entry.isPending ? 'text-orange-400' : entry.result === 'hit' ? 'text-emerald-400' : entry.result === 'miss' ? 'text-red-400' : 'text-white/25'
+                  const statusText  = entry.isPending ? 'PENDING' : entry.result === 'hit' ? 'HIT' : entry.result === 'miss' ? 'MISS' : 'VOID'
+                  const dotColor    = entry.isPending ? 'bg-orange-400 animate-pulse' : entry.result === 'hit' ? 'bg-emerald-400' : entry.result === 'miss' ? 'bg-red-400' : 'bg-white/20'
+
+                  return (
+                    <details key={entry.id} className="group rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+                      <summary className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer select-none hover:bg-white/[0.02] transition-colors list-none">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+                          <span className="text-sm font-semibold text-white/60 truncate">
+                            {entry.legs.map((l) => l.player_name).join(' · ')}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-xs text-white/25">{formatDate(entry.game_date)}</span>
+                          <span className={`text-xs font-black ${statusColor}`}>{statusText}</span>
+                        </div>
+                      </summary>
+                      <div className="border-t border-white/[0.05] px-4 py-3 flex flex-col gap-1.5">
+                        {entry.legs.map((leg, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2 py-0.5">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs text-white/50 truncate">{leg.player_name}</span>
+                              <span className="text-xs text-white/25 shrink-0">
+                                {leg.direction === 'over' ? 'O' : 'U'}{leg.line} {STAT_SHORT[leg.stat_type] ?? leg.stat_type}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {leg.actual !== null && (
+                                <span className="text-xs font-mono text-white/30">actual: {leg.actual}</span>
+                              )}
+                              <span className={`text-xs font-bold ${leg.hit === null ? 'text-white/20' : leg.hit ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {leg.hit === null ? (entry.isPending ? '—' : 'VOID') : leg.hit ? '✓' : '✗'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )
+                })}
+              </div>
+            )}
+
+            {totalDays === 0 && (
+              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.01] p-8 text-center">
+                <p className="text-sm text-white/25">No streak data yet — picks appear after games are scheduled</p>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── Curated Parlays ── */}
       {([

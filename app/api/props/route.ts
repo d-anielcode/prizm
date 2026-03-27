@@ -206,9 +206,12 @@ export async function GET(req: Request) {
       })
     }
 
-    // Enrich runs via cron 15 min after props refresh — with full ESPN data.
-    // Removed fire-and-forget here: it raced the cron, always had ESPN=0 games
-    // (fired before ESPN scoreboard loaded), and caused prop_history deadlocks.
+    // Fire-and-forget gamelogs refresh so enrich (cron, 15 min later) has fresh data.
+    // Safe: gamelogs is idempotent (skips existing rows), no deadlock risk.
+    const baseUrl = new URL(req.url).origin
+    fetch(`${baseUrl}/api/gamelogs?days=7`).catch((e) =>
+      console.error('[/api/props] gamelogs fire-and-forget failed:', e)
+    )
 
     return NextResponse.json({
       props: freshProps,
