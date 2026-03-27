@@ -112,6 +112,39 @@ function deduplicateProps(props: Prop[]): Prop[] {
   return [...best.values()].sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
 }
 
+// ── Line movement indicators ──────────────────────────────────────────────────
+function LineMovement({ opening, current }: { opening: number | null | undefined; current: number }) {
+  if (opening == null || opening === current) return null
+  const delta = current - opening
+  const moved = Math.abs(delta)
+  if (moved < 0.5) return null
+  const up = delta > 0
+  return (
+    <span
+      className={`text-[10px] font-bold ml-1.5 ${up ? 'text-orange-400' : 'text-emerald-400'}`}
+      title={`Line moved from ${opening} → ${current}`}
+    >
+      {up ? '↑' : '↓'}{moved % 1 === 0 ? moved.toFixed(0) : moved.toFixed(1)}
+    </span>
+  )
+}
+
+function SharpMoneyBadge({ opening, current, direction }: { opening: number | null | undefined; current: number; direction: 'over' | 'under' }) {
+  if (opening == null) return null
+  const delta = current - opening
+  if (Math.abs(delta) < 0.5) return null
+  // Line moved with direction = sharp money confirming (e.g. OVER and line went up)
+  const confirming = direction === 'over' ? delta > 0 : delta < 0
+  return (
+    <span
+      className={`text-[9px] font-black px-1.5 py-0.5 rounded ${confirming ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/15 text-red-400'}`}
+      title={confirming ? 'Sharp money confirming this pick (line moved with direction)' : 'Sharp money against this pick (line moved opposite direction)'}
+    >
+      {confirming ? 'STEAM' : 'COUNTER'}
+    </span>
+  )
+}
+
 // ── Hit/Miss game-by-game bubbles ─────────────────────────────────────────────
 function HitMissRow({
   logs,
@@ -496,13 +529,15 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                     {STAT_LABELS[prop.stat_type]}
                   </span>
                   <span className={[
-                    'text-sm font-semibold px-3 py-0.5 rounded-full',
+                    'text-sm font-semibold px-3 py-0.5 rounded-full inline-flex items-center',
                     prop.direction === 'over'
                       ? 'bg-blue-500/15 text-blue-400'
                       : 'bg-orange-500/15 text-orange-400',
                   ].join(' ')}>
                     {prop.direction.toUpperCase()} {prop.line}
+                    <LineMovement opening={prop.opening_line} current={prop.line} />
                   </span>
+                  <SharpMoneyBadge opening={prop.opening_line} current={prop.line} direction={prop.direction} />
                   {hitPct !== null && total >= 5 && (
                     <span className={[
                       'text-xs font-semibold px-2.5 py-0.5 rounded-full',
