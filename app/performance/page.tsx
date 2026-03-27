@@ -114,6 +114,94 @@ async function loadDailyBreakdown(): Promise<Map<string, TierMap>> {
   return new Map(top5.map((d) => [d, byDate.get(d)!]))
 }
 
+// ── Calibration data ──────────────────────────────────────────────────────────
+// Pulls confidence_score + direction + stat_type + hit from all graded props.
+// Used for: score-bucket calibration, OVER/UNDER split, stat-type accuracy.
+
+interface CalibBucket { label: string; min: number; max: number; hits: number; total: number }
+interface DirSplit    { hits: number; total: number }
+
+interface CalibrationData {
+  buckets:           CalibBucket[]
+  byDirection:       { over: DirSplit; under: DirSplit }
+  byLabelDir:        Record<string, { over: DirSplit; under: DirSplit }>
+  byStatType:        Record<string, { hits: number; total: number }>
+  // Recommended OVER correction relative to current -3:
+  // derived as -round((under_rate - over_rate) * 100 / 2.33)
+  // where 2.33 ≈ score-pts per 1% probability shift (empirical)
+  recommendedOverAdj: number
+  currentOverAdj:     number
+  sampleSize:         number
+}
+
+const CALIB_BUCKETS = [
+  { label: '50–54', min: 50, max: 54 },
+  { label: '55–59', min: 55, max: 59 },
+  { label: '60–64', min: 60, max: 64 },
+  { label: '65–69', min: 65, max: 69 },
+  { label: '70–74', min: 70, max: 74 },
+  { label: '75–79', min: 75, max: 79 },
+  { label: '80–84', min: 80, max: 84 },
+  { label: '85+',   min: 85, max: 99 },
+]
+
+async function loadCalibrationData(): Promise<CalibrationData> {
+  const rows: { confidence_score: number; confidence_label: string; direction: string; stat_type: string; hit: boolean }[] = []
+  let from = 0
+  const PAGE = 1000
+  while (true) {
+    const { data: page } = await supabase
+      .from('prop_grades')
+      .select('confidence_score, confidence_label, direction, stat_type, hit')
+      .not('confidence_score', 'is', null)
+      .not('hit', 'is', null)
+      .range(from, from + PAGE - 1)
+    if (!page || page.length === 0) break
+    rows.push(...(page as typeof rows))
+    if (page.length < PAGE) break
+    from += PAGE
+  }
+
+  // Score buckets
+  const buckets: CalibBucket[] = CALIB_BUCKETS.map((b) => {
+    const inBucket = rows.filter((r) => r.confidence_score >= b.min && r.confidence_score <= b.max)
+    return { ...b, hits: inBucket.filter((r) => r.hit).length, total: inBucket.length }
+  })
+
+  // OVER vs UNDER split overall
+  const byDirection = {
+    over:  { hits: rows.filter((r) => r.direction === 'over'  && r.hit).length, total: rows.filter((r) => r.direction === 'over').length },
+    under: { hits: rows.filter((r) => r.direction === 'under' && r.hit).length, total: rows.filter((r) => r.direction === 'under').length },
+  }
+
+  // By label + direction
+  const byLabelDir: CalibrationData['byLabelDir'] = {}
+  for (const label of ['LOCK', 'PLAY', 'LEAN', 'FADE']) {
+    const sub = rows.filter((r) => r.confidence_label === label)
+    byLabelDir[label] = {
+      over:  { hits: sub.filter((r) => r.direction === 'over'  && r.hit).length, total: sub.filter((r) => r.direction === 'over').length },
+      under: { hits: sub.filter((r) => r.direction === 'under' && r.hit).length, total: sub.filter((r) => r.direction === 'under').length },
+    }
+  }
+
+  // By stat type (all labels)
+  const byStatType: Record<string, { hits: number; total: number }> = {}
+  for (const r of rows) {
+    if (!byStatType[r.stat_type]) byStatType[r.stat_type] = { hits: 0, total: 0 }
+    byStatType[r.stat_type].total++
+    if (r.hit) byStatType[r.stat_type].hits++
+  }
+
+  // Recommended OVER correction
+  const overRate  = byDirection.over.total  > 0 ? byDirection.over.hits  / byDirection.over.total  : null
+  const underRate = byDirection.under.total > 0 ? byDirection.under.hits / byDirection.under.total : null
+  const gap = (overRate != null && underRate != null) ? underRate - overRate : 0
+  // Each model score point ≈ 1% probability shift. Gap in % → score point correction.
+  const recommendedOverAdj = gap > 0 ? -Math.round(gap * 100) : 0
+
+  return { buckets, byDirection, byLabelDir, byStatType, recommendedOverAdj, currentOverAdj: -3, sampleSize: rows.length }
+}
+
 // ── Streak data ───────────────────────────────────────────────────────────────
 interface StreakEntry {
   id:        string
@@ -335,9 +423,10 @@ function HitBar({ rate, colorClass }: { rate: number; colorClass: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default async function PerformancePage() {
-  const [{ totals, days }, dailyBreakdown, gradedParlays, streakData] = await Promise.all([
+  const [{ totals, days }, dailyBreakdown, calibration, gradedParlays, streakData] = await Promise.all([
     loadAllTimeTotals(),
     loadDailyBreakdown(),
+    loadCalibrationData(),
     loadGradedParlays(),
     loadStreakData(),
   ])
@@ -403,6 +492,180 @@ export default async function PerformancePage() {
               })}
             </div>
           </div>
+
+          {/* ── OVER vs UNDER breakdown ── */}
+          {calibration.sampleSize >= 20 && (() => {
+            const STAT_SHORT: Record<string, string> = { points: 'PTS', rebounds: 'REB', assists: 'AST', steals: 'STL', blocks: 'BLK', three_pointers: '3PM', pra: 'PRA' }
+            const { over, under } = calibration.byDirection
+            const overRate  = over.total  > 0 ? over.hits  / over.total  : null
+            const underRate = under.total > 0 ? under.hits / under.total : null
+            const gap = overRate != null && underRate != null ? Math.round((underRate - overRate) * 100) : null
+            const adjDiffers = calibration.recommendedOverAdj !== calibration.currentOverAdj
+
+            return (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] text-white/35 uppercase tracking-widest">OVER vs UNDER</p>
+                  <span className="text-[10px] text-white/20">{calibration.sampleSize} graded props</span>
+                </div>
+
+                {/* Direction cards */}
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    { dir: 'OVER',  d: over,  rate: overRate,  color: 'text-emerald-400', border: 'border-emerald-400/15', bg: 'bg-emerald-400/[0.03]' },
+                    { dir: 'UNDER', d: under, rate: underRate, color: 'text-red-400',     border: 'border-red-400/15',     bg: 'bg-red-400/[0.03]'     },
+                  ] as const).map(({ dir, d, rate, color, border, bg }) => (
+                    <div key={dir} className={`rounded-2xl border ${border} ${bg} p-4 flex flex-col gap-1`}>
+                      <span className={`text-[10px] font-black uppercase tracking-wider ${color}`}>{dir}</span>
+                      <span className={`text-3xl font-black mt-1 ${rate != null && rate >= 0.55 ? 'text-emerald-400' : rate != null && rate >= 0.45 ? 'text-[#f0c060]' : 'text-red-400'}`}>
+                        {rate != null ? `${Math.round(rate * 100)}%` : '—'}
+                      </span>
+                      <span className="text-xs text-white/25">{d.hits}/{d.total} hit</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Gap + model note */}
+                {gap != null && (
+                  <div className={`rounded-xl border px-4 py-3 flex flex-col gap-1 ${adjDiffers ? 'border-[#e8a820]/20 bg-[#e8a820]/[0.03]' : 'border-white/[0.06] bg-white/[0.01]'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-white/40">UNDER outperforms OVER by <span className="text-white/70 font-bold">{gap}pp</span></span>
+                      <span className={`text-[10px] font-black ${adjDiffers ? 'text-[#e8a820]' : 'text-white/25'}`}>
+                        {adjDiffers ? `Suggest ${calibration.recommendedOverAdj > 0 ? '+' : ''}${calibration.recommendedOverAdj}pt adj (current: ${calibration.currentOverAdj})` : `Current ${calibration.currentOverAdj}pt adj is calibrated ✓`}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* By label: OVER vs UNDER hit rate */}
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+                  <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between">
+                    <span className="text-xs text-white/40 font-semibold">Hit Rate by Label</span>
+                    <div className="flex items-center gap-4 text-[10px] text-white/25">
+                      <span className="text-emerald-400">■ OVER</span>
+                      <span className="text-red-400">■ UNDER</span>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-white/[0.04]">
+                    {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as const).map((label) => {
+                      const d = calibration.byLabelDir[label]
+                      if (!d) return null
+                      const oRate = d.over.total  > 0 ? d.over.hits  / d.over.total  : null
+                      const uRate = d.under.total > 0 ? d.under.hits / d.under.total : null
+                      if (d.over.total + d.under.total === 0) return null
+                      const c = TIER_COLORS[label]
+                      return (
+                        <div key={label} className="px-4 py-3 flex items-center gap-3">
+                          <span className={`text-[10px] font-black w-10 shrink-0 px-1.5 py-0.5 rounded border text-center ${c.badge}`}>{label}</span>
+                          <div className="flex-1 grid grid-cols-2 gap-3">
+                            {([['OVER', oRate, d.over] , ['UNDER', uRate, d.under]] as [string, number | null, {hits:number;total:number}][]).map(([dir, rate, split]) => (
+                              <div key={dir} className="flex items-center gap-2">
+                                <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full ${dir === 'OVER' ? 'bg-emerald-500' : 'bg-red-500'}`}
+                                    style={{ width: rate != null ? `${Math.round(rate * 100)}%` : '0%' }} />
+                                </div>
+                                <span className="text-xs tabular-nums text-white/40 w-10 text-right">
+                                  {rate != null ? `${Math.round(rate * 100)}%` : '—'}
+                                </span>
+                                <span className="text-[10px] text-white/20 w-12 text-right">{split.hits}/{split.total}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Stat type hit rates */}
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+                  <div className="px-4 py-3 border-b border-white/[0.05]">
+                    <span className="text-xs text-white/40 font-semibold">Hit Rate by Stat Type</span>
+                  </div>
+                  <div className="divide-y divide-white/[0.04]">
+                    {Object.entries(calibration.byStatType)
+                      .sort((a, b) => (b[1].total) - (a[1].total))
+                      .map(([stat, d]) => {
+                        if (d.total < 5) return null
+                        const rate = d.hits / d.total
+                        const pct  = Math.round(rate * 100)
+                        return (
+                          <div key={stat} className="px-4 py-2.5 flex items-center gap-3">
+                            <span className="text-xs text-white/50 w-10 shrink-0">{STAT_SHORT[stat] ?? stat}</span>
+                            <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${pct >= 60 ? 'bg-emerald-500' : pct >= 50 ? 'bg-[#e8a820]' : 'bg-red-500'}`}
+                                style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-xs font-bold tabular-nums text-white/50 w-10 text-right">{pct}%</span>
+                            <span className="text-[10px] text-white/20 w-14 text-right">{d.hits}/{d.total}</span>
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* ── Score calibration ── */}
+          {calibration.sampleSize >= 20 && (() => {
+            const filledBuckets = calibration.buckets.filter((b) => b.total >= 5)
+            if (filledBuckets.length === 0) return null
+            return (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-0.5">
+                    <p className="text-[11px] text-white/35 uppercase tracking-widest">Score Calibration</p>
+                    <p className="text-[10px] text-white/20">Does score 70 actually mean 70% hit rate?</p>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+                  <div className="px-4 py-3 border-b border-white/[0.05] grid grid-cols-4 text-[10px] text-white/25 font-semibold uppercase tracking-wider">
+                    <span>Score</span>
+                    <span className="text-center">Expected</span>
+                    <span className="text-center">Actual</span>
+                    <span className="text-right">Sample</span>
+                  </div>
+                  <div className="divide-y divide-white/[0.04]">
+                    {calibration.buckets.map((b) => {
+                      if (b.total < 5) return (
+                        <div key={b.label} className="px-4 py-2.5 grid grid-cols-4 items-center">
+                          <span className="text-xs text-white/30">{b.label}</span>
+                          <span className="text-center text-xs text-white/15">—</span>
+                          <span className="text-center text-xs text-white/15">—</span>
+                          <span className="text-right text-[10px] text-white/15">{b.total} props</span>
+                        </div>
+                      )
+                      const expected = Math.round((b.min + b.max) / 2)
+                      const actual   = Math.round((b.hits / b.total) * 100)
+                      const delta    = actual - expected
+                      const deltaColor = Math.abs(delta) <= 5 ? 'text-emerald-400'
+                        : Math.abs(delta) <= 12 ? 'text-[#f0c060]' : 'text-red-400'
+                      return (
+                        <div key={b.label} className="px-4 py-2.5 grid grid-cols-4 items-center">
+                          <span className="text-xs text-white/60 font-semibold">{b.label}</span>
+                          <span className="text-center text-xs text-white/30">{expected}%</span>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <span className={`text-xs font-bold ${deltaColor}`}>{actual}%</span>
+                            {delta !== 0 && (
+                              <span className={`text-[10px] ${deltaColor}`}>
+                                {delta > 0 ? `+${delta}` : delta}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-right text-[10px] text-white/20">{b.total} props</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+                <p className="text-[10px] text-white/20 leading-relaxed">
+                  Delta = actual − expected. Green (≤5pp) = well calibrated. Yellow = slight overconfidence.
+                  Red (&gt;12pp) = model is overconfident at this score range and thresholds may need adjustment.
+                </p>
+              </div>
+            )
+          })()}
 
           {/* ── Per-day breakdown (last 5 game days) ── */}
           <div className="flex flex-col gap-4">
