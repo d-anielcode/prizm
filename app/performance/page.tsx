@@ -767,17 +767,28 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         const { currentStreak, longestStreak, totalDays, hitRate, currentStreakPicks, allHistory } = streakData
         const STAT_SHORT: Record<string, string> = { points: 'PTS', rebounds: 'REB', assists: 'AST', steals: 'STL', blocks: 'BLK', three_pointers: '3PM', pra: 'PRA' }
 
-        // Build 10-bubble tracker from last 5 entries (oldest → newest left→right)
+        // Build 10-bar tracker: today first (left), then current streak days, then empty
+        // Resets on miss — only shows active streak + today's pending
         const TOTAL = 10
         const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = Array(TOTAL).fill('empty')
-        const last5 = [...allHistory].slice(0, 5).reverse() // newest-first → reverse for oldest-first
-        last5.forEach((e, i) => {
-          const b0 = i * 2
-          const b1 = i * 2 + 1
-          const state = e.result === 'hit' ? 'hit' : e.result === 'miss' ? 'miss' : 'pending'
-          if (b0 < TOTAL) bubbles[b0] = state
-          if (b1 < TOTAL) bubbles[b1] = state
-        })
+        const todayEntry = allHistory[0] // allHistory is newest-first
+        const todayState: 'pending' | 'hit' | 'empty' =
+          todayEntry?.isPending ? 'pending'
+          : todayEntry?.result === 'hit' ? 'hit'
+          : 'empty' // miss = reset, show empty
+        // Bars 0-1: today
+        bubbles[0] = todayState
+        bubbles[1] = todayState
+        // Bars 2+: past consecutive hit days — stop at first miss/pending
+        let barIdx = 2
+        for (const e of allHistory) {
+          if (e.isPending) continue          // skip today (already in bars 0-1)
+          if (e.result !== 'hit') break      // miss breaks the streak → stop
+          if (barIdx >= TOTAL) break
+          bubbles[barIdx]     = 'hit'
+          bubbles[barIdx + 1] = 'hit'
+          barIdx += 2
+        }
 
         return (
           <div className="flex flex-col gap-4">
