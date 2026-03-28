@@ -5,7 +5,7 @@
 import { NextResponse } from 'next/server'
 import { supabase, isCacheStale } from '@/lib/supabase'
 import { fetchTodaysNBAEvents, fetchAllPropsForEvents } from '@/lib/odds-api'
-import { requireCronAuth } from '@/lib/api-auth'
+import { requireCronAuth, internalAuthHeaders } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 
 export const maxDuration = 120
@@ -212,11 +212,15 @@ export async function GET(req: Request) {
       })
     }
 
-    // Fire-and-forget gamelogs refresh so enrich (cron, 15 min later) has fresh data.
-    // Safe: gamelogs is idempotent (skips existing rows), no deadlock risk.
+    // Fire-and-forget: refresh gamelogs then immediately enrich so fresh scores
+    // are available without waiting for the next cron slot.
     const baseUrl = new URL(req.url).origin
-    fetch(`${baseUrl}/api/gamelogs?days=7`).catch((e) =>
+    const authHeaders = internalAuthHeaders()
+    fetch(`${baseUrl}/api/gamelogs?days=7`, { headers: authHeaders }).catch((e) =>
       console.error('[/api/props] gamelogs fire-and-forget failed:', e)
+    )
+    fetch(`${baseUrl}/api/enrich?force=true`, { headers: authHeaders }).catch((e) =>
+      console.error('[/api/props] enrich fire-and-forget failed:', e)
     )
 
     return NextResponse.json({
