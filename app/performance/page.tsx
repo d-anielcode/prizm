@@ -4,7 +4,8 @@
 
 import { supabase } from '@/lib/supabase'
 
-export const revalidate = 0
+// Revalidate every 30 min — performance data only changes after nightly grading
+export const revalidate = 1800
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Tally = { total: number; hits: number }
@@ -86,32 +87,35 @@ async function loadAllTimeTotals(): Promise<{ totals: TierMap; days: number }> {
   return { totals, days: dates.size }
 }
 
-// Daily breakdown: last 5 game days, lean 3-column query
-async function loadDailyBreakdown(): Promise<Map<string, TierMap>> {
-  const today  = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-  const cutoff = new Date(Date.now() - 10 * 86400000)
-    .toLocaleDateString('en-CA', { timeZone: 'America/New_York' })  // 10 calendar days to get 5 game days
+// Daily breakdown: reads from prop_results (same source as Model Performance on home page).
+// This ensures the daily breakdown always matches the authoritative aggregated results table,
+// avoiding stale snapshot data or the 5000-row limit issue from querying prop_grades directly.
+const RESULT_TIERS = new Set(['LOCK', 'PLAY', 'LEAN', 'FADE'])
+
+async function loadDailyBreakdownFromResults(): Promise<Map<string, TierMap>> {
+  const cutoff = new Date(Date.now() - 7 * 86400000)
+    .toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) // 7 calendar days back
 
   const { data } = await supabase
-    .from('prop_grades')
-    .select('game_date, confidence_label, hit')
-    .not('confidence_label', 'is', null)
-    .not('hit', 'is', null)
-    .gte('game_date', cutoff)
-    .lte('game_date', today)
-    .order('game_date', { ascending: false })
-    .limit(5000)
+    .from('prop_results')
+    .select('date, confidence_label, total, hits')
+    .gte('date', cutoff)
+    .order('date', { ascending: false })
+    .limit(28) // 4 tiers × 7 days
 
   const byDate = new Map<string, TierMap>()
-  for (const row of data ?? []) {
-    const date = row.game_date as string
-    if (!byDate.has(date)) byDate.set(date, blankTierMap())
-    tally(byDate.get(date)!, row.confidence_label as string, row.hit as boolean)
+  for (const row of (data ?? []) as { date: string; confidence_label: string; total: number; hits: number }[]) {
+    // Skip aggregate rows (e.g. confidence_label = 'ALL') — we compute ALL ourselves
+    if (!RESULT_TIERS.has(row.confidence_label)) continue
+    if (!byDate.has(row.date)) byDate.set(row.date, blankTierMap())
+    const tm = byDate.get(row.date)!
+    tm[row.confidence_label].total = row.total
+    tm[row.confidence_label].hits  = row.hits
+    tm.ALL.total += row.total
+    tm.ALL.hits  += row.hits
   }
 
-  // Cap at 5 most recent game days
-  const top5 = [...byDate.keys()].sort((a, b) => b.localeCompare(a)).slice(0, 5)
-  return new Map(top5.map((d) => [d, byDate.get(d)!]))
+  return new Map([...byDate.keys()].sort((a, b) => b.localeCompare(a)).map((d) => [d, byDate.get(d)!]))
 }
 
 // ── Calibration data ──────────────────────────────────────────────────────────
@@ -421,6 +425,41 @@ function HitBar({ rate, colorClass }: { rate: number; colorClass: string }) {
   )
 }
 
+// ── Snapshot reader ───────────────────────────────────────────────────────────
+// Reads the pre-computed Props History snapshot (populated by /api/performance-snapshot
+// after each grading run). Falls back to live queries if the snapshot is missing or stale.
+
+interface SnapshotRow {
+  computed_at:     string
+  totals:          TierMap
+  days:            number
+  daily_breakdown: Array<{ date: string; tiers: TierMap }>
+  calibration:     CalibrationData
+}
+
+async function loadPropsDataFromSnapshot(): Promise<{
+  totals: TierMap; days: number; dailyBreakdown: Map<string, TierMap>; calibration: CalibrationData
+} | null> {
+  const { data, error } = await supabase
+    .from('performance_snapshot')
+    .select('computed_at, totals, days, daily_breakdown, calibration')
+    .eq('id', 1)
+    .single()
+
+  if (error || !data) return null
+
+  const row = data as unknown as SnapshotRow
+  // Accept snapshot if computed within the last 6 hours
+  const ageMs = Date.now() - new Date(row.computed_at).getTime()
+  if (ageMs > 6 * 3600 * 1000) return null
+
+  const dailyBreakdown = new Map<string, TierMap>()
+  for (const { date, tiers } of row.daily_breakdown ?? [])
+    dailyBreakdown.set(date, tiers)
+
+  return { totals: row.totals, days: row.days, dailyBreakdown, calibration: row.calibration }
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default async function PerformancePage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab: rawTab } = await searchParams
@@ -431,18 +470,30 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
     propsData,
     gradedParlays,
     streakData,
+    dailyBreakdownLive,
   ] = await Promise.all([
     tab === 'props'
-      ? Promise.all([loadAllTimeTotals(), loadDailyBreakdown(), loadCalibrationData()])
-          .then(([a, b, c]) => ({ totals: a.totals, days: a.days, dailyBreakdown: b, calibration: c }))
+      ? (async () => {
+          // Try snapshot first (single fast SELECT). Fall back to live paginated queries.
+          const snap = await loadPropsDataFromSnapshot()
+          if (snap) return snap
+          const [a, c] = await Promise.all([loadAllTimeTotals(), loadCalibrationData()])
+          return { totals: a.totals, days: a.days, dailyBreakdown: new Map<string, TierMap>(), calibration: c }
+        })()
       : Promise.resolve(null),
     tab === 'parlays' ? loadGradedParlays() : Promise.resolve([] as GradedParlay[]),
     tab === 'streaks' ? loadStreakData()    : Promise.resolve(null as StreakData | null),
+    // Always load daily breakdown from prop_results (same source as Model Performance on home page).
+    // This bypasses snapshot staleness and the prop_grades 5000-row limit.
+    tab === 'props' ? loadDailyBreakdownFromResults() : Promise.resolve(new Map<string, TierMap>()),
   ])
 
   const totals        = propsData?.totals        ?? null
   const days          = propsData?.days          ?? 0
-  const dailyBreakdown = propsData?.dailyBreakdown ?? new Map<string, TierMap>()
+  // Prefer live prop_results data; snapshot daily_breakdown only as last resort
+  const dailyBreakdown = (dailyBreakdownLive as Map<string, TierMap>).size > 0
+    ? (dailyBreakdownLive as Map<string, TierMap>)
+    : propsData?.dailyBreakdown ?? new Map<string, TierMap>()
   const calibration   = propsData?.calibration   ?? null
   const hasData       = (totals?.ALL.total ?? 0) > 0
 
@@ -795,7 +846,6 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-0.5">
                 <p className="text-[11px] text-white/35 uppercase tracking-widest">Daily Streak</p>
-                <p className="text-[10px] text-white/20">2 picks/day · both must hit to continue</p>
               </div>
               <span className="text-[10px] text-white/20">{totalDays} day{totalDays !== 1 ? 's' : ''} tracked</span>
             </div>

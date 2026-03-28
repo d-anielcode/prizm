@@ -1297,7 +1297,7 @@ function buildReason(
         if (cv < 0.25) {
           sentences.push(`Rock-solid consistency for this stat — very low game-to-game variance.`)
         } else if (cv >= 0.70) {
-          sentences.push(`⚠️ High-variance stat — ${player_name}'s ${stat} swings significantly game to game.`)
+          sentences.push(`High-variance stat — ${player_name}'s ${stat} swings significantly game to game.`)
         }
       }
     }
@@ -1309,7 +1309,7 @@ function buildReason(
       const mn     = recentMins.reduce((a, b) => a + b, 0) / recentMins.length
       const stdev  = Math.sqrt(recentMins.reduce((s, m) => s + (m - mn) ** 2, 0) / recentMins.length)
       if (stdev >= 10) {
-        sentences.push(`⚠️ Minutes vary significantly (σ≈${stdev.toFixed(0)} min/game) — playing time uncertainty is high.`)
+        sentences.push(`Minutes vary significantly (σ≈${stdev.toFixed(0)} min/game) — playing time uncertainty is high.`)
       }
     }
   }
@@ -1321,8 +1321,8 @@ function buildReason(
     const dirStr = lineMovementDelta > 0 ? 'up' : 'down'
     sentences.push(
       confirming
-        ? `📈 Line moved ${dirStr} ${moved} pts since opening — sharp money confirming the ${dir.toUpperCase()}.`
-        : `📉 Line moved ${dirStr} ${moved} pts since opening — market action going against the ${dir.toUpperCase()}.`
+        ? `Line moved ${dirStr} ${moved} pts since opening — sharp money confirming the ${dir.toUpperCase()}.`
+        : `Line moved ${dirStr} ${moved} pts since opening — market action going against the ${dir.toUpperCase()}.`
     )
   }
   if (oddsMovementDelta != null && Math.abs(oddsMovementDelta) >= 0.03) {
@@ -1330,8 +1330,8 @@ function buildReason(
     const pctShift   = (Math.abs(oddsMovementDelta) * 100).toFixed(0)
     sentences.push(
       confirming
-        ? `💰 Odds juice shifted +${pctShift}pp toward the ${dir.toUpperCase()} since morning — sharp syndicate action detected.`
-        : `⚠️ Odds juice shifted ${pctShift}pp away from the ${dir.toUpperCase()} since morning — books taking ${dir === 'over' ? 'under' : 'over'} action.`
+        ? `Odds juice shifted +${pctShift}pp toward the ${dir.toUpperCase()} since morning — sharp syndicate action detected.`
+        : `Odds juice shifted ${pctShift}pp away from the ${dir.toUpperCase()} since morning — books taking ${dir === 'over' ? 'under' : 'over'} action.`
     )
   }
 

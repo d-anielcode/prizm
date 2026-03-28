@@ -5,12 +5,12 @@
       "schedule": "10 4 * * *"
     },
     {
-      "path": "/api/seasonstats",
-      "schedule": "20 4 * * *"
+      "path": "/api/feed/grade",
+      "schedule": "15 4 * * *"
     },
     {
-      "path": "/api/results?force=true",
-      "schedule": "25 4 * * *"
+      "path": "/api/seasonstats",
+      "schedule": "22 4 * * *"
     },
     {
       "path": "/api/props?refresh=true",
@@ -18,15 +18,19 @@
     },
     {
       "path": "/api/grade",
-      "schedule": "40 4 * * *"
+      "schedule": "45 4 * * *"
+    },
+    {
+      "path": "/api/results?force=true",
+      "schedule": "55 4 * * *"
     },
     {
       "path": "/api/enrich?force=true",
-      "schedule": "50 4 * * *"
+      "schedule": "10 5 * * *"
     },
     {
       "path": "/api/feed/generate/parlay",
-      "schedule": "5 5 * * *"
+      "schedule": "25 5 * * *"
     },
     {
       "path": "/api/props?refresh=true",
@@ -37,12 +41,8 @@
       "schedule": "15 12 * * *"
     },
     {
-      "path": "/api/gamelogs?days=3",
-      "schedule": "55 13 * * *"
-    },
-    {
-      "path": "/api/feed/grade",
-      "schedule": "5 12 * * *"
+      "path": "/api/feed/generate/parlay?force=true",
+      "schedule": "30 12 * * *"
     },
     {
       "path": "/api/props?refresh=true",

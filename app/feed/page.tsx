@@ -171,7 +171,6 @@ export default async function FeedPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-base font-black text-white">Daily Streak</p>
-              <p className="text-xs text-white/35 mt-0.5">Pick 2 every day · both must hit to continue</p>
             </div>
             <div className="text-right">
               <p className="text-3xl font-black text-orange-400">{currentStreak}</p>
@@ -341,14 +340,6 @@ export default async function FeedPage() {
                   ))}
                 </div>
 
-                {/* Footer note */}
-                <p className="text-[10px] text-white/15">
-                  {parlay.legs.length}-leg {parlay.parlay_type === 'sgp' ? 'same-game parlay' : 'cross-game parlay'}
-                  {parlay.parlay_type === 'value'   ? ' · Consistent Pick · PTS/REB/AST/3PM · LOCK+PLAY' : ''}
-                  {parlay.parlay_type === 'premium' ? ' · High Roller · PTS/REB/AST/3PM · 24+ min avg' : ''}
-                  {parlay.parlay_type === 'jackpot' ? ' · Jackpot · PTS/REB/AST/3PM · 24+ min avg · ~17x' : ''}
-                  {parlay.est_multiplier != null ? ` · est. ~${parlay.est_multiplier.toFixed(1)}× payout` : ''}
-                </p>
               </div>
             </div>
           ))}

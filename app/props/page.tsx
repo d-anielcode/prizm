@@ -79,7 +79,7 @@ export default async function PropsPage({
       <div>
         <h1 className="text-2xl font-bold text-white">All Props</h1>
         <p className="text-white/40 text-sm mt-1">
-          {props.length} props scored · sorted by confidence
+          {props.length} props scored
         </p>
       </div>
 

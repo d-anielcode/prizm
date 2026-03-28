@@ -3,7 +3,8 @@ import { ConfidenceBadge } from '@/components/ConfidenceBadge'
 import Link from 'next/link'
 import type { Prop, StatType, Direction, ConfidenceLabel } from '@/types'
 
-export const revalidate = 0
+// Revalidate every 30 min — streak/accuracy data only changes with daily prop+log refresh
+export const revalidate = 1800
 
 // ---- Types ----
 
@@ -322,7 +323,12 @@ export default async function TrendsPage() {
       {/* ── Hot Streaks ── */}
       <section className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold text-white">Hot Streaks 🔥</h1>
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-orange-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+            <h1 className="text-2xl font-bold text-white">Hot Streaks</h1>
+          </div>
           <p className="text-white/40 text-sm">Players hitting their line in consecutive recent games</p>
         </div>
 
@@ -350,8 +356,13 @@ export default async function TrendsPage() {
       {/* ── Cold Streaks ── */}
       <section className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-2xl font-bold text-white">Cold Streaks ❄️</h2>
-          <p className="text-white/40 text-sm">Players consistently missing their line — potential FADE targets</p>
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+            </svg>
+            <h2 className="text-2xl font-bold text-white">Cold Streaks</h2>
+          </div>
+          <p className="text-white/40 text-sm">Players consistently missing their line — potential fade targets</p>
         </div>
 
         {coldEntries.length === 0 ? (

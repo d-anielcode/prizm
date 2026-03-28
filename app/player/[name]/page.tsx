@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { ConfidenceBadge } from '@/components/ConfidenceBadge'
+import { PropReasonChips } from '@/components/PropReasonChips'
 import { StatChart } from '@/components/StatChart'
 import Link from 'next/link'
 import type { Prop, StatType } from '@/types'
@@ -563,9 +564,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                 )}
               </div>
 
-              {prop.confidence_reason && (
-                <p className="text-sm text-white/45 leading-relaxed">{prop.confidence_reason}</p>
-              )}
+              <PropReasonChips reason={prop.confidence_reason} />
 
               <HitMissRow
                 logs={gameLogs}

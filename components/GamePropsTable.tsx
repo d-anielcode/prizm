@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import AltLinesPanel from './AltLinesPanel'
+import { PropReasonChips } from './PropReasonChips'
 import type { AltLine, OpponentCtx, PropWithAlts, StatType } from '@/types'
 import type { PropResult } from '@/app/game/[id]/page'
 
@@ -175,9 +176,7 @@ export default function GamePropsTable({
                 <OpponentChip ctx={oppCtx.get(prop.id)!} direction={prop.direction} />
               )}
             </div>
-            {prop.confidence_reason && (
-              <p className="text-[11px] text-white/30 mt-1.5 line-clamp-2 leading-relaxed">{prop.confidence_reason}</p>
-            )}
+            <PropReasonChips reason={prop.confidence_reason} />
             {prop.altLines && prop.altLines.length > 0 && (
               <AltLinesPanel mainLine={prop.line} altLines={prop.altLines} direction={prop.direction} />
             )}
@@ -270,8 +269,8 @@ export default function GamePropsTable({
                         </td>
                       )
                     })()}
-                    <td className="px-4 py-3 text-white/40 text-xs max-w-xs truncate">
-                      {prop.confidence_reason ?? '—'}
+                    <td className="px-4 py-3 max-w-xs">
+                      <PropReasonChips reason={prop.confidence_reason} />
                     </td>
                   </tr>
 

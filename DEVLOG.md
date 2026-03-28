@@ -4,6 +4,49 @@ NBA prop betting confidence app. Built on Next.js 15 / Supabase / Vercel.
 
 ---
 
+## 2026-03-28 (session 2) — UI Polish, Performance Snapshot, Daily Breakdown Fix
+
+### UI / UX Polish
+- **Trends page**: replaced `🔥 Hot Streaks` / `❄️ Cold Streaks` emoji headings with inline SVG trending-up/down icons (orange/blue); changed `revalidate = 0` → `1800`
+- **Mobile nav**: renamed "Perf." tab label → "Stats"
+- **Props page**: removed `· sorted by confidence` from subtitle
+- **Feed page**: removed redundant "Pick 2 every day · both must hit to continue" subtitle under Daily Streak header
+- **Performance page**: removed "2 picks/day · both must hit to continue" subtitle in Streaks tab; changed `revalidate = 0` → `1800`
+- **Feed parlay cards**: removed redundant footer note (all info already visible in card header/payout)
+
+### Confidence Reason — Emoji Removal + Visual Chip Redesign
+- Stripped all emojis from `lib/confidence.ts` sentence generation: `📈`, `📉`, `💰`, `⚠️` (6 occurrences across line movement, odds movement, variance, and minutes stability notes)
+- Created `components/PropReasonChips.tsx` — parses the `confidence_reason` string into structured visual chips instead of rendering raw wall-of-text
+  - Parses 10 sentence types: recent hit rate, H2H vs opponent, season avg vs line, matchup quality, trend (L5 vs L20), consistency, blowout risk, pace, line movement, sharp odds movement
+  - Each chip is fully self-descriptive (e.g. `10/20 Last 20 Games`, `Favorable Matchup (Def. #25)`, `↑ Gaining Form (28.4 L5 vs 24.0 Avg)`, `Sharp Money Backing This (+5pp)`)
+  - Hover tooltip on each chip shows the full original sentence for complete context
+  - Color-coded by sentiment: emerald = bullish signal, red = bearish, amber = caution, violet = sharp/line movement, neutral = contextual
+- Applied to `PropsTable.tsx`, `GamePropsTable.tsx`, and `app/player/[name]/page.tsx` (both mobile card and desktop table views)
+
+### Performance Snapshot (`/api/performance-snapshot`)
+- New route: pre-computes Props History tab data (all-time totals, daily breakdown, calibration) and upserts to `performance_snapshot` table (single row, id=1)
+- Stats page reads single-row snapshot on load instead of paginating 46,840+ `prop_grades` rows — eliminates the slow load on every visit
+- Snapshot auto-refreshed fire-and-forget after each `/api/grade` run via `Authorization: Bearer` header chain
+- Falls back to live paginated queries if snapshot is missing or older than 6 hours
+- `performance_snapshot` table required `GRANT ALL ON TABLE performance_snapshot TO service_role` + `GRANT SELECT TO anon` (created via raw SQL, not Supabase UI)
+
+### Cron Schedule Overhaul (`vercel.json`)
+- **Fixed ordering bug**: `results?force=true` was at 4:25 (before `grade` at 4:40) — fresh grades never appeared in ResultsHistory until next day. Fixed: grade → 4:45, results → 4:55
+- **Fixed misplaced feed/grade**: was at 12:05 UTC; moved to 4:15 UTC (right after gamelogs, per route comment intent)
+- **Closed parlay gap**: 12:15 enrich had no parlay regen until 14:50. Replaced redundant 13:55 gamelogs with 12:30 `feed/generate/parlay?force=true`
+- **Every enrich cycle** (5:10, 12:15, 14:35, 19:15) now followed immediately by parlay generation
+- `generate/streak` already chained inside `generate/parlay` as fire-and-forget — no extra cron slot needed
+- Final 20-slot schedule: gamelogs → feed/grade → seasonstats → props → grade → results → enrich → parlay (×4 daily cycles) + props/snapshot + Sunday bias/leaks
+
+### Daily Breakdown Fix
+- **Root cause**: daily breakdown was reading from `performance_snapshot.daily_breakdown`, which queries `prop_grades` with a hard `.limit(5000)` — cut off at ~5.7 days with 883 props/day, producing stale/clipped numbers (352/670 vs the correct 439/883)
+- **Fix**: replaced `loadDailyBreakdown()` (prop_grades query) with `loadDailyBreakdownFromResults()` — reads from `prop_results` table, the same authoritative aggregated source as Model Performance on the home page
+- Numbers now match exactly between Daily Breakdown and Model Performance (Yesterday: LOCK 100% 4/4, PLAY 96% 25/26, LEAN 64% 117/183, FADE 44% 293/670)
+- Changed window from 5 most recent game days → last 7 calendar days (more natural "past week" view)
+- Snapshot still used for `totals` and `calibration` (expensive paginated queries); only daily breakdown switched to live `prop_results`
+
+---
+
 ## 2026-03-28 — Auth Header Fixes, Streak Bar UX
 
 ### Fire-and-Forget Auth Fix

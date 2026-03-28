@@ -145,6 +145,14 @@ export async function POST(req: Request) {
     }
 
     console.log(`[/api/grade] Done — ${matched} graded, ${dnp} DNP, ${upserted} upserted (${dedupedGrades.length} unique rows)`)
+
+    // Fire-and-forget: refresh performance snapshot so the performance page reads fast next visit
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
+      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+    fetch(`${baseUrl}/api/performance-snapshot`, {
+      headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? ''}` },
+    }).catch(() => {})
+
     return NextResponse.json({ gradeDate, graded: matched, dnp, upserted })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
