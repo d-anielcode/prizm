@@ -4,6 +4,96 @@ NBA prop betting confidence app. Built on Next.js 15 / Supabase / Vercel.
 
 ---
 
+## 2026-03-28 — Auth Header Fixes, Streak Bar UX
+
+### Fire-and-Forget Auth Fix
+- Fixed internal streak fire-and-forget missing `CRON_SECRET` bearer header — calls to `/api/feed/generate/streak` were returning 401 silently after the auth hardening on Mar 27
+- Enrich now immediately re-triggers after props refresh (removed previous fire-and-forget removal) using `internalAuthHeaders()`
+
+### Streak Bar Visual Fix
+- **Feed page**: rebuilt 10-bar streak tracker — today's pending picks now appear as the first (leftmost) 2 bars, pulsing solid orange
+- **On miss**: bars reset to empty — no red bars carried forward. Only the active current streak (green pairs) + today's pending are shown
+- **Root cause**: old logic filled bars oldest→newest (today was rightmost), and showed miss history as red bars. `bg-orange-400/50` also rendered brownish — fixed to `bg-orange-400`
+- Same fix applied to performance/streaks tab bubble tracker
+
+---
+
+## 2026-03-27 — Streaks Feature, Security Hardening, Performance Page Overhaul
+
+### Daily Streak Challenge
+- **New feature**: `/api/feed/generate/streak` — selects top 2 LOCK props by confidence each day, stored as `curated_parlays` with `parlay_type='streak'`
+- Exclusions: steals/blocks excluded (integer stats, too volatile for daily challenge); at least 1 OVER enforced (UNDER bias from -3pt correction skews model)
+- Feed page: 10-bubble streak progress bar with pulsing orange pending state
+- `feed/grade` updated to grade streak entries alongside parlays
+
+### Streak Quality Fixes (same day)
+- Fixed `l10_hits` calculation for UNDER legs in parlay generator — was always using OVER logic (`> line`), showing wrong hit rates
+- Fixed wrong opponent display in reasoning text: `prop.team='TBD'` (The Odds API doesn't return player team) caused opponent name to always resolve to the away team; now derives correct opponent from game log `opponentAbbr`
+- Suppressed `TBD` team label in feed cards
+
+### Performance Page — 3-Tab Layout
+- Restructured `/performance` into **Prop History / Parlays / Streaks** tabs via URL searchParams — only loads data for the active tab
+- **Streaks tab**: stat cards (current streak, longest streak, hit rate, days tracked), 10-bubble tracker, current streak picks with actuals, full history accordion
+- **Model Calibration section**: paginated read of all graded props → OVER vs UNDER hit rates, per-label breakdown, score calibration table (buckets 50–54 through 85+, expected vs actual, green/yellow/red delta)
+- **OVER correction advisor**: compares current -3pt adjustment to what data recommends; highlights in amber if recalibration needed
+
+### Player Page Enhancements
+- **Pick History**: queries `prop_grades` for past Prizm picks for each player — shows date, stat, line, label, actual value, hit/miss
+- **Line Movement**: `LineMovement` and `SharpMoneyBadge` components — ↑/↓ arrow next to line number; STEAM badge when sharp money confirms pick direction, COUNTER when it opposes
+
+### Player-Bias & Opponent-Leaks Bootstrap
+- Bootstrapped `player_line_bias`: 38,049 props analyzed → 1,218 player/stat entries. Top over-hitters: Dejounte Murray PTS, Trae Young PTS/PRA, Dillon Brooks PTS/PRA
+- Bootstrapped `opponent_stat_leaks`: 186 team/stat entries. Notable: Chicago STL (72.2%), Orlando BLK (81.8%), Sacramento AST/PRA/REB
+- Both factors now active in confidence model with ±5pt and ±4pt adjustments respectively
+
+### Security Hardening
+- `lib/api-auth.ts`: `CRON_SECRET` bearer-token auth with constant-time comparison; `requireCronAuth()` + `internalAuthHeaders()` helpers
+- `lib/logger.ts`: structured JSON logging (newline-delimited) for Vercel log drains
+- `middleware.ts`: edge middleware logs all `/api/` requests (method, path, IP, isCron, reqId); warns on non-cron write attempts
+- `next.config.ts`: security headers on all responses — X-Frame-Options DENY, X-Content-Type-Options nosniff, HSTS 1yr, Referrer-Policy, Permissions-Policy, CSP
+- All 13 mutation routes now gated behind `requireCronAuth()`; feed GET and results GET remain public
+
+### Player Aliases
+- Fixed Nolan Traoré accent, Alex→Alexandre Sarr
+- Confirmed Tim Hardaway Jr. and Wendell Carter Jr. need no transform
+
+### Cron Schedule Updates
+- Moved `feed/grade` to 14:05 UTC (after late game logs at 13:55)
+- Added parlay regen at 14:50 and 19:30 UTC
+- Removed redundant 12:30 parlay regen
+
+---
+
+## 2026-03-25 (continued) — Alt Lines, Critical Pagination Fix, Game Log Pipeline
+
+### Alt Lines Overhaul (`PropsTable`)
+- Section tabs on props page: All / LOCK / PLAY / LEAN / FADE filter
+- Alt lines now generated synthetically when real lines are unavailable
+- `lineEasinessAdj`: +2pt per step away from main line in the favorable direction
+- **Fix**: alt line scoring was using the weak no-season-stats path (`f2*0.70 + f11*0.30`) — missing `seasonStats/playerBias/opponentLeak` context meant alt lines scored ~11pts below main line. Passed full context through enrich route
+- **Fix**: players with <3 game logs (injury returns, new acquisitions) now capped at 65 (PLAY) — season avg alone was pushing e.g. Watson REB 3.5 to 78 LOCK
+
+### Critical Game Log Pagination Bug
+- `loadPagedGameLogs` and `loadPagedHistLines` used `PAGE=2000` but Supabase PostgREST caps at 1000 rows
+- Loop broke after first page (1000 < 2000 → thought it was the last page), loading only ~6 games/player instead of 50+
+- **Fix**: `PAGE=1000` — loop now correctly continues when Supabase returns a full page
+- Impact: confidence model was severely degraded for all scoring since Mar 20 backfill
+
+### Game Log Pipeline Fixes
+- `?days=N` mode on `/api/gamelogs` (max 7) — fetches last N days in one call for self-healing missed cron nights; 4 AM cron now uses `?days=3`
+- `/api/gamelogs/audit`: new endpoint — cross-references active prop players against `player_game_logs`, returns anyone missing logs
+- `/api/gamelogs/migrate`: one-time rename of old ESPN ASCII names to correct Odds-API names; fixed 1,726 rows, audit down from 95 → 12 missing (all injured/inactive)
+- Unicode alias fixes: Dončić, Sengün, Jokić, Bogdanović, Porziņģis, Šarić, Čančar
+- Added 200ms delay between ESPN box score requests to prevent rate limiting on high-game-count nights (was causing only 4/220 players fetched on 10-game nights)
+- Switched gamelogs write path to service client (anon client lacked UPDATE permission)
+
+### Cron Schedule Cleanup
+- Removed fire-and-forget enrich from `/api/props` — raced the cron enrich 15 min later, causing `prop_history` deadlocks; ESPN=0 at fire time anyway
+- Dropped midday `seasonstats` (14:05) and `results` (14:10) — don't need twice-daily
+- Added weekly Sunday crons: `/api/player-bias?action=analyze` at 5:00 AM UTC, `/api/opponent-leaks?action=analyze` at 5:30 AM UTC
+
+---
+
 ## 2026-03-18 — Project Start
 
 ### Initial Setup
