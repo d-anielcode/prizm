@@ -131,21 +131,27 @@ export default async function FeedPage() {
   }
   const dates = [...byDate.keys()].sort((a, b) => b.localeCompare(a))
 
-  // Build 10-bubble state from history (newest = rightmost bubble)
-  // bubbles[0] = oldest, bubbles[9] = today
+  // Build 10-bar tracker: today first (leftmost), then current streak days, then empty.
+  // Resets on miss — no red bars, only active streak + today's pending shown.
   const TOTAL = 10
   const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = Array(TOTAL).fill('empty')
-  // Each day = 2 bubbles (one per pick). 10 bubbles = 5 days.
-  const orderedHistory = [...history].reverse() // oldest first → fills left to right
-  orderedHistory.forEach((s, dayIndex) => {
-    const b0 = dayIndex * 2
-    const b1 = dayIndex * 2 + 1
-    if (b0 >= TOTAL) return
-    const state: 'hit' | 'miss' | 'pending' =
-      s.result === 'hit' ? 'hit' : s.result === 'miss' ? 'miss' : 'pending'
-    bubbles[b0] = state
-    if (b1 < TOTAL) bubbles[b1] = state
-  })
+  // Bars 0-1: today
+  const todayState: 'pending' | 'hit' | 'empty' =
+    todayPick && todayPick.result === 'hit' ? 'hit'
+    : todayPick && (todayPick.result == null || todayPick.result === undefined) ? 'pending'
+    : 'empty' // miss = reset
+  bubbles[0] = todayState
+  bubbles[1] = todayState
+  // Bars 2+: consecutive past hit days only (stop at first miss/pending)
+  let barIdx = 2
+  for (const s of history) {
+    if (s.game_date >= new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })) continue // skip today
+    if (s.result !== 'hit') break  // miss breaks streak → reset, stop
+    if (barIdx >= TOTAL) break
+    bubbles[barIdx]     = 'hit'
+    bubbles[barIdx + 1] = 'hit'
+    barIdx += 2
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-8">
@@ -181,7 +187,7 @@ export default async function FeedPage() {
                 className={`flex-1 h-2.5 rounded-full transition-colors ${
                   state === 'hit'     ? 'bg-emerald-400'
                   : state === 'miss'  ? 'bg-red-500/60'
-                  : state === 'pending' ? 'bg-orange-400/50 animate-pulse'
+                  : state === 'pending' ? 'bg-orange-400 animate-pulse'
                   : 'bg-white/[0.08]'
                 }`}
               />
