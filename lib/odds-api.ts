@@ -62,6 +62,9 @@ export interface NBAEvent {
 export type EventWithProps = IOEventWithOdds & { home_team: string; away_team: string; commence_time?: string }
 
 // Step 1: Get today's pending NBA games (1 request)
+// The API returns all future pending events (up to 2 weeks out). We filter to
+// the nearest game date only — prevents processing 100+ events across 14 days,
+// which causes timeouts and incorrect line selection via cross-day dedup collisions.
 export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
   const url = `${BASE_URL}/events?apiKey=${API_KEY}&sport=basketball&league=usa-nba&status=pending`
   const res = await fetch(url, { cache: 'no-store' })
@@ -70,7 +73,18 @@ export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
   const data = await res.json() as { data?: IOEvent[] } | IOEvent[]
   const events: IOEvent[] = Array.isArray(data) ? data : (data.data ?? [])
 
-  return events.map((e) => ({
+  if (events.length === 0) return []
+
+  // Find the earliest game date and restrict to that date only
+  const earliestDate = events
+    .map((e) => e.date.slice(0, 10)) // YYYY-MM-DD (UTC)
+    .sort()[0]
+
+  const sameDay = events.filter((e) => e.date.startsWith(earliestDate))
+
+  console.log(`[odds-api] ${events.length} pending events total — filtered to ${sameDay.length} on ${earliestDate}`)
+
+  return sameDay.map((e) => ({
     id: String(e.id),
     home_team: e.home,
     away_team: e.away,
