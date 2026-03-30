@@ -60,7 +60,11 @@ export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
     canonicalLine.set(key, mainOver.line)
   }
 
-  // Step 3: group by player+stat+direction, pick main = canonical line
+  // Step 3: group by player+stat+direction, pick main = canonical line.
+  // For UNDER props the API often omits the standard line and only returns low
+  // alt lines with missing odds. If no exact match exists for the canonical line,
+  // fall back to the UNDER line numerically closest to the canonical value so
+  // OVER 9.5 / UNDER 9.5 (or 8.5) are shown rather than OVER 9.5 / UNDER 4.5.
   const groups = new Map<string, Prop[]>()
   for (const prop of exactSeen.values()) {
     const key = `${prop.player_name}|${prop.stat_type}|${prop.direction}`
@@ -73,11 +77,18 @@ export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
     const psKey = groupKey.split('|').slice(0, 2).join('|') // "player|stat"
     const canon = canonicalLine.get(psKey)
 
-    // Sort: canonical line first, then by proximity to -110, then confidence
+    // Sort: canonical line first, then by numerical proximity to canonical (for
+    // under groups where canonical line may not exist), then by proximity to -110,
+    // then confidence.
     group.sort((a, b) => {
       const aCanon = a.line === canon ? 0 : 1
       const bCanon = b.line === canon ? 0 : 1
       if (aCanon !== bCanon) return aCanon - bCanon
+      // If no canonical match, prefer line closest in value to canonical
+      if (canon !== undefined) {
+        const numDistDiff = Math.abs(a.line - canon) - Math.abs(b.line - canon)
+        if (numDistDiff !== 0) return numDistDiff
+      }
       const distDiff = distTo110(a.odds) - distTo110(b.odds)
       if (distDiff !== 0) return distDiff
       return (b.confidence_score ?? 0) - (a.confidence_score ?? 0)
