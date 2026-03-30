@@ -13,16 +13,16 @@
       "schedule": "22 4 * * *"
     },
     {
+      "path": "/api/results?force=true",
+      "schedule": "28 4 * * *"
+    },
+    {
       "path": "/api/props?refresh=true",
       "schedule": "35 4 * * *"
     },
     {
       "path": "/api/grade",
       "schedule": "45 4 * * *"
-    },
-    {
-      "path": "/api/results?force=true",
-      "schedule": "55 4 * * *"
     },
     {
       "path": "/api/enrich?force=true",
