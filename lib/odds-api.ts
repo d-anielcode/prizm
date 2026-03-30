@@ -75,14 +75,17 @@ export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
 
   if (events.length === 0) return []
 
-  // Find the earliest game date and restrict to that date only
-  const earliestDate = events
-    .map((e) => e.date.slice(0, 10)) // YYYY-MM-DD (UTC)
-    .sort()[0]
+  // Convert each event's UTC commence_time to an Eastern date and find the earliest ET date.
+  // NBA games can tip after midnight UTC (e.g. 8 PM ET = 00:00 UTC next day), so we must
+  // use ET dates — not UTC dates — to correctly group a night's slate of games.
+  function toEasternDate(iso: string) {
+    return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  }
 
-  const sameDay = events.filter((e) => e.date.startsWith(earliestDate))
+  const earliestDate = events.map((e) => toEasternDate(e.date)).sort()[0]
+  const sameDay = events.filter((e) => toEasternDate(e.date) === earliestDate)
 
-  console.log(`[odds-api] ${events.length} pending events total — filtered to ${sameDay.length} on ${earliestDate}`)
+  console.log(`[odds-api] ${events.length} pending events total — filtered to ${sameDay.length} on ${earliestDate} ET`)
 
   return sameDay.map((e) => ({
     id: String(e.id),
