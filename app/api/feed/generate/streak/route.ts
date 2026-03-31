@@ -35,15 +35,18 @@ export async function GET(req: Request) {
   const gameDate = url.searchParams.get('date')
     ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
   try {
-    // Safety guard: abort if enrich hasn't run yet
+    // Safety guard: abort if today's props haven't been enriched yet
     const { count: scoredCount } = await adminClient
       .from('props')
       .select('id', { count: 'exact', head: true })
       .in('confidence_label', ['LOCK', 'PLAY'])
-    if ((scoredCount ?? 0) < 10) {
+      .gte('commence_time', `${gameDate}T00:00:00.000Z`)
+      .lt('commence_time', `${gameDate}T23:59:59.999Z`)
+    if ((scoredCount ?? 0) < 2) {
       return NextResponse.json({
-        message: 'Not enough scored props — run /api/enrich first',
+        message: 'Not enough scored props for today — run /api/enrich first',
         scoredCount: scoredCount ?? 0,
+        date: gameDate,
       })
     }
 

@@ -476,15 +476,17 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Safety guard: abort if props haven't been enriched yet (enrich failed or hasn't run).
+    // Safety guard: abort if today's props haven't been enriched yet (enrich failed or hasn't run).
     const { count: scoredCount } = await adminClient
       .from('props')
       .select('id', { count: 'exact', head: true })
       .in('confidence_label', ['LOCK', 'PLAY'])
-    if ((scoredCount ?? 0) < 10) {
-      console.warn(`[generate/parlay] aborted — only ${scoredCount ?? 0} scored props, enrichment may not have run yet`)
+      .gte('commence_time', `${gameDate}T00:00:00.000Z`)
+      .lt('commence_time', `${gameDate}T23:59:59.999Z`)
+    if ((scoredCount ?? 0) < 5) {
+      console.warn(`[generate/parlay] aborted — only ${scoredCount ?? 0} scored props for ${gameDate}, enrichment may not have run yet`)
       return NextResponse.json({
-        message: 'Not enough scored props — run /api/enrich first',
+        message: 'Not enough scored props for today — run /api/enrich first',
         scoredCount: scoredCount ?? 0,
         date: gameDate,
       })
