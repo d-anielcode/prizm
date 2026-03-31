@@ -385,8 +385,7 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
   return results
 }
 
-// GET aliases POST so Vercel cron (which uses GET) saves parlays to DB.
-// Idempotent by default — skips if already generated. Pass ?force=true to regenerate.
+// GET aliases POST so GitHub Actions curl (GET) saves parlays to DB.
 export async function GET(req: Request) {
   const authError = requireCronAuth(req)
   if (authError) return authError
@@ -399,7 +398,6 @@ export async function POST(req: Request) {
   const url      = new URL(req.url)
   const gameDate = url.searchParams.get('date')
     ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-  const force    = url.searchParams.get('force') === 'true'
   const stats    = url.searchParams.get('stats') === 'true'
 
   // ?stats=true — return pool breakdown without saving anything
@@ -478,31 +476,29 @@ export async function POST(req: Request) {
   }
 
   try {
-    // force=true: delete existing auto-generated parlays and regenerate fresh
-    // Safety guard: if props aren't scored yet (enrich may have failed), abort without
-    // deleting so the morning parlays are preserved until scores are available.
-    if (force) {
-      const { count: scoredCount } = await adminClient
-        .from('props')
-        .select('id', { count: 'exact', head: true })
-        .in('confidence_label', ['LOCK', 'PLAY'])
-      if ((scoredCount ?? 0) < 10) {
-        console.warn(`[generate/parlay] force=true aborted — only ${scoredCount ?? 0} scored props, preserving existing parlays`)
-        return NextResponse.json({
-          message: 'Not enough scored props to safely regenerate parlays — existing parlays preserved',
-          scoredCount: scoredCount ?? 0,
-          date: gameDate,
-        })
-      }
-      const { data: existing } = await adminClient
-        .from('curated_parlays')
-        .select('id')
-        .eq('game_date', gameDate)
-        .in('parlay_type', ['value', 'premium', 'jackpot'])
-        .eq('active', true)
-      if (existing && existing.length > 0) {
-        await adminClient.from('curated_parlays').delete().in('id', existing.map((r) => r.id))
-      }
+    // Safety guard: abort if props haven't been enriched yet (enrich failed or hasn't run).
+    const { count: scoredCount } = await adminClient
+      .from('props')
+      .select('id', { count: 'exact', head: true })
+      .in('confidence_label', ['LOCK', 'PLAY'])
+    if ((scoredCount ?? 0) < 10) {
+      console.warn(`[generate/parlay] aborted — only ${scoredCount ?? 0} scored props, enrichment may not have run yet`)
+      return NextResponse.json({
+        message: 'Not enough scored props — run /api/enrich first',
+        scoredCount: scoredCount ?? 0,
+        date: gameDate,
+      })
+    }
+
+    // Always delete existing auto-generated parlays for the date and regenerate fresh.
+    const { data: existing } = await adminClient
+      .from('curated_parlays')
+      .select('id')
+      .eq('game_date', gameDate)
+      .in('parlay_type', ['value', 'premium', 'jackpot'])
+      .eq('active', true)
+    if (existing && existing.length > 0) {
+      await adminClient.from('curated_parlays').delete().in('id', existing.map((r) => r.id))
     }
 
     const results = await generateCuratedParlays(gameDate)
@@ -515,27 +511,7 @@ export async function POST(req: Request) {
       })
     }
 
-    // Idempotency: fetch existing titles for this date so we skip any already saved.
-    // Using title as a natural unique key prevents race conditions — concurrent calls
-    // that generate the same parlay will simply skip on the duplicate-title check.
-    const { data: existingTitles } = await adminClient
-      .from('curated_parlays')
-      .select('title')
-      .eq('game_date', gameDate)
-      .in('parlay_type', ['value', 'premium', 'jackpot'])
-      .eq('active', true)
-
-    const savedTitles = new Set((existingTitles ?? []).map((r: { title: string }) => r.title))
-    const toInsert = results.filter((r) => !savedTitles.has(r.title))
-
-    if (toInsert.length === 0) {
-      return NextResponse.json({
-        message: `Parlays already generated for ${gameDate} — skipping`,
-        date: gameDate,
-        saved: 0,
-        skipped: true,
-      })
-    }
+    const toInsert = results
 
     const rows = toInsert.map((result) => ({
       title:          result.title,
@@ -568,7 +544,7 @@ export async function POST(req: Request) {
     // Fire-and-forget streak generation alongside parlays (same cron, no extra slot needed)
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL
       ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
-    fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}${force ? '&force=true' : ''}`, {
+    fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}`, {
       headers: internalAuthHeaders(),
     }).catch((e) => logger.error('[generate/parlay] streak fire-and-forget error', { err: String(e) }))
 

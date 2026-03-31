@@ -34,38 +34,26 @@ export async function GET(req: Request) {
   const url      = new URL(req.url)
   const gameDate = url.searchParams.get('date')
     ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-  const force    = url.searchParams.get('force') === 'true'
-
   try {
     // Safety guard: abort if enrich hasn't run yet
-    if (force) {
-      const { count: scoredCount } = await adminClient
-        .from('props')
-        .select('id', { count: 'exact', head: true })
-        .in('confidence_label', ['LOCK', 'PLAY'])
-      if ((scoredCount ?? 0) < 10) {
-        return NextResponse.json({
-          message: 'Not enough scored props — existing streak preserved',
-          scoredCount: scoredCount ?? 0,
-        })
-      }
-      await adminClient
-        .from('curated_parlays')
-        .delete()
-        .eq('game_date', gameDate)
-        .eq('parlay_type', 'streak')
-        .eq('active', true)
-    } else {
-      const { data: existing } = await adminClient
-        .from('curated_parlays')
-        .select('id')
-        .eq('game_date', gameDate)
-        .eq('parlay_type', 'streak')
-        .eq('active', true)
-      if (existing && existing.length > 0) {
-        return NextResponse.json({ message: 'Streak already generated for today', skipped: true })
-      }
+    const { count: scoredCount } = await adminClient
+      .from('props')
+      .select('id', { count: 'exact', head: true })
+      .in('confidence_label', ['LOCK', 'PLAY'])
+    if ((scoredCount ?? 0) < 10) {
+      return NextResponse.json({
+        message: 'Not enough scored props — run /api/enrich first',
+        scoredCount: scoredCount ?? 0,
+      })
     }
+
+    // Always delete existing streak for the date and regenerate fresh.
+    await adminClient
+      .from('curated_parlays')
+      .delete()
+      .eq('game_date', gameDate)
+      .eq('parlay_type', 'streak')
+      .eq('active', true)
 
     // ── Fetch today's LOCK props, sorted by confidence desc ─────────────────
     // Exclude STL/BLK — integer stats with too much game-to-game variance for a
