@@ -87,6 +87,24 @@ export interface TeamDefenseStats {
   blk_rank:  number
   stl_rank:  number
   fg3m_rank: number
+  // Last-15-games ranks — more responsive to recent defensive form changes
+  pts_rank_l15?:  number
+  reb_rank_l15?:  number
+  ast_rank_l15?:  number
+  blk_rank_l15?:  number
+  stl_rank_l15?:  number
+  fg3m_rank_l15?: number
+  // Team pace: possessions per 48 min (NBA avg ~100)
+  pace?: number | null
+}
+
+export type PlayerPosition = 'guard' | 'forward' | 'center'
+
+// Defense vs Position: allowed stats by position group (guard/forward/center)
+export interface DvpStats {
+  guard:   { pts: number; reb: number; ast: number; stl: number; blk: number; fg3m: number }
+  forward: { pts: number; reb: number; ast: number; stl: number; blk: number; fg3m: number }
+  center:  { pts: number; reb: number; ast: number; stl: number; blk: number; fg3m: number }
 }
 
 export interface InjuredTeammate {
@@ -133,6 +151,12 @@ export interface ScoringContext {
   opponentLeak?:      OpponentStatLeak | null    // team-specific defensive leak for this stat
   lineMovementDelta?: number | null              // current line − opening line (positive = line moved up)
   oddsMovementDelta?: number | null              // P(over) now − P(over) open (positive = sharp OVER money)
+  // NEW factors
+  dvpStats?:          DvpStats | null            // opponent defense broken down by player position
+  playerPosition?:    PlayerPosition | null      // inferred player position (guard/forward/center)
+  opponentOnB2B?:     boolean | null             // opponent played yesterday (fatigued defense)
+  homePace?:          number | null              // home team pace (possessions/48)
+  awayPace?:          number | null              // away team pace (possessions/48)
 }
 
 export interface ScoredProp extends Prop {
@@ -270,6 +294,36 @@ function defRankKey(statType: StatType): keyof TeamDefenseStats {
   }
 }
 
+// Map StatType to DVP stat key
+function dvpStatKey(statType: StatType): keyof DvpStats['guard'] {
+  switch (statType) {
+    case 'points':         return 'pts'
+    case 'rebounds':       return 'reb'
+    case 'assists':        return 'ast'
+    case 'steals':         return 'stl'
+    case 'blocks':         return 'blk'
+    case 'three_pointers': return 'fg3m'
+    case 'pra':            return 'pts'  // closest proxy
+    default:               return 'pts'
+  }
+}
+
+/**
+ * Infer player position from season averages.
+ * Centers: high rebounders (≥8) or shot-blockers (≥2)
+ * Guards:  high assists (≥5.5) with lower rebounding (<5.5)
+ * Forwards: everyone else
+ */
+export function inferPlayerPosition(seasonStats: SeasonStats | null | undefined): PlayerPosition {
+  if (!seasonStats) return 'forward'
+  const reb = seasonStats.avg_rebounds ?? 0
+  const blk = seasonStats.avg_blocks ?? 0
+  const ast = seasonStats.avg_assists ?? 0
+  if (reb >= 8.0 || blk >= 2.0) return 'center'
+  if (ast >= 5.5 && reb < 5.5) return 'guard'
+  return 'forward'
+}
+
 /** Parse "LAL vs. DEN" or "LAL @ MIL" → opponent abbreviation */
 function extractOpponent(matchup: string): string | null {
   const parts = matchup.split(/\s+vs\.\s+|\s+@\s+/)
@@ -379,17 +433,16 @@ function lineValueScore(
   return clamp(0.50 + z * 0.28)
 }
 
-// ── Factor 13 (NEW): Pace / game total ────────────────────────────────────────
-// Higher game O/U total = faster pace = more possessions = more counting stat opportunities.
-// Applies strongest to points/assists/pra; weaker for rebounds/3PM; minimal for steals/blocks.
+// ── Factor 13: Pace / game total ──────────────────────────────────────────────
+// Uses actual team pace (possessions/48) when available; falls back to O/U total.
+// Higher pace = more possessions = more counting stat opportunities.
 function paceScore(
-  gameTotal: number | null | undefined,
-  statType: StatType,
-  dir: 'over' | 'under',
+  gameTotal:  number | null | undefined,
+  statType:   StatType,
+  dir:        'over' | 'under',
+  homePace?:  number | null,
+  awayPace?:  number | null,
 ): number {
-  if (!gameTotal || gameTotal < 185 || gameTotal > 280) return 0.50
-
-  // How much counting stat volume scales with pace per stat type
   const paceRelevance: Partial<Record<StatType, number>> = {
     points:         1.0,
     assists:        0.9,
@@ -401,22 +454,58 @@ function paceScore(
   }
   const relevance = paceRelevance[statType] ?? 0.5
 
+  // Prefer actual team pace when both teams' pace values are available
+  if (homePace && awayPace && homePace > 85 && awayPace > 85) {
+    const projectedPace = (homePace + awayPace) / 2
+    // NBA pace typically 96–106 possessions/48 min, mean ~100, sd ~3
+    const z = (projectedPace - 100) / 3
+    const raw = 0.50 + z * 0.15 * relevance
+    return dir === 'over' ? clamp(raw) : clamp(1 - raw)
+  }
+
+  // Fall back to O/U game total as pace proxy
+  if (!gameTotal || gameTotal < 185 || gameTotal > 280) return 0.50
   // NBA O/U totals typically 212–240. Mean ~226, sd ~8.
   const z = (gameTotal - 226) / 8
-  const raw = 0.50 + z * 0.15 * relevance  // max ±15% effect for points
+  const raw = 0.50 + z * 0.15 * relevance
   return dir === 'over' ? clamp(raw) : clamp(1 - raw)
 }
 
-// ── Factor 2: Opponent defensive rank ────────────────────────────────────────
+// ── Factor 2: Opponent defensive rank ─────────────────────────────────────────
+// Blends season rank with L15 rank (60/40) for responsiveness.
+// Also blends in positional DVP when player position is known (50/50).
 function matchupScore(
-  defStats: TeamDefenseStats | null,
-  statType: StatType,
-  dir: 'over' | 'under',
+  defStats:       TeamDefenseStats | null,
+  statType:       StatType,
+  dir:            'over' | 'under',
+  dvpStats?:      DvpStats | null,
+  playerPosition?: PlayerPosition | null,
 ): number {
   if (!defStats) return 0.50
-  const rank = defStats[defRankKey(statType)] as number
-  if (!rank || rank < 1 || rank > 30) return 0.50
-  const raw = (rank - 1) / 29
+  const seasonRank = defStats[defRankKey(statType)] as number
+  if (!seasonRank || seasonRank < 1 || seasonRank > 30) return 0.50
+
+  // Blend L15 rank with season rank: recent form matters more
+  const l15Key = (defRankKey(statType) + '_l15') as keyof TeamDefenseStats
+  const l15Rank = defStats[l15Key] as number | undefined
+  const blendedRank = (l15Rank && l15Rank >= 1 && l15Rank <= 30)
+    ? seasonRank * 0.40 + l15Rank * 0.60
+    : seasonRank
+
+  // Blend with DVP (positional defense) when player position is known
+  let finalRank = blendedRank
+  if (dvpStats && playerPosition) {
+    const posGroup = dvpStats[playerPosition]
+    if (posGroup) {
+      const dvpRank = posGroup[dvpStatKey(statType)]
+      if (dvpRank && dvpRank >= 1 && dvpRank <= 30) {
+        // 50% blended season/L15 + 50% positional DVP
+        finalRank = blendedRank * 0.50 + dvpRank * 0.50
+      }
+    }
+  }
+
+  const raw = (finalRank - 1) / 29
   return dir === 'over' ? raw : 1 - raw
 }
 
@@ -626,6 +715,11 @@ export function computeFactors(
     historicalLines  = [],
     playerBias       = null,
     opponentLeak     = null,
+    dvpStats         = null,
+    playerPosition   = null,
+    opponentOnB2B    = null,
+    homePace         = null,
+    awayPace         = null,
   } = ctx
 
   const ct = prop.commence_time
@@ -640,7 +734,7 @@ export function computeFactors(
   const homeAway = hasLogs ? homeAwaySplit(gameLogs, stat_type, line, direction, isHome) : null
 
   const fLineValue = hasLogs ? lineValueScore(gameLogs, stat_type, line, direction, ct) : 0.50
-  const f2  = matchupScore(defStats, stat_type, direction)
+  const f2  = matchupScore(defStats, stat_type, direction, dvpStats, playerPosition)
   const f3  = (hasLogs || seasonStats != null) ? cushionScore(gameLogs, stat_type, line, direction, seasonStats) : 0.50
   const f4  = vsOpp.score
   const f5  = homeAway ?? 0.50
@@ -649,7 +743,8 @@ export function computeFactors(
   const f10 = blowoutScore(spread)
   const f11 = newsInjuryScore(playerStatus, injuredTeammates)
   const f12 = restDaysScore(gameLogs, ct)
-  const fPace = paceScore(gameTotal, stat_type, direction)
+  const fPace = paceScore(gameTotal, stat_type, direction, homePace, awayPace)
+  void opponentOnB2B  // used in scoreProps additive adj; not a multiplicative factor
 
   let playerTier: 'star' | 'starter' | 'rotation' = 'starter'
   if (hasLogs) {
@@ -772,6 +867,11 @@ export function scoreProps(
     historicalLines  = [],
     playerBias       = null,
     opponentLeak     = null,
+    dvpStats         = null,
+    playerPosition   = null,
+    opponentOnB2B    = null,
+    homePace         = null,
+    awayPace         = null,
   } = ctx
 
   // Compute all factors
@@ -788,7 +888,7 @@ export function scoreProps(
   const homeAway = hasLogs ? homeAwaySplit(gameLogs, stat_type, line, direction, isHome) : null
 
   const fLineValue = hasLogs ? lineValueScore(gameLogs, stat_type, line, direction, ct) : 0.50
-  const f2  = matchupScore(defStats, stat_type, direction)
+  const f2  = matchupScore(defStats, stat_type, direction, dvpStats, playerPosition)
   const hasCushion = hasLogs || seasonStats != null
   const f3  = hasCushion ? cushionScore(gameLogs, stat_type, line, direction, seasonStats) : 0.50
   const f4  = vsOpp.score
@@ -798,7 +898,7 @@ export function scoreProps(
   const f10 = blowoutScore(spread)
   const f11 = newsInjuryScore(playerStatus, injuredTeammates)
   const f12 = restDaysScore(gameLogs, ct)
-  const fPace = paceScore(gameTotal, stat_type, direction)
+  const fPace = paceScore(gameTotal, stat_type, direction, homePace, awayPace)
 
   // Detect player tier for reason text and star bonus
   let playerTier: 'star' | 'starter' | 'rotation' = 'starter'
@@ -955,6 +1055,11 @@ export function scoreProps(
     }
   }
 
+  // Opponent back-to-back adjustment: when the opposing defense played last night,
+  // fatigue degrades their rotations — expect higher offensive outputs.
+  // +2 pts for OVER, -2 pts for UNDER. Only applies when opponentOnB2B is confirmed.
+  const opponentB2bAdj = opponentOnB2B ? (direction === 'over' ? 2 : -2) : 0
+
   // Over bias correction: empirically, OVER props hit at ~43% vs UNDER at ~50%
   // across 835 graded props (Mar 22-24 sample). Books price popular OVERs above
   // fair value, capturing recency bias from the betting public. Apply -3pt
@@ -965,7 +1070,7 @@ export function scoreProps(
   // are capped at 65 (top of PLAY) — insufficient data to justify LOCK confidence.
   const scoreMax = hasLogs ? 95 : 65
   const score = Math.round(Math.min(scoreMax, Math.max(18,
-    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj
+    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + opponentB2bAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
   // Derive correct opponent display name from game-log-based opponentAbbr.

@@ -16,9 +16,11 @@ import { logger } from '@/lib/logger'
 export const maxDuration = 300
 import {
   scoreProps,
+  inferPlayerPosition,
   type GameLog,
   type HistoricalLine,
   type TeamDefenseStats,
+  type DvpStats,
   type ScoringContext,
   type InjuredTeammate,
   type SeasonStats,
@@ -120,6 +122,39 @@ async function fetchEspnSpreads(): Promise<Map<string, GameOdds>> {
     // ESPN unreachable — return empty map
   }
   return map
+}
+
+/** Fetch yesterday's NBA scoreboard to detect teams on back-to-back. */
+async function fetchYesterdayTeams(): Promise<Set<string>> {
+  const teams = new Set<string>()
+  try {
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    const dateStr = yesterday.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }).replace(/-/g, '')
+    const res = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${dateStr}`,
+      { next: { revalidate: 3600 } }
+    )
+    if (!res.ok) return teams
+    const data = await res.json() as {
+      events?: Array<{
+        competitions?: Array<{
+          competitors?: Array<{ team?: { abbreviation?: string } }>
+        }>
+      }>
+    }
+    for (const event of data.events ?? []) {
+      for (const comp of event.competitions ?? []) {
+        for (const competitor of comp.competitors ?? []) {
+          const abbr = competitor.team?.abbreviation?.trim().toUpperCase()
+          if (abbr) teams.add(abbr)
+        }
+      }
+    }
+  } catch {
+    // ESPN unreachable — no B2B data, return empty
+  }
+  return teams
 }
 
 // ── Team name → abbreviation lookup ──────────────────────────────────────────
@@ -279,22 +314,26 @@ async function runEnrichment(force = false) {
     allLogRows,
     histRows,
     { data: defRows },
+    { data: dvpRows },
     { data: seasonRows },
     { data: biasRows },
     { data: leakRows },
     openingOddsMap,
     spreadMap,
     injuryMap,
+    yesterdayTeams,
   ] = await Promise.all([
     loadPagedGameLogs(),
     loadPagedHistLines(),
     supabase.from('team_defense_stats').select('*'),
+    supabase.from('team_defense_vs_position').select('*'),
     supabase.from('player_season_stats').select('*'),
     supabase.from('player_line_bias').select('player_name, stat_type, hit_rate, median_ratio, sample_count'),
     supabase.from('opponent_stat_leaks').select('opponent_team, stat_type, over_hit_rate, median_ratio, sample_count'),
     loadMorningOdds(),
     fetchEspnSpreads(),
     fetchEspnInjuries(),
+    fetchYesterdayTeams(),
   ])
 
   // ── Build in-memory maps from raw rows ────────────────────────────────────
@@ -365,9 +404,28 @@ async function runEnrichment(force = false) {
     })
   }
 
+  // Build DVP map: team abbreviation → DvpStats (per-position defense ranks)
+  const neutral: DvpStats[keyof DvpStats] = { pts: 15, reb: 15, ast: 15, stl: 15, blk: 15, fg3m: 15 }
+  const dvpMap = new Map<string, DvpStats>()
+  for (const row of dvpRows ?? []) {
+    const abbr = row.team_abbreviation as string
+    if (!dvpMap.has(abbr)) dvpMap.set(abbr, { guard: { ...neutral }, forward: { ...neutral }, center: { ...neutral } })
+    const pos = row.position_group as 'guard' | 'forward' | 'center'
+    if (pos === 'guard' || pos === 'forward' || pos === 'center') {
+      dvpMap.get(abbr)![pos] = {
+        pts:  Number(row.pts_rank),
+        reb:  Number(row.reb_rank),
+        ast:  Number(row.ast_rank),
+        stl:  Number(row.stl_rank),
+        blk:  Number(row.blk_rank),
+        fg3m: Number(row.fg3m_rank),
+      }
+    }
+  }
+
   const playersWithLogs = [...logsMap.values()].filter((l) => l.length >= 3).length
   const totalsLoaded    = [...spreadMap.values()].filter((g) => g.total != null).length / 2
-  console.log(`[/api/enrich] Parallel load done — logs: ${allLogRows.length} rows (${playersWithLogs}/${uniqueNames.length} players), hist: ${histRows.length} rows, ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U), injuries: ${injuryMap.size}, morning odds: ${openingOddsMap.size}`)
+  console.log(`[/api/enrich] Parallel load done — logs: ${allLogRows.length} rows (${playersWithLogs}/${uniqueNames.length} players), hist: ${histRows.length} rows, ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U), injuries: ${injuryMap.size}, morning odds: ${openingOddsMap.size}, DVP teams: ${dvpMap.size}, yesterday B2B: ${yesterdayTeams.size}`)
 
   // Flag players with no game logs so they show up in Vercel logs for easy backfill
   const missingLogPlayers = uniqueNames.filter((name) => (logsMap.get(name)?.length ?? 0) < 3)
@@ -441,6 +499,13 @@ async function runEnrichment(force = false) {
       ? currentProb - openingProb
       : null
 
+    const playerSeasonStats = seasonMap.get(prop.player_name) ?? null
+    const playerPosition    = inferPlayerPosition(playerSeasonStats)
+    const dvpStats          = opponentAbbr ? (dvpMap.get(opponentAbbr) ?? null) : null
+    const opponentOnB2B     = opponentAbbr ? yesterdayTeams.has(opponentAbbr) : false
+    const homePace          = homeAbbr ? (defMap.get(homeAbbr)?.pace ?? null) : null
+    const awayPace          = awayAbbr ? (defMap.get(awayAbbr)?.pace ?? null) : null
+
     const ctx: ScoringContext = {
       defStats,
       isHome,
@@ -449,12 +514,17 @@ async function runEnrichment(force = false) {
       gameTotal,
       playerStatus,
       injuredTeammates,
-      seasonStats:      seasonMap.get(prop.player_name) ?? null,
+      seasonStats:      playerSeasonStats,
       historicalLines:  histMap.get(prop.player_name)  ?? [],
       playerBias:       biasMap.get(`${prop.player_name}|${prop.stat_type}`) ?? null,
       opponentLeak:     opponentAbbr ? (leakMap.get(`${opponentAbbr}|${prop.stat_type}`) ?? null) : null,
       lineMovementDelta,
       oddsMovementDelta,
+      dvpStats,
+      playerPosition,
+      opponentOnB2B,
+      homePace,
+      awayPace,
     }
 
     return scoreProps(prop, logs, null, ctx)
@@ -550,11 +620,25 @@ async function runEnrichment(force = false) {
           injuredTeammates.push({ name: tName, status: tInjury.status, impactScore: 1 / Math.max(teammates.length + 1, 1) })
         }
       }
+      const altSeasonStats = seasonMap.get(pseudoProp.player_name) ?? null
+      const altPosition    = inferPlayerPosition(altSeasonStats)
+      const altDvpStats    = opponentAbbr ? (dvpMap.get(opponentAbbr) ?? null) : null
+      const altB2B         = opponentAbbr ? yesterdayTeams.has(opponentAbbr) : false
+      const altHomeAbbr    = pseudoProp.home_team ? (TEAM_ABBR[pseudoProp.home_team] ?? null) : null
+      const altAwayAbbr    = pseudoProp.away_team ? (TEAM_ABBR[pseudoProp.away_team] ?? null) : null
+      const altHomePace    = altHomeAbbr ? (defMap.get(altHomeAbbr)?.pace ?? null) : null
+      const altAwayPace    = altAwayAbbr ? (defMap.get(altAwayAbbr)?.pace ?? null) : null
+
       const ctx: ScoringContext = {
         defStats, isHome, opponentAbbr, spread, gameTotal, playerStatus, injuredTeammates,
-        seasonStats:  seasonMap.get(pseudoProp.player_name) ?? null,
-        playerBias:   biasMap.get(`${pseudoProp.player_name}|${pseudoProp.stat_type}`) ?? null,
-        opponentLeak: opponentAbbr ? (leakMap.get(`${opponentAbbr}|${pseudoProp.stat_type}`) ?? null) : null,
+        seasonStats:    altSeasonStats,
+        playerBias:     biasMap.get(`${pseudoProp.player_name}|${pseudoProp.stat_type}`) ?? null,
+        opponentLeak:   opponentAbbr ? (leakMap.get(`${opponentAbbr}|${pseudoProp.stat_type}`) ?? null) : null,
+        dvpStats:       altDvpStats,
+        playerPosition: altPosition,
+        opponentOnB2B:  altB2B,
+        homePace:       altHomePace,
+        awayPace:       altAwayPace,
       }
       const scored = scoreProps(pseudoProp, logs, null, ctx)
 
@@ -644,6 +728,8 @@ async function runEnrichment(force = false) {
     total: props.length,
     playersWithGameLogs: playersWithLogs,
     teamsWithDefenseData: defMap.size,
+    teamsWithDvpData: dvpMap.size,
+    teamsOnB2B: yesterdayTeams.size,
     espnSpreadsLoaded: spreadMap.size / 2,
     espnInjuriesLoaded: injuredCount,
   }
