@@ -70,6 +70,16 @@ def supabase_upsert(table, rows):
 import argparse
 from datetime import date, timedelta
 
+# stats.nba.com blocks requests from cloud IPs without browser-like headers
+from nba_api.library.http import STATS_HEADERS
+STATS_HEADERS.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Referer': 'https://www.nba.com/',
+    'Origin': 'https://www.nba.com',
+    'x-nba-stats-origin': 'stats',
+    'x-nba-stats-token': 'true',
+})
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--yesterday', action='store_true',
                     help='Fetch stats for players who played last night (use in morning after overnight games)')
@@ -215,17 +225,17 @@ for i, (prop_name, player) in enumerate(resolved.items()):
             player_id=nba_id,
             season=SEASON,
             season_type_all_star='Regular Season',
-            timeout=10,
+            timeout=30,
         )
         df_curr = log_curr.get_data_frames()[0]
-        time.sleep(0.2)
+        time.sleep(0.6)
 
         # Fetch prior season to fill up to 60 games total for better vs-opponent history
         log_prev = playergamelog.PlayerGameLog(
             player_id=nba_id,
             season=PREV_SEASON,
             season_type_all_star='Regular Season',
-            timeout=10,
+            timeout=30,
         )
         df_prev = log_prev.get_data_frames()[0]
 
@@ -278,8 +288,8 @@ for i, (prop_name, player) in enumerate(resolved.items()):
         all_log_rows.extend(rows)
         print(f"{len(rows)} games")
 
-        # nba_api has built-in rate limiting, but add extra buffer
-        time.sleep(0.3)
+        # nba_api has built-in rate limiting, but add extra buffer for CI environments
+        time.sleep(0.8)
 
     except Exception as e:
         print(f"ERROR: {e}")
