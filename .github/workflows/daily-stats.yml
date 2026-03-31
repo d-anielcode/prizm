@@ -1,14 +1,14 @@
 name: Daily NBA Stats Refresh
 
-# Runs automatically every day at 11:00 AM Eastern (16:00 UTC)
-# This is before most NBA games tip off, so stats are fresh for the day.
-# Also runs at 7:00 AM Eastern (12:00 UTC) to catch any late-night game completions
-# and pull the next day's props.
+# Runs automatically at two times daily (UTC):
+#   12:00 UTC = 7:00 AM ET — after the 5 AM Vercel block; pulls fresh defense stats
+#               then re-enriches with updated DVP/pace data
+#   16:00 UTC = 11:00 AM ET — midday refresh before afternoon tip-offs
 
 on:
   schedule:
-    - cron: '0 12 * * *'   # 7:00 AM ET — pull next day's props after overnight games end
-    - cron: '0 16 * * *'   # 11:00 AM ET — refresh stats before tonight's games
+    - cron: '0 12 * * *'   # 7:00 AM ET
+    - cron: '0 16 * * *'   # 11:00 AM ET
   workflow_dispatch:        # Allow manual trigger from GitHub Actions tab
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python scripts/fetch_nba_stats.py
 
-      - name: Refresh props + AI enrichment (only if app is deployed)
+      - name: Refresh props + AI enrichment + streaks (only if app is deployed)
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
         run: |
@@ -48,6 +48,9 @@ jobs:
             sleep 5
             echo "Running AI enrichment..."
             curl -s "$VERCEL_APP_URL/api/enrich?force=true" | head -c 200
+            sleep 5
+            echo "Generating streaks..."
+            curl -s "$VERCEL_APP_URL/api/feed/generate/streak?force=true" | head -c 200
           fi
 
       - name: Done

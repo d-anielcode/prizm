@@ -2,35 +2,39 @@
   "crons": [
     {
       "path": "/api/gamelogs?days=3",
-      "schedule": "10 4 * * *"
+      "schedule": "0 10 * * *"
     },
     {
       "path": "/api/feed/grade",
-      "schedule": "15 4 * * *"
+      "schedule": "5 10 * * *"
     },
     {
       "path": "/api/seasonstats",
-      "schedule": "22 4 * * *"
+      "schedule": "12 10 * * *"
     },
     {
       "path": "/api/results?force=true",
-      "schedule": "28 4 * * *"
+      "schedule": "18 10 * * *"
     },
     {
       "path": "/api/props?refresh=true",
-      "schedule": "35 4 * * *"
+      "schedule": "25 10 * * *"
     },
     {
       "path": "/api/grade",
-      "schedule": "45 4 * * *"
+      "schedule": "35 10 * * *"
     },
     {
       "path": "/api/enrich?force=true",
-      "schedule": "10 5 * * *"
+      "schedule": "45 10 * * *"
+    },
+    {
+      "path": "/api/feed/generate/streak",
+      "schedule": "55 10 * * *"
     },
     {
       "path": "/api/feed/generate/parlay",
-      "schedule": "25 5 * * *"
+      "schedule": "0 11 * * *"
     },
     {
       "path": "/api/props?refresh=true",
