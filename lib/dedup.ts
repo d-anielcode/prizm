@@ -30,8 +30,15 @@ export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
     byPlayerStat.get(key)![prop.direction as 'over' | 'under'].push(prop)
   }
 
+  // distTo110 for group sort tiebreakers — null treated as -110 (unknown odds ≈ fair line)
   function distTo110(odds: number | undefined) {
     return Math.abs(Math.abs(odds ?? -110) - 110)
+  }
+
+  // distTo110 for canonical detection — null treated as Infinity so N/A lines never win
+  function distTo110Real(odds: number | undefined | null): number {
+    if (odds == null) return Infinity
+    return Math.abs(Math.abs(odds) - 110)
   }
 
   const canonicalLine = new Map<string, number>() // "player|stat" → canonical line value
@@ -44,19 +51,21 @@ export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
       const sharedLines = under.filter((p) => overLineSet.has(p.line)).map((p) => p.line)
 
       if (sharedLines.length > 0) {
-        // Among shared lines, pick the one where the over is closest to -110
+        // Among shared lines, pick the one where the over is closest to -110.
+        // Use distTo110Real so that N/A entries (null odds) never beat real odds.
         const best = sharedLines.sort((a, b) => {
           const oA = over.find((p) => p.line === a)
           const oB = over.find((p) => p.line === b)
-          return distTo110(oA?.odds) - distTo110(oB?.odds)
+          return distTo110Real(oA?.odds) - distTo110Real(oB?.odds)
         })[0]
         canonicalLine.set(key, best)
         continue
       }
     }
 
-    // No shared lines (or no under props) — fall back to over line closest to -110
-    const mainOver = [...over].sort((a, b) => distTo110(a.odds) - distTo110(b.odds))[0]
+    // No shared lines (or no under props) — fall back to over line closest to -110.
+    // Skip null-odds (N/A) lines; only fall back to them if no real odds exist.
+    const mainOver = [...over].sort((a, b) => distTo110Real(a.odds) - distTo110Real(b.odds))[0]
     canonicalLine.set(key, mainOver.line)
   }
 
@@ -89,7 +98,7 @@ export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
         const numDistDiff = Math.abs(a.line - canon) - Math.abs(b.line - canon)
         if (numDistDiff !== 0) return numDistDiff
       }
-      const distDiff = distTo110(a.odds) - distTo110(b.odds)
+      const distDiff = distTo110Real(a.odds) - distTo110Real(b.odds)
       if (distDiff !== 0) return distDiff
       return (b.confidence_score ?? 0) - (a.confidence_score ?? 0)
     })
