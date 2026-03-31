@@ -1,20 +1,22 @@
 name: Daily NBA Stats Refresh
 
-# Runs automatically at two times daily (UTC):
-#   12:00 UTC = 7:00 AM ET — after the 5 AM Vercel block; pulls fresh defense stats
-#               then re-enriches with updated DVP/pace data
-#   16:00 UTC = 11:00 AM ET — midday refresh before afternoon tip-offs
+# Two runs per day:
+#   10:00 UTC = 5:00 AM ET  — full pipeline: grade, stats, props, enrich, streak, parlay
+#   16:00 UTC = 11:00 AM ET — defense stats + re-enrich only (lines shift midday)
+#
+# All Vercel API calls pass Authorization: Bearer CRON_SECRET so they pass requireCronAuth.
+# Add CRON_SECRET to GitHub repo secrets (same value as the Vercel CRON_SECRET env var).
 
 on:
   schedule:
-    - cron: '0 12 * * *'   # 7:00 AM ET
-    - cron: '0 16 * * *'   # 11:00 AM ET
-  workflow_dispatch:        # Allow manual trigger from GitHub Actions tab
+    - cron: '0 10 * * *'   # 5:00 AM ET  — full pipeline
+    - cron: '0 16 * * *'   # 11:00 AM ET — defense stats + enrich only
+  workflow_dispatch:        # Manual trigger also runs the full pipeline
 
 jobs:
-  refresh-stats:
+  refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
 
     steps:
       - name: Checkout code
@@ -27,31 +29,141 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install nba_api requests
+        run: pip install nba_api requests supabase
 
-      - name: Fetch NBA game logs + team defense stats
+      # ── Full pipeline only (5 AM ET + manual) ──────────────────────────────
+      # These run before fetching defense stats so the DB is fresh when enrich fires.
+
+      - name: Pull game logs (last 3 days)
+        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Pulling game logs..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/gamelogs?days=3" | head -c 300
+          echo ""
+
+      - name: Grade yesterday's feed props
+        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Grading feed props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/feed/grade" | head -c 300
+          echo ""
+
+      - name: Refresh player season stats
+        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Refreshing season stats..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/seasonstats" | head -c 300
+          echo ""
+
+      - name: Update prop results
+        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Updating prop results..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/results?force=true" | head -c 300
+          echo ""
+
+      - name: Grade props
+        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Grading props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/grade" | head -c 300
+          echo ""
+
+      # ── Both runs: fetch defense + NBA stats from NBA API ──────────────────
+      # Must run before enrich so DVP, pace, and L15 ranks are current.
+
+      - name: Fetch NBA defense stats (DVP, pace, L15 ranks)
+        continue-on-error: true
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python scripts/fetch_nba_stats.py
 
-      - name: Refresh props + AI enrichment + streaks (only if app is deployed)
+      # ── Full pipeline only: refresh today's lines after stats are loaded ───
+
+      - name: Refresh today's props from odds API
+        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$VERCEL_APP_URL" ]; then
-            echo "No VERCEL_APP_URL set — skipping remote API calls (stats saved to Supabase)"
-            echo "When you're ready to deploy, add VERCEL_APP_URL to GitHub Secrets."
-          else
-            echo "Refreshing props at $VERCEL_APP_URL..."
-            curl -s "$VERCEL_APP_URL/api/props?refresh=true" | head -c 200
-            sleep 5
-            echo "Running AI enrichment..."
-            curl -s "$VERCEL_APP_URL/api/enrich?force=true" | head -c 200
-            sleep 5
-            echo "Generating streaks..."
-            curl -s "$VERCEL_APP_URL/api/feed/generate/streak?force=true" | head -c 200
-          fi
+          echo "Refreshing props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/props?refresh=true" | head -c 300
+          echo ""
+
+      # ── Both runs: enrich with fresh defense stats + current lines ─────────
+
+      - name: Enrich props (AI confidence scoring)
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Running AI enrichment..."
+          curl -sf --max-time 300 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/enrich?force=true" | head -c 300
+          echo ""
+
+      # ── Full pipeline only: generate streak + parlay once ─────────────────
+
+      - name: Generate daily streak picks
+        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Generating streak..."
+          curl -sf --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/feed/generate/streak?force=true" | head -c 300
+          echo ""
+
+      - name: Generate daily parlay
+        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Generating parlay..."
+          curl -sf --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/feed/generate/parlay?force=true" | head -c 300
+          echo ""
 
       - name: Done
-        run: echo "NBA IQ daily refresh complete"
+        run: echo "NBA IQ refresh complete"
