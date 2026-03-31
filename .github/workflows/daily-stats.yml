@@ -1,7 +1,7 @@
 name: Daily NBA Stats Refresh
 
 # Two runs per day:
-#   10:00 UTC = 5:00 AM ET  — full pipeline: grade, stats, props, enrich, streak, parlay
+#   10:00 UTC = 5:00 AM ET  — full pipeline: grade, stats, defense, props, enrich, streak, parlay
 #   16:00 UTC = 11:00 AM ET — defense stats + re-enrich only (lines shift midday)
 #
 # All Vercel API calls pass Authorization: Bearer CRON_SECRET so they pass requireCronAuth.
@@ -16,23 +16,10 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install Python dependencies
-        run: pip install nba_api requests supabase
-
       # ── Full pipeline only (5 AM ET + manual) ──────────────────────────────
-      # These run before fetching defense stats so the DB is fresh when enrich fires.
 
       - name: Pull game logs (last 3 days)
         if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
@@ -99,15 +86,19 @@ jobs:
             "$VERCEL_APP_URL/api/grade" | head -c 300
           echo ""
 
-      # ── Both runs: fetch defense + NBA stats from NBA API ──────────────────
-      # Must run before enrich so DVP, pace, and L15 ranks are current.
+      # ── Both runs: fetch defense stats via Vercel (must run before enrich) ──
 
       - name: Fetch NBA defense stats (DVP, pace, L15 ranks)
         continue-on-error: true
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python scripts/fetch_nba_stats.py
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Fetching defense stats..."
+          curl -sf --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/defense-stats" | head -c 300
+          echo ""
 
       # ── Full pipeline only: refresh today's lines after stats are loaded ───
 
@@ -149,7 +140,7 @@ jobs:
           echo "Generating streak..."
           curl -sf --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "$VERCEL_APP_URL/api/feed/generate/streak?force=true" | head -c 300
+            "$VERCEL_APP_URL/api/feed/generate/streak" | head -c 300
           echo ""
 
       - name: Generate daily parlay
@@ -162,7 +153,7 @@ jobs:
           echo "Generating parlay..."
           curl -sf --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "$VERCEL_APP_URL/api/feed/generate/parlay?force=true" | head -c 300
+            "$VERCEL_APP_URL/api/feed/generate/parlay" | head -c 300
           echo ""
 
       - name: Done
