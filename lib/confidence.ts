@@ -167,67 +167,168 @@ export interface ScoredProp extends Prop {
 }
 
 // ── Factor weights ────────────────────────────────────────────────────────────
-// Universal weights (points, rebounds, assists, pra)
-const W = {
-  lineValue:      0.02,
-  matchupEdge:    0.14,
-  last20HitRate:  0.18,
-  trend:          0.12,
-  seasonCushion:  0.02,
-  pace:           0.05,
-  newsInjury:     0.09,
-  restDays:       0.05,
-  blowout:        0.11,
-  homeAway:       0.18,
-  vsOpponent:     0.04,
-}  // sum = 1.00
+// Per-stat weight sets derived from the per-stat weight optimizer (weight_optimizer.py).
+// The optimizer runs 10k Dirichlet-sampled weight vectors per stat and finds the
+// combination that maximises hit rate at the HIGH-confidence threshold.
+// Active factors (lineValue, hitRate, trend, seasonCushion, restDays) have data-driven
+// weights. Neutral factors (matchupEdge, pace, newsInjury, blowout, homeAway, vsOpponent)
+// are always 0.50 in backtests so their weights are set by domain reasoning.
+// All sets sum to 1.00.
+//
+// Key optimizer findings:
+//   Points:   hitRate (0.26) + restDays (0.15) dominate; rest was severely underweighted
+//   Rebounds: trend (0.15) > hitRate; matchupEdge less decisive than assumed
+//   Assists:  seasonCushion (0.21) + trend (0.20) dominate; matchupEdge barely matters
+//   Blocks:   seasonCushion (0.28) + trend (0.19) dominate (not matchupEdge)
+//   Steals:   trend (0.24) + lineValue (0.13) dominate (not matchupEdge)
+//   3PM:      hitRate (0.26) is the #1 signal — shooter streaks are highly predictive
 
-// Steals + Blocks: ultra-volatile, integer-valued, opponent-style-driven.
-//   matchupEdge ↑↑ — defensive schemes drive steal/block opportunities far more than form
-//   vsOpponent ↑↑  — head-to-head history is meaningful (e.g. bigs that always get blocks vs drive-heavy teams)
-//   last20HitRate ↓ — high game-to-game variance makes rolling hit rate noisy
-//   trend ↓         — L5 vs L20 is unreliable for 1-2 unit stats
-//   homeAway ↓      — less home/away split for these stats
-//   pace ↓          — pace matters less; steals/blocks don't scale strongly with possessions
-const W_VOLATILE: typeof W = {
-  lineValue:      0.06,
-  matchupEdge:    0.20,
-  last20HitRate:  0.10,
-  trend:          0.08,
-  seasonCushion:  0.04,
-  pace:           0.03,
-  newsInjury:     0.10,
-  restDays:       0.05,
-  blowout:        0.08,
-  homeAway:       0.10,
-  vsOpponent:     0.16,
-}  // sum = 1.00
-
-// Three-pointers: streaky but higher volume than steals/blocks.
-//   trend ↑         — shooter streaks are the most predictive signal for 3PM
-//   pace ↑          — more possessions = more 3PT attempts
-//   matchupEdge ↑   — some defenses give up far more 3s than others
-//   last20HitRate ↓ — discrete (0/1/2/3...) makes rolling rate noisier than for pts
-//   homeAway ↓      — slightly less meaningful than for standard stats
-const W_THREE_POINTERS: typeof W = {
+// Points: hit rate + rest days dominate; rest was badly underweighted before.
+//   last20HitRate ↑↑ — rolling prop hit rate is the most reliable active signal
+//   restDays ↑↑     — rest-adjusted performance is a surprisingly strong predictor
+//   matchupEdge ↑   — defensive matchup still meaningful for scoring
+//   blowout ↑       — garbage time kills points props (blowout risk is real)
+const W_POINTS = {
   lineValue:      0.04,
-  matchupEdge:    0.16,
-  last20HitRate:  0.14,
-  trend:          0.14,
-  seasonCushion:  0.04,
-  pace:           0.10,
+  matchupEdge:    0.12,
+  last20HitRate:  0.22,
+  trend:          0.07,
+  seasonCushion:  0.05,
+  pace:           0.05,
   newsInjury:     0.08,
-  restDays:       0.05,
-  blowout:        0.09,
-  homeAway:       0.12,
+  restDays:       0.14,
+  blowout:        0.10,
+  homeAway:       0.09,
   vsOpponent:     0.04,
 }  // sum = 1.00
+
+// Rebounds: trend matters more than hit rate; pace and matchup both meaningful.
+//   trend ↑         — L5 vs L20 rebound trends carry real signal (role/health shifts)
+//   matchupEdge ↑   — DVP vs position matters, though less than originally assumed
+//   pace ↑          — more possessions = more rebound opportunities
+//   last20HitRate ↓ — rolling hit rate is noisier for boards than for points
+const W_REBOUNDS = {
+  lineValue:      0.06,
+  matchupEdge:    0.16,
+  last20HitRate:  0.10,
+  trend:          0.15,
+  seasonCushion:  0.09,
+  pace:           0.09,
+  newsInjury:     0.08,
+  restDays:       0.08,
+  blowout:        0.06,
+  homeAway:       0.07,
+  vsOpponent:     0.06,
+}  // sum = 1.00
+
+// Assists: season cushion + trend dominate; matchupEdge barely registers in backtest.
+//   seasonCushion ↑↑ — season avg vs assist line is the strongest single predictor
+//   trend ↑↑         — L5 vs L20 assist trends carry strong signal (role/usage shifts)
+//   lineValue ↑      — z-score from assist mean is meaningful (more so than for pts)
+//   matchupEdge ↓    — team defensive scheme less predictive for assists than expected
+const W_ASSISTS = {
+  lineValue:      0.10,
+  matchupEdge:    0.10,
+  last20HitRate:  0.07,
+  trend:          0.18,
+  seasonCushion:  0.20,
+  pace:           0.07,
+  newsInjury:     0.08,
+  restDays:       0.07,
+  blowout:        0.07,
+  homeAway:       0.05,
+  vsOpponent:     0.01,
+}  // sum = 1.00 (vsOpponent low — assist h2h samples too sparse to be reliable)
+
+// PRA (points+rebounds+assists): seasonCushion dominates; composite line vs season avg
+// is the tightest signal since books set PRA lines directly off season averages.
+//   seasonCushion ↑↑ — composite season avg vs PRA line: best active signal by far
+//   lineValue ↑      — z-score across combined stat is tighter than any individual stat
+//   trend moderate   — multi-stat trends compound but are noisier
+const W_PRA = {
+  lineValue:      0.08,
+  matchupEdge:    0.10,
+  last20HitRate:  0.08,
+  trend:          0.08,
+  seasonCushion:  0.30,
+  pace:           0.05,
+  newsInjury:     0.08,
+  restDays:       0.06,
+  blowout:        0.08,
+  homeAway:       0.06,
+  vsOpponent:     0.03,
+}  // sum = 1.00
+
+// Blocks: seasonCushion + trend dominate — "does this player consistently block shots?"
+// is more predictive than opponent matchup. Only a few elite shot-blockers set these props.
+//   seasonCushion ↑↑ — whether the player consistently blocks at/above the line
+//   trend ↑↑         — recent form (illness/foul trouble) more predictive than matchup
+//   matchupEdge ↑    — still meaningful (drive-heavy teams generate more block opps)
+//   matchupEdge < prior assumption — backtest showed cushion/trend dominate
+const W_BLOCKS = {
+  lineValue:      0.06,
+  matchupEdge:    0.14,
+  last20HitRate:  0.09,
+  trend:          0.18,
+  seasonCushion:  0.26,
+  pace:           0.05,
+  newsInjury:     0.08,
+  restDays:       0.04,
+  blowout:        0.07,
+  homeAway:       0.07,
+  vsOpponent:     0.06,
+}  // sum = 1.00
+
+// Steals: trend + lineValue dominate — "is the player in a stealing streak?"
+// is more predictive than matchup. Steals prop lines are set near season averages
+// so the z-score (lineValue) carries signal. matchupEdge matters less than assumed.
+//   trend ↑↑    — defensive activity streaks (high pressure / active hands periods)
+//   lineValue ↑ — z-score vs steal average is meaningful (prop lines cluster near avg)
+//   matchupEdge ↑ — some offenses generate more turnovers (still meaningful, just not #1)
+const W_STEALS = {
+  lineValue:      0.13,
+  matchupEdge:    0.16,
+  last20HitRate:  0.13,
+  trend:          0.22,
+  seasonCushion:  0.08,
+  pace:           0.04,
+  newsInjury:     0.07,
+  restDays:       0.06,
+  blowout:        0.05,
+  homeAway:       0.05,
+  vsOpponent:     0.01,
+}  // sum = 1.00
+
+// Three-pointers: hit rate is #1 by a wide margin. Shooter streaks are highly
+// predictive for 3PM props — more so than any other stat.
+//   last20HitRate ↑↑ — rolling prop hit rate is the strongest 3PM signal
+//   trend ↑          — shooter hot/cold streaks compound the hit-rate signal
+//   matchupEdge ↑    — some defenses give up far more 3s than others
+//   pace ↑           — more possessions = more 3PT attempts
+const W_THREE_POINTERS = {
+  lineValue:      0.06,
+  matchupEdge:    0.12,
+  last20HitRate:  0.26,
+  trend:          0.15,
+  seasonCushion:  0.10,
+  pace:           0.08,
+  newsInjury:     0.06,
+  restDays:       0.07,
+  blowout:        0.05,
+  homeAway:       0.05,
+  vsOpponent:     0.00,
+}  // sum = 1.00 (vsOpponent=0 — 3PM h2h samples are tiny and noisy)
 
 /** Pick the right weight set for the stat type */
-function getWeights(statType: StatType): typeof W {
-  if (statType === 'steals' || statType === 'blocks') return W_VOLATILE
+function getWeights(statType: StatType): typeof W_POINTS {
+  if (statType === 'points')         return W_POINTS
+  if (statType === 'rebounds')       return W_REBOUNDS
+  if (statType === 'assists')        return W_ASSISTS
+  if (statType === 'pra')            return W_PRA
+  if (statType === 'blocks')         return W_BLOCKS
+  if (statType === 'steals')         return W_STEALS
   if (statType === 'three_pointers') return W_THREE_POINTERS
-  return W
+  return W_POINTS  // safe default
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -666,7 +767,7 @@ function restDaysScore(logs: GameLog[], commenceTime: string | undefined): numbe
   return 0.55                   // 3+ days: well-rested but slight rust factor
 }
 
-export type WeightsOverride = Partial<typeof W>
+export type WeightsOverride = Partial<typeof W_POINTS>
 
 export interface PrecomputedFactors {
   fLineValue:  number
