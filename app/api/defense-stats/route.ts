@@ -130,27 +130,16 @@ export async function GET(req: Request) {
   }
   results.seasonTeams = teamRows.length
 
-  // ── Phase 2: L15 + pace + DVP (guard/forward/center) + player positions — all parallel ──
-  console.log('[defense-stats] Fetching L15, pace, DVP x3, player positions in parallel...')
+  // ── Phase 2: L15 + pace + DVP (guard/forward/center) — all parallel ──
+  // Player positions are fetched by the separate /api/player-positions endpoint.
+  console.log('[defense-stats] Fetching L15, pace, DVP x3 in parallel...')
 
-  const playerBioUrl = buildNbaUrl('https://stats.nba.com/stats/leaguedashplayerbiostats', {
-    LeagueID: '00', Season: CURRENT_SEASON, SeasonType: 'Regular Season',
-    PerMode: 'PerGame', College: '', Conference: '', Country: '', DateFrom: '',
-    DateTo: '', Division: '', DraftPick: '', DraftYear: '', GameScope: '',
-    GameSegment: '', Height: '', LastNGames: 0, Location: '', Month: 0,
-    OpponentTeamID: 0, Outcome: '', PORound: 0, Period: 0,
-    PlayerExperience: '', PlayerPosition: '', SeasonSegment: '',
-    ShotClockRange: '', StarterBench: '', TeamID: 0, VsConference: '',
-    VsDivision: '', Weight: '',
-  })
-
-  const [l15Data, paceData, dvpG, dvpF, dvpC, bioData] = await Promise.all([
+  const [l15Data, paceData, dvpG, dvpF, dvpC] = await Promise.all([
     fetchNbaStats({ MeasureType: 'Opponent', LastNGames: 15 }),
     fetchNbaStats({ MeasureType: 'Base', LastNGames: 0 }),
     fetchNbaStats({ MeasureType: 'Opponent', PlayerPosition: 'G', LastNGames: 0 }),
     fetchNbaStats({ MeasureType: 'Opponent', PlayerPosition: 'F', LastNGames: 0 }),
     fetchNbaStats({ MeasureType: 'Opponent', PlayerPosition: 'C', LastNGames: 0 }),
-    fetchNbaJson(playerBioUrl),
   ])
 
   // Merge L15 ranks into teamRows
@@ -223,40 +212,9 @@ export async function GET(req: Request) {
   }
   results.dvpRows = dvpRows.length
 
-  // Upsert player positions
-  if (bioData) {
-    const nameIdx = bioData.headers.indexOf('PLAYER_NAME')
-    const posIdx  = bioData.headers.indexOf('PLAYER_POSITION')
-    if (nameIdx >= 0 && posIdx >= 0) {
-      const posRows = bioData.rows
-        .filter(row => row[nameIdx] && row[posIdx])
-        .map(row => ({
-          player_name:    String(row[nameIdx]),
-          nba_position:   String(row[posIdx]),
-          position_group: mapPosition(String(row[posIdx])),
-          updated_at:     now,
-        }))
-      let posUpserted = 0
-      for (let i = 0; i < posRows.length; i += 500) {
-        const chunk = posRows.slice(i, i + 500)
-        const { error: posErr } = await db
-          .from('player_positions')
-          .upsert(chunk, { onConflict: 'player_name' })
-        if (posErr) console.error('[defense-stats] upsert player_positions error:', posErr.message)
-        else posUpserted += chunk.length
-      }
-      results.playerPositions = posUpserted
-      console.log(`[defense-stats] Saved ${posUpserted} player positions`)
-    } else {
-      console.warn('[defense-stats] PLAYER_NAME or PLAYER_POSITION not found in bio stats response')
-    }
-  } else {
-    console.warn('[defense-stats] Failed to fetch player bio stats — positions not updated')
-  }
-
   return NextResponse.json({
     ok: true,
     ...results,
-    message: `Defense stats updated: ${teamRows.length} teams, ${dvpRows.length} DVP rows, ${results.playerPositions ?? 0} player positions`,
+    message: `Defense stats updated: ${teamRows.length} teams, ${dvpRows.length} DVP rows`,
   })
 }

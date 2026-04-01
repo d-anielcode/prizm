@@ -86,7 +86,7 @@ jobs:
             "$VERCEL_APP_URL/api/grade" | head -c 300
           echo ""
 
-      # ── Both runs: fetch defense stats via Vercel (must run before enrich) ──
+      # ── Both runs: fetch defense stats + player positions (must run before enrich) ──
 
       - name: Fetch NBA defense stats (DVP, pace, L15 ranks)
         continue-on-error: true
@@ -98,6 +98,18 @@ jobs:
           curl -sf --max-time 90 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "$VERCEL_APP_URL/api/defense-stats" | head -c 300
+          echo ""
+
+      - name: Fetch player positions (guard/forward/center)
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Fetching player positions..."
+          curl -sf --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/player-positions" | head -c 300
           echo ""
 
       # ── Full pipeline only: refresh today's lines after stats are loaded ───
