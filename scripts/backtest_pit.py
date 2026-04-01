@@ -569,7 +569,8 @@ def score_prop_pit_from_factors(factors, weights, stat_type):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode',  choices=['real', 'synthetic', 'both'], default='both')
-    parser.add_argument('--days',  type=int, default=40)
+    parser.add_argument('--days',  type=int, default=55,
+                        help='Days back from today to include (default 55 covers all of historical_prop_lines)')
     parser.add_argument('--optimize', action='store_true', help='Run weight optimizer after eval')
     args = parser.parse_args()
 
@@ -578,24 +579,41 @@ def main():
     print("=" * 70)
 
     # ── Load data ──────────────────────────────────────────────────────────────
-    print("\n[1/4] Loading prop history...")
-    history = supabase_get_all(
-        'prop_history',
-        f'select=id,player_name,stat_type,direction,line,game_date,commence_time&game_date=gte.{cutoff_date}&order=game_date.asc'
+    print("\n[1/4] Loading real prop lines from historical_prop_lines (Odds API only)...")
+    # Use historical_prop_lines — these are real market lines from The Odds API backfill.
+    # Deduplicate: keep only one row per (player, stat, line, direction, game_date).
+    # We pick OVER only here since UNDER is just the mirror — avoids doubling the dataset.
+    # The model is symmetric (overBiasAdj handles direction differences).
+    history_raw = supabase_get_all(
+        'historical_prop_lines',
+        f'select=player_name,stat_type,direction,line,game_date,commence_time,home_team,away_team&game_date=gte.{cutoff_date}&direction=eq.over&order=game_date.asc'
     )
-    print(f"  {len(history)} historical props loaded")
+    # Deduplicate: one prop per (player, stat, line, game_date) — take the first occurrence
+    seen_props = set()
+    history = []
+    for h in history_raw:
+        key = f"{h['game_date']}|{h['player_name']}|{h['stat_type']}|{h['line']}"
+        if key not in seen_props:
+            seen_props.add(key)
+            history.append(h)
+    print(f"  {len(history_raw)} raw rows -> {len(history)} deduped real props loaded")
+    print(f"  Date range: {history[0]['game_date'] if history else 'n/a'} to {history[-1]['game_date'] if history else 'n/a'}")
+    unique_dates = sorted(set(h['game_date'] for h in history))
+    print(f"  {len(unique_dates)} unique dates: {unique_dates[0]} to {unique_dates[-1]}")
 
-    print("[2/4] Loading prop grades...")
+    print("[2/4] Loading prop grades (real actual values only, no nulls)...")
     grades_raw = supabase_get_all(
         'prop_grades',
-        f'select=player_name,stat_type,line,direction,game_date,hit,actual_value&game_date=gte.{cutoff_date}&hit=not.is.null'
+        f'select=player_name,stat_type,line,direction,game_date,hit,actual_value&game_date=gte.{cutoff_date}&hit=not.is.null&actual_value=not.is.null'
     )
-    # Key: (game_date, player_name, stat_type, line, direction)
-    grade_map = {
-        f"{g['game_date']}|{g['player_name']}|{g['stat_type']}|{g['line']}|{g['direction']}": g
-        for g in grades_raw
-    }
-    print(f"  {len(grade_map)} grades loaded")
+    # Key: (game_date, player_name, stat_type, line) — direction-agnostic since actual_value
+    # is the same for OVER and UNDER on the same prop. We'll derive result from actual_value.
+    grade_map = {}
+    for g in grades_raw:
+        key = f"{g['game_date']}|{g['player_name']}|{g['stat_type']}|{g['line']}"
+        if key not in grade_map:
+            grade_map[key] = g
+    print(f"  {len(grades_raw)} raw grade rows -> {len(grade_map)} unique props with actual values")
 
     print("[3/4] Loading player game logs (all history for point-in-time factors)...")
     all_logs = supabase_get_all(
@@ -615,18 +633,32 @@ def main():
     # ── Build scored props dataset ─────────────────────────────────────────────
     print("\nScoring props with point-in-time factors...")
 
-    # Join grades → history using composite key
+    # Join grades → history using direction-agnostic key (actual_value is the same for O/U)
+    # Result for OVER is derived from actual_value vs line directly (no dependency on stored hit flag)
     graded_props = []
+    no_grade = 0
     for h in history:
-        key = f"{h['game_date']}|{h['player_name']}|{h['stat_type']}|{h['line']}|{h['direction']}"
+        key = f"{h['game_date']}|{h['player_name']}|{h['stat_type']}|{h['line']}"
         grade = grade_map.get(key)
-        if not grade or grade.get('hit') is None:
+        if not grade:
+            no_grade += 1
             continue
-        h['result']       = 'hit' if grade['hit'] else 'miss'
-        h['actual_value'] = grade.get('actual_value')
+        actual = grade.get('actual_value')
+        if actual is None:
+            continue
+        line = float(h['line'])
+        direction = h['direction']  # always 'over' since we filtered above
+        result = 'hit' if float(actual) > line else 'miss'
+        h['result']       = result
+        h['actual_value'] = actual
         graded_props.append(h)
 
-    print(f"  {len(graded_props)} props with grades")
+    print(f"  {len(graded_props)} graded props ({no_grade} no grade found, skipped)")
+    by_date = {}
+    for p in graded_props:
+        by_date.setdefault(p['game_date'], 0)
+        by_date[p['game_date']] += 1
+    print(f"  Graded dates: {sorted(by_date.keys())[0]} to {sorted(by_date.keys())[-1]} ({len(by_date)} days)")
 
     # Enrich props with opponent info from game logs
     def get_opponent_and_home(player_name, game_date):
