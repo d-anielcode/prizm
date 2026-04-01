@@ -1,7 +1,7 @@
 // /api/feed/generate/streak
-// Picks today's 2 highest-confidence props as the daily streak picks.
-// Both legs must hit to continue the streak. Either misses → streak resets.
-// Stored as a single 2-leg curated_parlays entry with parlay_type = 'streak'.
+// Picks today's single highest-confidence LOCK prop as the daily Prop of the Day.
+// Hit → streak continues. Miss → streak resets.
+// Stored as a 1-leg curated_parlays entry with parlay_type = 'streak'.
 // Idempotent by default. Pass ?force=true to delete and regenerate.
 
 export const maxDuration = 60
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
       .in('confidence_label', ['LOCK', 'PLAY'])
       .gte('commence_time', `${gameDate}T00:00:00.000Z`)
       .lt('commence_time', `${gameDate}T23:59:59.999Z`)
-    if ((scoredCount ?? 0) < 2) {
+    if ((scoredCount ?? 0) < 1) {
       return NextResponse.json({
         message: 'Not enough scored props for today — run /api/enrich first',
         scoredCount: scoredCount ?? 0,
@@ -76,7 +76,7 @@ export async function GET(req: Request) {
     )
 
     // Fall back to LOCK+PLAY if not enough LOCKs after exclusions
-    if (todayProps.length < 2) {
+    if (todayProps.length < 1) {
       const { data: playProps } = await supabase
         .from('props')
         .select('player_name, team, stat_type, line, direction, confidence_score, confidence_label, odds, commence_time')
@@ -90,59 +90,35 @@ export async function GET(req: Request) {
       todayProps.push(...playToday.filter((p) => !todayProps.find((e) => e.player_name === p.player_name)))
     }
 
-    // Pick top 2 unique players, enforcing at least 1 OVER.
-    // Strategy: greedily pick by confidence, then if both are UNDERs,
-    // swap the lower-confidence one for the best available OVER.
-    const seen = new Set<string>()
-    const picks: typeof todayProps = []
-    for (const p of todayProps) {
-      if (seen.has(p.player_name)) continue
-      seen.add(p.player_name)
-      picks.push(p)
-      if (picks.length === 2) break
+    // Pick the single highest-confidence LOCK prop (unique player)
+    const pick = todayProps[0] ?? null
+
+    if (!pick) {
+      return NextResponse.json({ message: 'Not enough qualifying props for Prop of the Day', saved: 0 })
     }
 
-    // Enforce at least 1 OVER — if both are UNDERs, replace the lower-confidence
-    // one with the highest-confidence OVER from a different player
-    if (picks.length === 2 && picks.every((p) => p.direction === 'under')) {
-      const pickedPlayers = new Set(picks.map((p) => p.player_name))
-      const bestOver = todayProps.find(
-        (p) => p.direction === 'over' && !pickedPlayers.has(p.player_name)
-      )
-      if (bestOver) {
-        // Replace the lower-confidence UNDER (index 1, since sorted desc)
-        picks[1] = bestOver
-      }
-    }
+    // ── Build the 1-leg entry ────────────────────────────────────────────────
+    const legs = [{
+      player_name:      pick.player_name,
+      team:             pick.team ?? null,
+      stat_type:        pick.stat_type,
+      line:             Number(pick.line),
+      direction:        pick.direction,
+      odds:             pick.odds ?? null,
+      confidence_label: pick.confidence_label,
+      confidence_score: pick.confidence_score,
+    }]
 
-    if (picks.length < 2) {
-      return NextResponse.json({ message: 'Not enough qualifying props for streak picks', saved: 0 })
-    }
-
-    // ── Build the 2-leg entry ────────────────────────────────────────────────
-    const legs = picks.map((p) => ({
-      player_name:      p.player_name,
-      team:             p.team ?? null,
-      stat_type:        p.stat_type,
-      line:             Number(p.line),
-      direction:        p.direction,
-      odds:             p.odds ?? null,
-      confidence_label: p.confidence_label,
-      confidence_score: p.confidence_score,
-    }))
-
-    const legDesc = picks.map((p) =>
-      `${p.player_name} ${p.direction.toUpperCase()} ${p.line} ${STAT_LABELS[p.stat_type] ?? p.stat_type}`
-    ).join(' · ')
+    const legDesc = `${pick.player_name} ${pick.direction.toUpperCase()} ${pick.line} ${STAT_LABELS[pick.stat_type] ?? pick.stat_type}`
 
     const { error } = await adminClient.from('curated_parlays').insert({
-      title:         `Streak Picks · ${gameDate}`,
-      description:   legDesc,
-      parlay_type:   'streak',
-      game_date:     gameDate,
+      title:          `Prop of the Day · ${gameDate}`,
+      description:    legDesc,
+      parlay_type:    'streak',
+      game_date:      gameDate,
       est_multiplier: null,
       legs,
-      active:        true,
+      active:         true,
     })
 
     if (error) {
@@ -150,8 +126,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    console.log(`[generate/streak] Saved streak picks for ${gameDate}: ${legDesc}`)
-    return NextResponse.json({ message: 'Streak picks saved', saved: 1, date: gameDate, picks: legDesc })
+    console.log(`[generate/streak] Saved Prop of the Day for ${gameDate}: ${legDesc}`)
+    return NextResponse.json({ message: 'Prop of the Day saved', saved: 1, date: gameDate, pick: legDesc })
 
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error'
