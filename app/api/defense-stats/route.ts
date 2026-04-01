@@ -114,7 +114,7 @@ export async function GET(req: Request) {
   const now = new Date().toISOString()
   const results: Record<string, unknown> = {}
 
-  // ── 1. Season-long opponent stats ────────────────────────────────────────
+  // ── Phase 1: Season stats (required first — other calls are independent) ──
   console.log('[defense-stats] Fetching season opponent stats...')
   const seasonData = await fetchNbaStats({ MeasureType: 'Opponent', LastNGames: 0 })
   if (!seasonData) return NextResponse.json({ error: 'Failed to fetch season stats from NBA API' }, { status: 502 })
@@ -125,16 +125,35 @@ export async function GET(req: Request) {
     ...Object.fromEntries(Object.values(STAT_COLS).map(col => [col, Number(row[col] ?? 0)])),
   }))
   computeRanks(teamRows, STAT_COLS)
-  // Rename raw cols to rank cols (raw values no longer needed in DB)
   for (const row of teamRows) {
     for (const col of Object.values(STAT_COLS)) delete row[col]
   }
   results.seasonTeams = teamRows.length
 
-  // ── 2. L15 opponent stats ─────────────────────────────────────────────────
-  await sleep(1000)
-  console.log('[defense-stats] Fetching L15 opponent stats...')
-  const l15Data = await fetchNbaStats({ MeasureType: 'Opponent', LastNGames: 15 })
+  // ── Phase 2: L15 + pace + DVP (guard/forward/center) + player positions — all parallel ──
+  console.log('[defense-stats] Fetching L15, pace, DVP x3, player positions in parallel...')
+
+  const playerBioUrl = buildNbaUrl('https://stats.nba.com/stats/leaguedashplayerbiostats', {
+    LeagueID: '00', Season: CURRENT_SEASON, SeasonType: 'Regular Season',
+    PerMode: 'PerGame', College: '', Conference: '', Country: '', DateFrom: '',
+    DateTo: '', Division: '', DraftPick: '', DraftYear: '', GameScope: '',
+    GameSegment: '', Height: '', LastNGames: 0, Location: '', Month: 0,
+    OpponentTeamID: 0, Outcome: '', PORound: 0, Period: 0,
+    PlayerExperience: '', PlayerPosition: '', SeasonSegment: '',
+    ShotClockRange: '', StarterBench: '', TeamID: 0, VsConference: '',
+    VsDivision: '', Weight: '',
+  })
+
+  const [l15Data, paceData, dvpG, dvpF, dvpC, bioData] = await Promise.all([
+    fetchNbaStats({ MeasureType: 'Opponent', LastNGames: 15 }),
+    fetchNbaStats({ MeasureType: 'Base', LastNGames: 0 }),
+    fetchNbaStats({ MeasureType: 'Opponent', PlayerPosition: 'G', LastNGames: 0 }),
+    fetchNbaStats({ MeasureType: 'Opponent', PlayerPosition: 'F', LastNGames: 0 }),
+    fetchNbaStats({ MeasureType: 'Opponent', PlayerPosition: 'C', LastNGames: 0 }),
+    fetchNbaJson(playerBioUrl),
+  ])
+
+  // Merge L15 ranks into teamRows
   if (l15Data) {
     const L15_COLS = Object.fromEntries(
       Object.entries(STAT_COLS).map(([k, v]) => [k.replace('_rank', '_rank_l15'), v])
@@ -147,7 +166,7 @@ export async function GET(req: Request) {
     const l15ByAbbr: Record<string, Record<string, unknown>> = {}
     for (const r of l15Rows) {
       l15ByAbbr[r['team_abbreviation'] as string] = r
-      for (const col of Object.values(L15_COLS)) delete r[col]  // clean raw cols
+      for (const col of Object.values(L15_COLS)) delete r[col]
     }
     for (const row of teamRows) {
       const l15 = l15ByAbbr[row['team_abbreviation'] as string] ?? {}
@@ -158,10 +177,7 @@ export async function GET(req: Request) {
     results.l15Merged = true
   }
 
-  // ── 3. Pace (Base stats) ─────────────────────────────────────────────────
-  await sleep(1000)
-  console.log('[defense-stats] Fetching pace...')
-  const paceData = await fetchNbaStats({ MeasureType: 'Base', LastNGames: 0 })
+  // Merge pace into teamRows
   if (paceData) {
     const paceByAbbr: Record<string, number> = {}
     for (const row of toMap(paceData)) {
@@ -180,23 +196,11 @@ export async function GET(req: Request) {
   if (defErr) console.error('[defense-stats] upsert team_defense_stats error:', defErr.message)
   else console.log(`[defense-stats] Saved ${teamRows.length} rows to team_defense_stats`)
 
-  // ── 4. DVP by position ───────────────────────────────────────────────────
-  const positions: Array<{ label: string; abbr: string }> = [
-    { label: 'guard', abbr: 'G' },
-    { label: 'forward', abbr: 'F' },
-    { label: 'center', abbr: 'C' },
-  ]
+  // Build and upsert DVP rows
   const dvpRows: Record<string, unknown>[] = []
-
-  for (const { label, abbr } of positions) {
-    await sleep(1000)
-    console.log(`[defense-stats] Fetching DVP (${label})...`)
-    const dvpData = await fetchNbaStats({ MeasureType: 'Opponent', PlayerPosition: abbr, LastNGames: 0 })
-    if (!dvpData) {
-      console.warn(`[defense-stats] DVP fetch failed for ${label}`)
-      continue
-    }
-    const posRows: Record<string, unknown>[] = toMap(dvpData).map(row => ({
+  for (const [data, label] of [[dvpG, 'guard'], [dvpF, 'forward'], [dvpC, 'center']] as const) {
+    if (!data) { console.warn(`[defense-stats] DVP fetch failed for ${label}`); continue }
+    const posRows: Record<string, unknown>[] = toMap(data).map(row => ({
       team_abbreviation: row['TEAM_ABBREVIATION'],
       position_group: label,
       fetched_at: now,
@@ -207,7 +211,7 @@ export async function GET(req: Request) {
       for (const col of Object.values(STAT_COLS)) delete row[col]
     }
     dvpRows.push(...posRows)
-    console.log(`[defense-stats] ${label}: ${posRows.length} teams`)
+    console.log(`[defense-stats] DVP ${label}: ${posRows.length} teams`)
   }
 
   if (dvpRows.length > 0) {
@@ -217,23 +221,9 @@ export async function GET(req: Request) {
     if (dvpErr) console.error('[defense-stats] upsert team_defense_vs_position error:', dvpErr.message)
     else console.log(`[defense-stats] Saved ${dvpRows.length} DVP rows`)
   }
-
   results.dvpRows = dvpRows.length
 
-  // ── 5. Player positions (leaguedashplayerbiostats) ──────────────────────
-  await sleep(1000)
-  console.log('[defense-stats] Fetching player positions...')
-  const playerBioUrl = buildNbaUrl('https://stats.nba.com/stats/leaguedashplayerbiostats', {
-    LeagueID: '00', Season: CURRENT_SEASON, SeasonType: 'Regular Season',
-    PerMode: 'PerGame', College: '', Conference: '', Country: '', DateFrom: '',
-    DateTo: '', Division: '', DraftPick: '', DraftYear: '', GameScope: '',
-    GameSegment: '', Height: '', LastNGames: 0, Location: '', Month: 0,
-    OpponentTeamID: 0, Outcome: '', PORound: 0, Period: 0,
-    PlayerExperience: '', PlayerPosition: '', SeasonSegment: '',
-    ShotClockRange: '', StarterBench: '', TeamID: 0, VsConference: '',
-    VsDivision: '', Weight: '',
-  })
-  const bioData = await fetchNbaJson(playerBioUrl)
+  // Upsert player positions
   if (bioData) {
     const nameIdx = bioData.headers.indexOf('PLAYER_NAME')
     const posIdx  = bioData.headers.indexOf('PLAYER_POSITION')
@@ -246,23 +236,19 @@ export async function GET(req: Request) {
           position_group: mapPosition(String(row[posIdx])),
           updated_at:     now,
         }))
-
-      if (posRows.length > 0) {
-        // Upsert in batches of 500
-        let posUpserted = 0
-        for (let i = 0; i < posRows.length; i += 500) {
-          const chunk = posRows.slice(i, i + 500)
-          const { error: posErr } = await db
-            .from('player_positions')
-            .upsert(chunk, { onConflict: 'player_name' })
-          if (posErr) console.error('[defense-stats] upsert player_positions error:', posErr.message)
-          else posUpserted += chunk.length
-        }
-        results.playerPositions = posUpserted
-        console.log(`[defense-stats] Saved ${posUpserted} player positions`)
+      let posUpserted = 0
+      for (let i = 0; i < posRows.length; i += 500) {
+        const chunk = posRows.slice(i, i + 500)
+        const { error: posErr } = await db
+          .from('player_positions')
+          .upsert(chunk, { onConflict: 'player_name' })
+        if (posErr) console.error('[defense-stats] upsert player_positions error:', posErr.message)
+        else posUpserted += chunk.length
       }
+      results.playerPositions = posUpserted
+      console.log(`[defense-stats] Saved ${posUpserted} player positions`)
     } else {
-      console.warn('[defense-stats] PLAYER_NAME or PLAYER_POSITION column not found in bio stats response')
+      console.warn('[defense-stats] PLAYER_NAME or PLAYER_POSITION not found in bio stats response')
     }
   } else {
     console.warn('[defense-stats] Failed to fetch player bio stats — positions not updated')
