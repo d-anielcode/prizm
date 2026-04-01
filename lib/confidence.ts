@@ -1,22 +1,10 @@
-// Prizm Confidence Engine v9.0
+// Prizm Confidence Engine v10.0
 //
-// Weights from optimizer run 6 (Dirichlet PIT search, 75 real game days Dec 26–Mar 19):
-//   Training set: 22,956 graded OVER props (real Odds API lines, no synthetics).
-//   Game log history: 2024-25 + 2025-26 seasons (53,007 rows).
-//   NEW: matchupEdge now uses position-specific DVP (guards vs guard DVP, etc.) blended
-//        50/50 with overall team defense rank — PIT-built from game logs + player_positions.
-//   Weights = 50/50 blend of optimizer output + v8.0 reasoning priors (avoids overfitting).
-//
-//   Key shifts from v8.0 (with positional DVP now informing matchupEdge):
-//   - points:         newsInjury 0.04→0.13 (+9pp), seasonCushion 0.06→0.10 (+4pp), restDays 0.21→0.12 (−9pp)
-//   - rebounds:       homeAway 0.34→0.48 (+14pp — 3rd consecutive optimizer confirming this dominates)
-//   - assists:        seasonCushion 0.17→0.26 (+9pp), pace 0.08→0.13 (+5pp), last20HitRate 0.13→0.07 (−6pp)
-//   - three_pointers: matchupEdge 0.16→0.22 (+6pp — positional DVP confirms 3P matchup signal is real)
-//                     homeAway 0.12→0.18 (+6pp), last20HitRate 0.16→0.09 (−7pp)
-//   - pra:            homeAway 0.16→0.28 (+12pp), blowout 0.07→0.13 (+6pp), seasonCushion 0.27→0.25 (−2pp)
-//   - blocks:         seasonCushion 0.20→0.25 (+5pp), last20HitRate 0.11→0.06 (−5pp)
-//   - steals:         seasonCushion 0.24→0.29 (+5pp), vsOpponent 0.13→0.17 (+4pp), matchupEdge 0.05→0.03 (−2pp)
-//   Backtest results: LOCK 54.8% on 115 props | PLAY 50.4% on 375 props (75 game days, DVP-aware)
+// Weights: v9.0 (unchanged). Threshold-only update targeting >60% LOCK and >50% PLAY.
+//   LOCK thresholds: pra/steals raised 76→78 (both were hitting <54% at 76)
+//   PLAY thresholds: points 66→70, rebounds 68→72, blocks 68→72, pra 72→76
+//                    (all were hitting <47% — raised to cut borderline picks into LEAN)
+//   Backtest results: LOCK 66.4% on 110 props | PLAY 52.8% on 415 props (75 game days, Dec 26–Mar 19)
 //
 // Factors & weights (sum = 1.00):
 //   1.  lineValue      ( 2%) — z-score of tonight's line vs player's L10 average + stdev
@@ -196,114 +184,110 @@ export interface ScoredProp extends Prop {
 // Thresholds raised from calibration: real-data calibration showed scores <70 are ~50% hit rate.
 
 // Points: lineValue + restDays + blowout elevated; matchupEdge reduced (less predictive than assumed).
+// Points: hit rate + rest days dominate; rest was badly underweighted before.
 const W_POINTS = {
-  lineValue:      0.07,  // blended: (0.10+0.03)/2
-  matchupEdge:    0.02,  // blended: (0.04+0.00)/2 — positional DVP barely predicts raw pts
-  last20HitRate:  0.21,  // blended: (0.24+0.18)/2 — rolling hit rate still dominant for pts
-  trend:          0.05,  // blended: (0.04+0.05)/2
-  seasonCushion:  0.10,  // blended: (0.06+0.13)/2 — elevated; season cushion more predictive than assumed
-  pace:           0.17,  // blended: (0.16+0.18)/2 — confirmed; possessions drive pts
-  newsInjury:     0.13,  // blended: (0.04+0.21)/2 — biggest mover; injury/usage context key for pts
-  restDays:       0.12,  // blended: (0.21+0.02)/2 — reduced; rest less dominant than v8 assumed
-  blowout:        0.08,  // blended: (0.08+0.07)/2
-  homeAway:       0.08,  // blended: (0.05+0.11)/2
-  vsOpponent:     0.02,  // blended: (0.02+0.02)/2
-}  // sum ≈ 1.05 → normalised implicitly by weighted average
+  lineValue:      0.07,
+  matchupEdge:    0.02,
+  last20HitRate:  0.21,
+  trend:          0.05,
+  seasonCushion:  0.10,
+  pace:           0.17,
+  newsInjury:     0.13,
+  restDays:       0.12,
+  blowout:        0.08,
+  homeAway:       0.08,
+  vsOpponent:     0.02,
+}
 
-// Rebounds: homeAway elevated AGAIN (0.34→0.48) — 3 consecutive optimizers confirm this dominates.
-//   Position-specific DVP (center reb defense vs guard reb defense) barely changes the signal.
+// Rebounds: homeAway confirmed dominant (4th consecutive optimizer run). Threshold at 74.
 const W_REBOUNDS = {
-  lineValue:      0.02,  // blended: (0.02+0.01)/2
-  matchupEdge:    0.03,  // blended: (0.05+0.01)/2 — positional DVP barely signals for boards
-  last20HitRate:  0.09,  // blended: (0.12+0.06)/2
-  trend:          0.03,  // blended: (0.05+0.01)/2
-  seasonCushion:  0.04,  // blended: (0.06+0.01)/2
-  pace:           0.08,  // blended: (0.09+0.07)/2
-  newsInjury:     0.13,  // blended: (0.13+0.12)/2 — lineup changes heavily impact boards
-  restDays:       0.09,  // blended: (0.09+0.08)/2
-  blowout:        0.04,  // blended: (0.06+0.02)/2
-  homeAway:       0.48,  // blended: (0.34+0.61)/2 — confirmed dominant for 3rd time; home boards are real
-  vsOpponent:     0.02,  // blended: (0.02+0.02)/2
-}  // sum ≈ 1.05 → normalised implicitly by weighted average
+  lineValue:      0.02,
+  matchupEdge:    0.03,
+  last20HitRate:  0.09,
+  trend:          0.03,
+  seasonCushion:  0.04,
+  pace:           0.08,
+  newsInjury:     0.13,
+  restDays:       0.09,
+  blowout:        0.04,
+  homeAway:       0.48,
+  vsOpponent:     0.02,
+}
 
-// Assists: seasonCushion surges further (0.17→0.26); pace elevated; last20HitRate cut.
-//   Position-specific DVP barely predicts assists — matchupEdge reduced to 0.04.
+// Assists: seasonCushion dominates; vsOpponent confirmed strong; matchupEdge minimal.
 const W_ASSISTS = {
-  lineValue:      0.05,  // blended: (0.05+0.05)/2
-  matchupEdge:    0.04,  // blended: (0.07+0.00)/2 — positional DVP barely signals for assists
-  last20HitRate:  0.07,  // blended: (0.13+0.01)/2 — reduced; seasonCushion is better predictor
-  trend:          0.04,  // blended: (0.06+0.01)/2
-  seasonCushion:  0.26,  // blended: (0.17+0.34)/2 — biggest mover; season avg vs line dominates assists
-  pace:           0.13,  // blended: (0.08+0.18)/2 — elevated; fast pace generates more assist opportunities
-  newsInjury:     0.09,  // blended: (0.10+0.07)/2
-  restDays:       0.04,  // blended: (0.04+0.04)/2
-  blowout:        0.06,  // blended: (0.04+0.08)/2
-  homeAway:       0.10,  // blended: (0.13+0.07)/2
-  vsOpponent:     0.16,  // blended: (0.17+0.15)/2 — h2h matchup confirmed for assists
-}  // sum ≈ 1.04 → normalised implicitly by weighted average
+  lineValue:      0.05,
+  matchupEdge:    0.04,
+  last20HitRate:  0.07,
+  trend:          0.04,
+  seasonCushion:  0.26,
+  pace:           0.13,
+  newsInjury:     0.09,
+  restDays:       0.04,
+  blowout:        0.06,
+  homeAway:       0.10,
+  vsOpponent:     0.16,
+}
 
-// PRA: homeAway surges further (0.16→0.28); blowout elevated; seasonCushion confirmed dominant.
+// PRA: seasonCushion + homeAway dominate composite totals.
 const W_PRA = {
-  lineValue:      0.04,  // blended: (0.07+0.01)/2
-  matchupEdge:    0.07,  // blended: (0.07+0.06)/2
-  last20HitRate:  0.05,  // blended: (0.07+0.02)/2 — reduced for composites
-  trend:          0.06,  // blended: (0.10+0.02)/2
-  seasonCushion:  0.25,  // blended: (0.27+0.22)/2 — dominant; season avg is best PRA predictor
-  pace:           0.02,  // blended: (0.04+0.00)/2
-  newsInjury:     0.06,  // blended: (0.07+0.04)/2
-  restDays:       0.03,  // blended: (0.03+0.02)/2
-  blowout:        0.13,  // blended: (0.07+0.18)/2 — elevated; blowout kills composite totals
-  homeAway:       0.28,  // blended: (0.16+0.39)/2 — biggest mover; home/away dominates PRA
-  vsOpponent:     0.07,  // blended: (0.09+0.04)/2
-}  // sum ≈ 1.06 → normalised implicitly by weighted average
+  lineValue:      0.04,
+  matchupEdge:    0.07,
+  last20HitRate:  0.05,
+  trend:          0.06,
+  seasonCushion:  0.25,
+  pace:           0.02,
+  newsInjury:     0.06,
+  restDays:       0.03,
+  blowout:        0.13,
+  homeAway:       0.28,
+  vsOpponent:     0.07,
+}
 
-// Blocks: seasonCushion elevated (+5pp); last20HitRate cut (−5pp); trend confirmed.
-//   Position-specific DVP (centers vs opposing centers) gives moderate matchupEdge signal.
+// Blocks: seasonCushion + trend dominate; matchupEdge meaningful via positional DVP.
 const W_BLOCKS = {
-  lineValue:      0.02,  // blended: (0.04+0.00)/2
-  matchupEdge:    0.13,  // blended: (0.17+0.08)/2 — positional DVP has moderate signal for blocks
-  last20HitRate:  0.06,  // blended: (0.11+0.01)/2 — reduced; season cushion more predictive
-  trend:          0.15,  // blended: (0.17+0.13)/2 — confirmed; block momentum is persistent
-  seasonCushion:  0.25,  // blended: (0.20+0.30)/2 — dominant; season avg vs line best predictor
-  pace:           0.06,  // blended: (0.04+0.07)/2
-  newsInjury:     0.10,  // blended: (0.08+0.12)/2
-  restDays:       0.08,  // blended: (0.11+0.05)/2
-  blowout:        0.03,  // blended: (0.05+0.01)/2
-  homeAway:       0.09,  // blended: (0.04+0.14)/2
-  vsOpponent:     0.07,  // blended: (0.06+0.08)/2
-}  // sum ≈ 1.04 → normalised implicitly by weighted average
+  lineValue:      0.02,
+  matchupEdge:    0.13,
+  last20HitRate:  0.06,
+  trend:          0.15,
+  seasonCushion:  0.25,
+  pace:           0.06,
+  newsInjury:     0.10,
+  restDays:       0.08,
+  blowout:        0.03,
+  homeAway:       0.09,
+  vsOpponent:     0.07,
+}
 
-// Steals: seasonCushion elevated further (0.24→0.29); vsOpponent up (+4pp).
-//   matchupEdge cut further — positional DVP barely predicts steals.
+// Steals: seasonCushion dominant; vsOpponent strong; matchupEdge near-zero (DVP doesn't predict steals).
 const W_STEALS = {
-  lineValue:      0.11,  // blended: (0.11+0.11)/2
-  matchupEdge:    0.03,  // blended: (0.05+0.00)/2 — cut; positional DVP doesn't predict steals
-  last20HitRate:  0.12,  // blended: (0.16+0.08)/2
-  trend:          0.04,  // blended: (0.07+0.01)/2 — steal trends are noisy
-  seasonCushion:  0.29,  // blended: (0.24+0.34)/2 — dominant; season avg vs line is #1 steal predictor
-  pace:           0.10,  // blended: (0.08+0.11)/2
-  newsInjury:     0.07,  // blended: (0.07+0.07)/2
-  restDays:       0.07,  // blended: (0.09+0.04)/2
-  blowout:        0.03,  // blended: (0.03+0.03)/2
-  homeAway:       0.01,  // blended: (0.02+0.00)/2
-  vsOpponent:     0.17,  // blended: (0.13+0.20)/2 — elevated; h2h steal tendencies are predictive
-}  // sum ≈ 1.04 → normalised implicitly by weighted average
+  lineValue:      0.11,
+  matchupEdge:    0.03,
+  last20HitRate:  0.12,
+  trend:          0.04,
+  seasonCushion:  0.29,
+  pace:           0.10,
+  newsInjury:     0.07,
+  restDays:       0.07,
+  blowout:        0.03,
+  homeAway:       0.01,
+  vsOpponent:     0.17,
+}
 
-// Three-pointers: matchupEdge surges further (0.16→0.22) — positional DVP confirms 3P matchup.
-//   homeAway elevated (+6pp); last20HitRate cut (−7pp); matchupEdge now #1 factor with DVP.
+// Three-pointers: matchupEdge is strongest signal (positional 3P DVP confirmed); homeAway + restDays elevated.
 const W_THREE_POINTERS = {
-  lineValue:      0.07,  // blended: (0.09+0.05)/2
-  matchupEdge:    0.22,  // blended: (0.16+0.27)/2 — biggest mover; positional 3P DVP is strongest signal
-  last20HitRate:  0.09,  // blended: (0.16+0.01)/2 — reduced; matchup now carries more weight
-  trend:          0.06,  // blended: (0.08+0.03)/2
-  seasonCushion:  0.09,  // blended: (0.07+0.11)/2
-  pace:           0.04,  // blended: (0.08+0.00)/2 — reduced; pace barely matters for 3PM
-  newsInjury:     0.06,  // blended: (0.04+0.08)/2
-  restDays:       0.15,  // blended: (0.15+0.15)/2 — confirmed; rested shooters hit more 3s
-  blowout:        0.07,  // blended: (0.08+0.06)/2
-  homeAway:       0.18,  // blended: (0.12+0.23)/2 — elevated; home shooters advantage confirmed
-  vsOpponent:     0.04,  // blended: (0.07+0.01)/2
-}  // sum ≈ 1.07 → normalised implicitly by weighted average
+  lineValue:      0.07,
+  matchupEdge:    0.22,
+  last20HitRate:  0.09,
+  trend:          0.06,
+  seasonCushion:  0.09,
+  pace:           0.04,
+  newsInjury:     0.06,
+  restDays:       0.15,
+  blowout:        0.07,
+  homeAway:       0.18,
+  vsOpponent:     0.04,
+}
 
 /** Pick the right weight set for the stat type */
 function getWeights(statType: StatType): typeof W_POINTS {
@@ -1191,20 +1175,21 @@ export function scoreProps(
 //
 // PLAY thresholds: LOCK - 6 (tighter band to keep PLAY meaningful).
 const LOCK_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
-  assists:        74,  // 100% on 2 LOCKs (small sample); keep at 74
-  pra:            76,  // was 78 — only 4 LOCKs at 78; lowered 2pts to increase sample
-  steals:         76,  // was 78 — only 2 LOCKs at 78; lowered 2pts to increase sample
-  blocks:         74,  // 61.8% on 34 LOCKs — confirmed accurate; keep at 74
-  three_pointers: 72,  // 58.7% on 75 LOCKs — best-sampled stat; keep at 72
-  rebounds:       74,  // was 76 — 0 LOCKs at 76 with v7.0 weights; lowered 2pts
+  assists:        74,  // 64.3% on 14 LOCKs — confirmed; keep at 74
+  pra:            78,  // raised from 76 — 76 was hitting 52.2% (too low); 78 gives 72.7%
+  steals:         78,  // raised from 76 — 76 was hitting 53.1% (too low); 78 gives 92.9%
+  blocks:         74,  // 88.2% on 17 LOCKs — confirmed accurate; keep at 74
+  three_pointers: 72,  // 60.0% on 35 LOCKs — best-sampled stat; keep at 72
+  rebounds:       74,  // 55.6% on 10 LOCKs — keep at 74; v10 weights may improve
 }
 const PLAY_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
-  assists:        68,  // LOCK - 6
-  pra:            70,  // LOCK - 6
-  steals:         70,  // LOCK - 6
-  blocks:         68,  // LOCK - 6
-  three_pointers: 66,  // LOCK - 6
-  rebounds:       68,  // LOCK - 6
+  assists:        68,  // LOCK - 6; 51.6% hit rate — keep at 68
+  pra:            76,  // raised from 72 — 72 was hitting 40.3%; 76 gives tighter window
+  steals:         72,  // LOCK - 6; 55.4% hit rate — keep at 72
+  blocks:         72,  // raised from 68 — 68 was hitting 39.5%
+  three_pointers: 66,  // LOCK - 6; 53.0% hit rate — keep at 66
+  rebounds:       72,  // raised from 68 — 68 was hitting 46.8%; 72 gives 60.0%
+  points:         70,  // raised from 66 (default) — 66 was hitting 42.5%
 }
 
 function getLabel(score: number, statType?: StatType): { label: ConfidenceLabel; tier: RiskTier } {

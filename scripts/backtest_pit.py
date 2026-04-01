@@ -253,31 +253,32 @@ def data_freshness(logs, game_date_str):
 # ── Per-stat weights (mirrors TypeScript) ────────────────────────────────────
 
 WEIGHTS = {
-    'points': dict(lineValue=0.13, matchupEdge=0.06, last20HitRate=0.15, trend=0.06,
-                   seasonCushion=0.04, pace=0.11, newsInjury=0.06, restDays=0.16,
-                   blowout=0.12, homeAway=0.08, vsOpponent=0.03),
-    'rebounds': dict(lineValue=0.03, matchupEdge=0.09, last20HitRate=0.18, trend=0.08,
-                     seasonCushion=0.10, pace=0.10, newsInjury=0.13, restDays=0.10,
-                     blowout=0.10, homeAway=0.07, vsOpponent=0.02),
-    'assists': dict(lineValue=0.08, matchupEdge=0.07, last20HitRate=0.13, trend=0.09,
-                    seasonCushion=0.16, pace=0.07, newsInjury=0.12, restDays=0.06,
-                    blowout=0.04, homeAway=0.06, vsOpponent=0.12),
-    'pra': dict(lineValue=0.05, matchupEdge=0.07, last20HitRate=0.08, trend=0.16,
-                seasonCushion=0.28, pace=0.03, newsInjury=0.08, restDays=0.04,
-                blowout=0.13, homeAway=0.09, vsOpponent=0.03),
-    'blocks': dict(lineValue=0.05, matchupEdge=0.13, last20HitRate=0.19, trend=0.10,
-                   seasonCushion=0.26, pace=0.05, newsInjury=0.08, restDays=0.04,
-                   blowout=0.06, homeAway=0.05, vsOpponent=0.07),
-    'steals': dict(lineValue=0.10, matchupEdge=0.09, last20HitRate=0.23, trend=0.12,
-                   seasonCushion=0.14, pace=0.04, newsInjury=0.06, restDays=0.13,
-                   blowout=0.03, homeAway=0.04, vsOpponent=0.05),
-    'three_pointers': dict(lineValue=0.05, matchupEdge=0.07, last20HitRate=0.26, trend=0.13,
-                           seasonCushion=0.07, pace=0.05, newsInjury=0.04, restDays=0.24,
-                           blowout=0.04, homeAway=0.15, vsOpponent=0.01),
+    # v9.0 weights — synced with confidence.ts (optimizer run 6, DVP-aware; thresholds pra/steals raised to 78)
+    'points': dict(lineValue=0.07, matchupEdge=0.02, last20HitRate=0.21, trend=0.05,
+                   seasonCushion=0.10, pace=0.17, newsInjury=0.13, restDays=0.12,
+                   blowout=0.08, homeAway=0.08, vsOpponent=0.02),
+    'rebounds': dict(lineValue=0.02, matchupEdge=0.03, last20HitRate=0.09, trend=0.03,
+                     seasonCushion=0.04, pace=0.08, newsInjury=0.13, restDays=0.09,
+                     blowout=0.04, homeAway=0.48, vsOpponent=0.02),
+    'assists': dict(lineValue=0.05, matchupEdge=0.04, last20HitRate=0.07, trend=0.04,
+                    seasonCushion=0.26, pace=0.13, newsInjury=0.09, restDays=0.04,
+                    blowout=0.06, homeAway=0.10, vsOpponent=0.16),
+    'pra': dict(lineValue=0.04, matchupEdge=0.07, last20HitRate=0.05, trend=0.06,
+                seasonCushion=0.25, pace=0.02, newsInjury=0.06, restDays=0.03,
+                blowout=0.13, homeAway=0.28, vsOpponent=0.07),
+    'blocks': dict(lineValue=0.02, matchupEdge=0.13, last20HitRate=0.06, trend=0.15,
+                   seasonCushion=0.25, pace=0.06, newsInjury=0.10, restDays=0.08,
+                   blowout=0.03, homeAway=0.09, vsOpponent=0.07),
+    'steals': dict(lineValue=0.11, matchupEdge=0.03, last20HitRate=0.12, trend=0.04,
+                   seasonCushion=0.29, pace=0.10, newsInjury=0.07, restDays=0.07,
+                   blowout=0.03, homeAway=0.01, vsOpponent=0.17),
+    'three_pointers': dict(lineValue=0.07, matchupEdge=0.22, last20HitRate=0.09, trend=0.06,
+                           seasonCushion=0.09, pace=0.04, newsInjury=0.06, restDays=0.15,
+                           blowout=0.07, homeAway=0.18, vsOpponent=0.04),
 }
 
-LOCK_THRESHOLD = {'assists': 74, 'pra': 78, 'steals': 78, 'blocks': 74, 'three_pointers': 72, 'rebounds': 76}
-PLAY_THRESHOLD = {'assists': 68, 'pra': 72, 'steals': 72, 'blocks': 68, 'three_pointers': 66, 'rebounds': 70}
+LOCK_THRESHOLD = {'assists': 74, 'pra': 78, 'steals': 78, 'blocks': 74, 'three_pointers': 72, 'rebounds': 74}  # pra/steals raised to 78 — 76 was hitting <54%
+PLAY_THRESHOLD = {'assists': 68, 'pra': 76, 'steals': 72, 'blocks': 72, 'three_pointers': 66, 'rebounds': 72, 'points': 70}  # raised +4 for underperforming stats
 LOCK_DEFAULT = 72  # raised from 68 — scores <70 hit ~49% in calibration
 PLAY_DEFAULT = 66  # raised from 60 — LOCK - 6
 
