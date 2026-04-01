@@ -155,22 +155,35 @@ def trend_score(logs, stat_type, direction):
     raw = clamp(trend_pct / 0.40 + 0.50)
     return raw if direction == 'over' else 1 - raw
 
-def matchup_score(def_ranks, stat_type, direction):
+RANK_KEY_MAP = {
+    'points': 'pts_rank', 'rebounds': 'reb_rank', 'assists': 'ast_rank',
+    'steals': 'stl_rank', 'blocks': 'blk_rank', 'three_pointers': 'fg3m_rank',
+    'pra': 'pts_rank',  # proxy
+}
+
+def matchup_score(def_ranks, stat_type, direction, dvp_ranks=None, player_position=None):
     """
-    def_ranks: dict keyed by team_abbr -> { 'pts_rank':N, 'reb_rank':N, ... }
+    def_ranks:       dict of rank stats for the opposing team (overall)
+    dvp_ranks:       dict of position_group -> rank stats (position-specific DVP)
+    player_position: 'guard' | 'forward' | 'center'
+    Blends overall rank 50/50 with positional DVP rank when both are available.
     Returns 0.5 if no data.
     """
-    rank_key = {
-        'points': 'pts_rank', 'rebounds': 'reb_rank', 'assists': 'ast_rank',
-        'steals': 'stl_rank', 'blocks': 'blk_rank', 'three_pointers': 'fg3m_rank',
-        'pra': 'pts_rank',  # proxy
-    }.get(stat_type)
+    rank_key = RANK_KEY_MAP.get(stat_type)
     if not rank_key or not def_ranks or rank_key not in def_ranks:
         return 0.50
-    rank = def_ranks[rank_key]
-    if not rank or rank < 1 or rank > 30:
+    season_rank = def_ranks[rank_key]
+    if not season_rank or season_rank < 1 or season_rank > 30:
         return 0.50
-    raw = (rank - 1) / 29
+
+    final_rank = season_rank
+    if dvp_ranks and player_position:
+        pos_ranks = dvp_ranks.get(player_position, {})
+        dvp_rank = pos_ranks.get(rank_key)
+        if dvp_rank and 1 <= dvp_rank <= 30:
+            final_rank = season_rank * 0.50 + dvp_rank * 0.50
+
+    raw = (final_rank - 1) / 29
     return raw if direction == 'over' else 1 - raw
 
 def rest_days_score(logs, game_date_str):
@@ -276,11 +289,14 @@ def get_label(score, stat_type):
     if score >= 50:   return 'LEAN'
     return 'FADE'
 
-def score_prop_pit(prop, player_logs_before, def_ranks_before, weights=None):
+def score_prop_pit(prop, player_logs_before, def_ranks_before, weights=None,
+                   dvp_ranks_before=None, player_position=None):
     """
     Score a prop using ONLY data available before prop['game_date'].
     player_logs_before: list of game logs sorted desc by game_date, all before game_date
     def_ranks_before:   dict of opp_team -> rank stats computed from data before game_date
+    dvp_ranks_before:   dict of position_group -> rank stats (positional DVP for opp team)
+    player_position:    'guard' | 'forward' | 'center'
     """
     stat_type  = prop['stat_type']
     direction  = prop['direction']
@@ -296,7 +312,7 @@ def score_prop_pit(prop, player_logs_before, def_ranks_before, weights=None):
 
     if not has_logs:
         # No log fallback: use matchup + cushion + injury proxy
-        f2   = matchup_score(def_ranks_before, stat_type, direction)
+        f2   = matchup_score(def_ranks_before, stat_type, direction, dvp_ranks_before, player_position)
         f3   = 0.50
         f11  = 0.50  # no injury data in backtest
         raw  = f2 * 0.50 + f3 * 0.30 + f11 * 0.20
@@ -304,7 +320,7 @@ def score_prop_pit(prop, player_logs_before, def_ranks_before, weights=None):
         return score, get_label(score, stat_type)
 
     fLineValue = line_value_score(logs, stat_type, line, direction)
-    f2         = matchup_score(def_ranks_before, stat_type, direction)
+    f2         = matchup_score(def_ranks_before, stat_type, direction, dvp_ranks_before, player_position)
     f3         = season_cushion_score(logs, stat_type, line, direction)
     f4_val     = vs_opponent_score(logs, stat_type, line, direction, opponent)
     f5_val     = home_away_score(logs, stat_type, line, direction, is_home)
@@ -452,6 +468,99 @@ def build_def_ranks_by_date(all_logs):
 
     print(f"  Built ranks for {len(def_ranks_by_date)} unique dates across {len(team_running)} teams")
     return def_ranks_by_date
+
+
+# ── Build point-in-time DVP ranks by position from game logs ─────────────────
+
+def build_dvp_ranks_by_date(all_logs, player_positions):
+    """
+    Build position-specific defensive ranks for each team at each date.
+    Uses the same incremental approach as build_def_ranks_by_date but groups
+    game log entries by the player's position group before aggregating.
+
+    Returns: dict of game_date -> dict of team_abbr -> dict of position_group ->
+             { 'pts_rank':N, 'reb_rank':N, ... }
+    """
+    if not player_positions:
+        return {}
+
+    print("Building point-in-time DVP ranks by position...")
+    STAT_KEYS = ['points', 'rebounds', 'assists', 'steals', 'blocks', 'fg3m']
+    RANK_KEYS = ['pts_rank', 'reb_rank', 'ast_rank', 'stl_rank', 'blk_rank', 'fg3m_rank']
+    POSITIONS = ['guard', 'forward', 'center']
+
+    all_logs_sorted = sorted(all_logs, key=lambda g: g.get('game_date', ''))
+    dates = sorted(set(g['game_date'] for g in all_logs_sorted if g.get('game_date')))
+
+    # game_totals_pos[team][position][game_date] = {stat: total}
+    game_totals_pos = defaultdict(lambda: defaultdict(dict))
+    for g in all_logs_sorted:
+        opp = extract_opponent(g.get('matchup', ''))
+        gdate = g.get('game_date')
+        pname = g.get('player_name', '')
+        if not opp or not gdate or not pname:
+            continue
+        pos = player_positions.get(pname)
+        if not pos:
+            continue
+        if gdate not in game_totals_pos[opp][pos]:
+            game_totals_pos[opp][pos][gdate] = {s: 0.0 for s in STAT_KEYS}
+        for s in STAT_KEYS:
+            game_totals_pos[opp][pos][gdate][s] += float(
+                get_stat(g, s if s != 'fg3m' else 'three_pointers') or 0
+            )
+
+    # Flatten into sortable events: (game_date, team, position, totals)
+    all_events = []
+    for team, pos_map in game_totals_pos.items():
+        for pos, date_map in pos_map.items():
+            for gdate, totals in date_map.items():
+                all_events.append((gdate, team, pos, totals))
+    all_events.sort()
+
+    # Incrementally build DVP ranks at each prop date
+    dvp_ranks_by_date = {}
+    # running[team][pos][stat] = [per-game totals]
+    running = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    event_idx = 0
+
+    for prop_date in dates:
+        while event_idx < len(all_events) and all_events[event_idx][0] < prop_date:
+            gdate, team, pos, totals = all_events[event_idx]
+            for s in STAT_KEYS:
+                running[team][pos][s].append(totals[s])
+            event_idx += 1
+
+        if not running:
+            dvp_ranks_by_date[prop_date] = {}
+            continue
+
+        # Compute averages per team per position
+        team_pos_avgs = {}
+        for team, pos_map in running.items():
+            team_pos_avgs[team] = {}
+            for pos in POSITIONS:
+                stat_map = pos_map.get(pos, {})
+                avgs = {}
+                for s in STAT_KEYS:
+                    vals = stat_map.get(s, [])
+                    avgs[s] = sum(vals) / len(vals) if vals else 0
+                team_pos_avgs[team][pos] = avgs
+
+        # Rank teams within each position group (1 = best D = fewest allowed)
+        date_dvp = {team: {pos: {} for pos in POSITIONS} for team in team_pos_avgs}
+        for pos in POSITIONS:
+            for s, rank_key in zip(STAT_KEYS, RANK_KEYS):
+                teams_with_data = [t for t in team_pos_avgs if team_pos_avgs[t][pos].get(s, 0) > 0]
+                sorted_teams = sorted(teams_with_data, key=lambda t: team_pos_avgs[t][pos][s])
+                for rank, team in enumerate(sorted_teams, 1):
+                    date_dvp[team][pos][rank_key] = rank
+
+        dvp_ranks_by_date[prop_date] = date_dvp
+
+    n_teams = len(running)
+    print(f"  Built DVP ranks for {len(dvp_ranks_by_date)} dates across {n_teams} teams x 3 positions")
+    return dvp_ranks_by_date
 
 
 # ── Synthetic alt line generation ────────────────────────────────────────────
@@ -630,6 +739,14 @@ def main():
     print("[4/4] Building point-in-time defense ranks...")
     def_ranks_by_date = build_def_ranks_by_date(all_logs)
 
+    print("[4b] Loading player positions for DVP...")
+    pos_rows = supabase_get_all('player_positions', 'select=player_name,position_group')
+    player_positions = {r['player_name']: r['position_group'] for r in pos_rows if r.get('player_name')}
+    print(f"  {len(player_positions)} player positions loaded")
+
+    print("[4c] Building point-in-time DVP ranks by position...")
+    dvp_ranks_by_date = build_dvp_ranks_by_date(all_logs, player_positions)
+
     # ── Build scored props dataset ─────────────────────────────────────────────
     print("\nScoring props with point-in-time factors...")
 
@@ -692,14 +809,21 @@ def main():
 
         opp_def_ranks = def_ranks_date.get(opp, {}) if opp else {}
 
-        score, label = score_prop_pit(p, plogs, opp_def_ranks)
+        # Position-specific DVP for the opposing team at this date
+        dvp_date      = dvp_ranks_by_date.get(game_date, {})
+        opp_dvp       = dvp_date.get(opp, {}) if opp else {}
+        player_pos    = player_positions.get(player)
+
+        score, label = score_prop_pit(p, plogs, opp_def_ranks,
+                                      dvp_ranks_before=opp_dvp,
+                                      player_position=player_pos)
 
         # Also store pre-computed factors for optimizer
         has_logs = len(plogs) >= 3
         factors = {
             'has_logs':      has_logs,
             'fLineValue':    line_value_score(plogs, stat_type, line, direction) if has_logs else 0.50,
-            'f2':            matchup_score(opp_def_ranks, stat_type, direction),
+            'f2':            matchup_score(opp_def_ranks, stat_type, direction, opp_dvp, player_pos),
             'f3':            season_cushion_score(plogs, stat_type, line, direction) if has_logs else 0.50,
             'f4':            vs_opponent_score(plogs, stat_type, line, direction, opp) if has_logs else 0.50,
             'f5':            (home_away_score(plogs, stat_type, line, direction, is_home) or 0.50) if has_logs else 0.50,
@@ -730,9 +854,14 @@ def main():
         print(f"  Generated {len(synthetic)} synthetic alt-line props")
         # Score synthetics too
         for p in synthetic:
+            _opp   = p.get('opponent_abbr', '')
+            _gdate = p['game_date']
+            _dvp   = dvp_ranks_by_date.get(_gdate, {}).get(_opp, {})
+            _pos   = player_positions.get(p['player_name'])
             score, label = score_prop_pit(p,
-                [g for g in logs_by_player[p['player_name']] if g['game_date'] < p['game_date']],
-                def_ranks_by_date.get(p['game_date'], {}).get(p.get('opponent_abbr', ''), {}))
+                [g for g in logs_by_player[p['player_name']] if g['game_date'] < _gdate],
+                def_ranks_by_date.get(_gdate, {}).get(_opp, {}),
+                dvp_ranks_before=_dvp, player_position=_pos)
             p['pit_score'] = score
             p['pit_label'] = label
 
