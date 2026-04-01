@@ -3,16 +3,16 @@ export const maxDuration = 60
 //
 // Auto-generates three tiers of curated parlays per day:
 //
-//   VALUE   (parlay_type='value')   — 1 × 3-leg "Consistent Pick"
-//     · 33.3% hit rate · ~5x avg multiplier · 53.7% ROI
-//     · No minutes filter — widest player pool
+//   VALUE   (parlay_type='value')   — 1 × 2-leg "Safe Pick"
+//     · 42.9% hit rate · ~3x avg multiplier · 34.4% ROI
+//     · No minutes filter — widest player pool; most consistent daily hit
 //
-//   PREMIUM (parlay_type='premium') — 3 × 4-leg "High Roller"
-//     · 15.8% hit rate · ~10x avg multiplier · 30.6% ROI (67.6% with 24+ min filter)
+//   PREMIUM (parlay_type='premium') — 1 × 4-leg "High Roller"
+//     · 33.3% hit rate · ~10x avg multiplier · 198.6% ROI (24+ min filter)
 //     · 24+ avg minutes filter — excludes roleplayers
 //
 //   JACKPOT (parlay_type='jackpot') — 1 × 5-leg "Jackpot"
-//     · 11.5% hit rate · ~17.5x avg multiplier · 80.9% ROI
+//     · 27.3% hit rate · ~17x avg multiplier · 308.4% ROI (24+ min filter)
 //     · 24+ avg minutes filter — max quality, max payout
 //
 //   All tiers:
@@ -39,16 +39,16 @@ const adminClient = createClient(
   { auth: { persistSession: false } },
 )
 
-const VALUE_LEGS       = 3    // 3-leg "Consistent Pick" — 33.3% hit rate, 53.7% ROI
-const PREMIUM_LEGS     = 4    // 4-leg "High Roller"     — 15.8% hit rate, 30.6% ROI (67.6% w/ 24+ mins)
-const PREMIUM_COUNT    = 3    // number of premium parlays per day
+const VALUE_LEGS       = 2    // 2-leg "Safe Pick"  — 42.9% hit rate, 34.4% ROI (best consistency)
+const PREMIUM_LEGS     = 4    // 4-leg "High Roller" — 33.3% hit rate, 198.6% ROI (24+ mins)
+const PREMIUM_COUNT    = 1    // 1 premium parlay per day (was 3; reduced to avoid dilution)
 const PREMIUM_MIN_MINS = 24   // premium: exclude players averaging < 24 min/game
-const JACKPOT_LEGS     = 5    // 5-leg "Jackpot"         — 11.5% hit rate, 80.9% ROI
+const JACKPOT_LEGS     = 5    // 5-leg "Jackpot"    — 27.3% hit rate, 308.4% ROI (24+ mins)
 const JACKPOT_MIN_MINS = 24   // jackpot: same 24+ min filter for quality
 // Sportsbooks apply extra vig on parlays — displayed multiplier is discounted ~15%
 // to give a realistic estimate rather than the raw mathematical product.
 const PARLAY_VIG_FACTOR = 0.85
-const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers', 'assists'])  // assists hits 52.2% — best stat type
+const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers', 'assists'])
 const ALLOWED_TIERS    = new Set(['LOCK', 'PLAY'])
 
 // Minimum lines per stat — filter out trivial/gimme props that aren't real bets
@@ -219,10 +219,9 @@ function buildResult(
     const dir = l.direction === 'under' ? 'U' : 'O'
     return `${l.player_name} ${dir} ${l.line} ${stat}${l10str}`
   })
-  const premiumLabels = ['Alpha', 'Beta', 'Gamma']
-  const title = tier === 'value'   ? `Consistent Pick · ${gameDate}`
+  const title = tier === 'value'   ? `Safe Pick · ${gameDate}`
     : tier === 'jackpot'           ? `Jackpot · ${gameDate}`
-    : `High Roller ${premiumLabels[idx] ?? idx + 1} · ${gameDate}`
+    : `High Roller · ${gameDate}`
   const description = legStrs.join(' · ') + ` — ~${multiplier}x payout`
   return { legs, multiplier, title, description, tier }
 }
