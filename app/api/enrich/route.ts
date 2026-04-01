@@ -318,6 +318,7 @@ async function runEnrichment(force = false) {
     { data: seasonRows },
     { data: biasRows },
     { data: leakRows },
+    { data: positionRows },
     openingOddsMap,
     spreadMap,
     injuryMap,
@@ -330,6 +331,7 @@ async function runEnrichment(force = false) {
     supabase.from('player_season_stats').select('*'),
     supabase.from('player_line_bias').select('player_name, stat_type, hit_rate, median_ratio, sample_count'),
     supabase.from('opponent_stat_leaks').select('opponent_team, stat_type, over_hit_rate, median_ratio, sample_count'),
+    supabase.from('player_positions').select('player_name, position_group'),
     loadMorningOdds(),
     fetchEspnSpreads(),
     fetchEspnInjuries(),
@@ -404,6 +406,15 @@ async function runEnrichment(force = false) {
     })
   }
 
+  // Build player position map: player name → position group (real NBA positions)
+  const positionMap = new Map<string, 'guard' | 'forward' | 'center'>()
+  for (const row of positionRows ?? []) {
+    if (row.player_name && row.position_group) {
+      positionMap.set(row.player_name as string, row.position_group as 'guard' | 'forward' | 'center')
+    }
+  }
+  console.log(`[/api/enrich] Player positions loaded: ${positionMap.size} players`)
+
   // Build DVP map: team abbreviation → DvpStats (per-position defense ranks)
   const neutral: DvpStats[keyof DvpStats] = { pts: 15, reb: 15, ast: 15, stl: 15, blk: 15, fg3m: 15 }
   const dvpMap = new Map<string, DvpStats>()
@@ -425,7 +436,7 @@ async function runEnrichment(force = false) {
 
   const playersWithLogs = [...logsMap.values()].filter((l) => l.length >= 3).length
   const totalsLoaded    = [...spreadMap.values()].filter((g) => g.total != null).length / 2
-  console.log(`[/api/enrich] Parallel load done — logs: ${allLogRows.length} rows (${playersWithLogs}/${uniqueNames.length} players), hist: ${histRows.length} rows, ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U), injuries: ${injuryMap.size}, morning odds: ${openingOddsMap.size}, DVP teams: ${dvpMap.size}, yesterday B2B: ${yesterdayTeams.size}`)
+  console.log(`[/api/enrich] Parallel load done — logs: ${allLogRows.length} rows (${playersWithLogs}/${uniqueNames.length} players), hist: ${histRows.length} rows, ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U), injuries: ${injuryMap.size}, morning odds: ${openingOddsMap.size}, DVP teams: ${dvpMap.size}, positions: ${positionMap.size}, yesterday B2B: ${yesterdayTeams.size}`)
 
   // Flag players with no game logs so they show up in Vercel logs for easy backfill
   const missingLogPlayers = uniqueNames.filter((name) => (logsMap.get(name)?.length ?? 0) < 3)
@@ -500,7 +511,7 @@ async function runEnrichment(force = false) {
       : null
 
     const playerSeasonStats = seasonMap.get(prop.player_name) ?? null
-    const playerPosition    = inferPlayerPosition(playerSeasonStats)
+    const playerPosition    = positionMap.get(prop.player_name) ?? inferPlayerPosition(playerSeasonStats)
     const dvpStats          = opponentAbbr ? (dvpMap.get(opponentAbbr) ?? null) : null
     const opponentOnB2B     = opponentAbbr ? yesterdayTeams.has(opponentAbbr) : false
     const homePace          = homeAbbr ? (defMap.get(homeAbbr)?.pace ?? null) : null
@@ -621,7 +632,7 @@ async function runEnrichment(force = false) {
         }
       }
       const altSeasonStats = seasonMap.get(pseudoProp.player_name) ?? null
-      const altPosition    = inferPlayerPosition(altSeasonStats)
+      const altPosition    = positionMap.get(pseudoProp.player_name) ?? inferPlayerPosition(altSeasonStats)
       const altDvpStats    = opponentAbbr ? (dvpMap.get(opponentAbbr) ?? null) : null
       const altB2B         = opponentAbbr ? yesterdayTeams.has(opponentAbbr) : false
       const altHomeAbbr    = pseudoProp.home_team ? (TEAM_ABBR[pseudoProp.home_team] ?? null) : null

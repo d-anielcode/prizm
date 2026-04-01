@@ -37,8 +37,14 @@ function getDb() {
   )
 }
 
-function buildNbaUrl(params: Record<string, string | number>) {
-  const base = 'https://stats.nba.com/stats/leaguedashteamstats'
+function buildNbaUrl(base: string, params: Record<string, string | number>) {
+  const qs = Object.entries(params)
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+    .join('&')
+  return `${base}?${qs}`
+}
+
+function buildTeamStatsUrl(params: Record<string, string | number>) {
   const defaults = {
     Conference: '', DateFrom: '', DateTo: '', Division: '',
     GameScope: '', GameSegment: '', Height: '', LastNGames: 0,
@@ -50,24 +56,31 @@ function buildNbaUrl(params: Record<string, string | number>) {
     ShotClockRange: '', StarterBench: '', TeamID: 0,
     TwoWay: 0, VsConference: '', VsDivision: '',
   }
-  const merged = { ...defaults, ...params }
-  const qs = Object.entries(merged)
-    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
-    .join('&')
-  return `${base}?${qs}`
+  return buildNbaUrl('https://stats.nba.com/stats/leaguedashteamstats', { ...defaults, ...params })
 }
 
-async function fetchNbaStats(params: Record<string, string | number>): Promise<{ headers: string[]; rows: unknown[][] } | null> {
-  const url = buildNbaUrl(params)
+async function fetchNbaJson(url: string): Promise<{ headers: string[]; rows: unknown[][] } | null> {
   const res = await fetch(url, { headers: NBA_HEADERS, cache: 'no-store' })
   if (!res.ok) {
-    console.error(`[defense-stats] NBA API error: ${res.status} ${url.slice(0, 100)}`)
+    console.error(`[defense-stats] NBA API error: ${res.status} ${url.slice(0, 120)}`)
     return null
   }
   const json = await res.json()
   const set = json?.resultSets?.[0]
   if (!set) return null
   return { headers: set.headers as string[], rows: set.rowSet as unknown[][] }
+}
+
+async function fetchNbaStats(params: Record<string, string | number>): Promise<{ headers: string[]; rows: unknown[][] } | null> {
+  return fetchNbaJson(buildTeamStatsUrl(params))
+}
+
+/** Map raw NBA position string → position group */
+function mapPosition(raw: string): 'guard' | 'forward' | 'center' {
+  const p = (raw ?? '').trim().toUpperCase()
+  if (p === 'C' || p === 'C-F') return 'center'
+  if (p === 'G' || p === 'G-F' || p === 'F-G') return 'guard'
+  return 'forward'  // F, F-C, F-G, unknown
 }
 
 function toMap(data: { headers: string[]; rows: unknown[][] }): Record<string, Record<string, unknown>>[] {
@@ -207,9 +220,57 @@ export async function GET(req: Request) {
 
   results.dvpRows = dvpRows.length
 
+  // ── 5. Player positions (leaguedashplayerbiostats) ──────────────────────
+  await sleep(1000)
+  console.log('[defense-stats] Fetching player positions...')
+  const playerBioUrl = buildNbaUrl('https://stats.nba.com/stats/leaguedashplayerbiostats', {
+    LeagueID: '00', Season: CURRENT_SEASON, SeasonType: 'Regular Season',
+    PerMode: 'PerGame', College: '', Conference: '', Country: '', DateFrom: '',
+    DateTo: '', Division: '', DraftPick: '', DraftYear: '', GameScope: '',
+    GameSegment: '', Height: '', LastNGames: 0, Location: '', Month: 0,
+    OpponentTeamID: 0, Outcome: '', PORound: 0, Period: 0,
+    PlayerExperience: '', PlayerPosition: '', SeasonSegment: '',
+    ShotClockRange: '', StarterBench: '', TeamID: 0, VsConference: '',
+    VsDivision: '', Weight: '',
+  })
+  const bioData = await fetchNbaJson(playerBioUrl)
+  if (bioData) {
+    const nameIdx = bioData.headers.indexOf('PLAYER_NAME')
+    const posIdx  = bioData.headers.indexOf('PLAYER_POSITION')
+    if (nameIdx >= 0 && posIdx >= 0) {
+      const posRows = bioData.rows
+        .filter(row => row[nameIdx] && row[posIdx])
+        .map(row => ({
+          player_name:    String(row[nameIdx]),
+          nba_position:   String(row[posIdx]),
+          position_group: mapPosition(String(row[posIdx])),
+          updated_at:     now,
+        }))
+
+      if (posRows.length > 0) {
+        // Upsert in batches of 500
+        let posUpserted = 0
+        for (let i = 0; i < posRows.length; i += 500) {
+          const chunk = posRows.slice(i, i + 500)
+          const { error: posErr } = await db
+            .from('player_positions')
+            .upsert(chunk, { onConflict: 'player_name' })
+          if (posErr) console.error('[defense-stats] upsert player_positions error:', posErr.message)
+          else posUpserted += chunk.length
+        }
+        results.playerPositions = posUpserted
+        console.log(`[defense-stats] Saved ${posUpserted} player positions`)
+      }
+    } else {
+      console.warn('[defense-stats] PLAYER_NAME or PLAYER_POSITION column not found in bio stats response')
+    }
+  } else {
+    console.warn('[defense-stats] Failed to fetch player bio stats — positions not updated')
+  }
+
   return NextResponse.json({
     ok: true,
     ...results,
-    message: `Defense stats updated: ${teamRows.length} teams, ${dvpRows.length} DVP rows`,
+    message: `Defense stats updated: ${teamRows.length} teams, ${dvpRows.length} DVP rows, ${results.playerPositions ?? 0} player positions`,
   })
 }
