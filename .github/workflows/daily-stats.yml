@@ -100,17 +100,17 @@ jobs:
             "$VERCEL_APP_URL/api/defense-stats" | head -c 300
           echo ""
 
-      - name: Fetch player positions (guard/forward/center)
+      - name: Fetch DVP + player positions via Python
         continue-on-error: true
-        env:
-          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          pip install nba_api requests -q
+          echo "Fetching DVP by position..."
+          py -3 scripts/fetch_defense_dvp.py || python3 scripts/fetch_defense_dvp.py
           echo "Fetching player positions..."
-          curl -sf --max-time 60 \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            "$VERCEL_APP_URL/api/player-positions" | head -c 300
-          echo ""
+          py -3 scripts/fetch_player_positions.py || python3 scripts/fetch_player_positions.py
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # ── Full pipeline only: refresh today's lines after stats are loaded ───
 
