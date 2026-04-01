@@ -207,10 +207,18 @@ async function main() {
     return
   }
 
-  // 3. Delete all old props
-  console.log('\n[seed] Deleting old props from Supabase...')
-  await supabaseRequest('DELETE', `props?id=neq.00000000-0000-0000-0000-000000000000`, null)
-  console.log('[seed] Old props deleted.')
+  // 3. Delete old props scoped to today's game dates only (not the entire table)
+  const gameDates = [...new Set(deduped.map((p) => {
+    if (!p.commence_time) return null
+    return new Date(p.commence_time).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  }).filter(Boolean))]
+  console.log(`\n[seed] Deleting old props for game dates: ${gameDates.join(', ')}...`)
+  for (const date of gameDates) {
+    const startOfDay = `${date}T00:00:00.000Z`
+    const endOfDay   = `${date}T23:59:59.999Z`
+    await supabaseRequest('DELETE', `props?commence_time=gte.${startOfDay}&commence_time=lte.${endOfDay}`, null)
+  }
+  console.log('[seed] Old props for target dates deleted.')
 
   // 4. Insert new props in batches
   const BATCH = 500

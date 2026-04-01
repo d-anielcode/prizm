@@ -4,7 +4,7 @@ export const maxDuration = 60
 // Auto-generates three tiers of curated parlays per day:
 //
 //   VALUE   (parlay_type='value')   — 1 × 2-leg "Safe Pick"
-//     · 42.9% hit rate · ~3x avg multiplier · 34.4% ROI
+//     · 47.5% hit rate · ~3x avg multiplier · 34.6% ROI
 //     · No minutes filter — widest player pool; most consistent daily hit
 //
 //   PREMIUM (parlay_type='premium') — 1 × 4-leg "High Roller"
@@ -16,7 +16,9 @@ export const maxDuration = 60
 //     · 24+ avg minutes filter — max quality, max payout
 //
 //   All tiers:
-//     · Markets: PTS / REB / 3PM / AST  (assists 52.2% hit rate — best performing stat)
+//     · Markets: PTS / REB / 3PM / AST / BLK / STL
+//     · BLK + STL are LOCK-only (volatile stats — 88.2% and 76.5% LOCK hit rate,
+//       but only 46.7% and 55.3% at PLAY — not reliable enough below LOCK)
 //     · Tiers: LOCK + PLAY, both OVER and UNDER (UNDERs hit 50.1% vs OVERs 43.4%)
 //     · Sort by confidence_score descending
 //     · No SGP discount (cross-game parlay)
@@ -48,7 +50,9 @@ const JACKPOT_MIN_MINS = 24   // jackpot: same 24+ min filter for quality
 // Sportsbooks apply extra vig on parlays — displayed multiplier is discounted ~15%
 // to give a realistic estimate rather than the raw mathematical product.
 const PARLAY_VIG_FACTOR = 0.85
-const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers', 'assists'])
+const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers', 'assists', 'blocks', 'steals'])
+// Volatile stats only qualify at LOCK — PLAY hit rate too low (blocks 46.7%, steals 55.3%)
+const VOLATILE_STATS   = new Set(['blocks', 'steals'])
 const ALLOWED_TIERS    = new Set(['LOCK', 'PLAY'])
 
 // Minimum lines per stat — filter out trivial/gimme props that aren't real bets
@@ -56,7 +60,9 @@ const MIN_LINE: Record<string, number> = {
   points:         10.5,  // must be a meaningful scoring line
   rebounds:       3.5,   // must require real rebounding effort
   three_pointers: 1.5,   // "over 0.5 threes" is a coinflip, not a pick
-  assists:        2.5,   // meaningful assist line (52.2% hit rate — best stat type)
+  assists:        2.5,   // meaningful assist line
+  blocks:         0.5,   // real block line (LOCK-only: 88.2% hit rate)
+  steals:         0.5,   // real steal line  (LOCK-only: 76.5% hit rate)
 }
 
 const STAT_LABELS: Record<string, string> = {
@@ -64,6 +70,8 @@ const STAT_LABELS: Record<string, string> = {
   rebounds:       'REB',
   three_pointers: '3PM',
   assists:        'AST',
+  blocks:         'BLK',
+  steals:         'STL',
 }
 
 const ABBR_NORM: Record<string, string> = { GS: 'GSW', NY: 'NYK', NO: 'NOP', SA: 'SAS', NJ: 'NJN' }
@@ -242,7 +250,9 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     toEasternDate(p.commence_time) === gameDate &&
     ALLOWED_MARKETS.has(p.stat_type) &&
     ALLOWED_TIERS.has(p.confidence_label ?? '') &&
-    p.line >= (MIN_LINE[p.stat_type] ?? 0)
+    p.line >= (MIN_LINE[p.stat_type] ?? 0) &&
+    // blocks/steals: LOCK-only — PLAY hit rate too low to include
+    (!VOLATILE_STATS.has(p.stat_type) || p.confidence_label === 'LOCK')
   )
 
   if (eligible.length === 0) return []
@@ -260,7 +270,7 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
   const playerNames = [...new Set(props.map((p) => p.player_name))]
   const { data: logsRaw } = await supabase
     .from('player_game_logs')
-    .select('player_name, game_date, matchup, is_home, points, rebounds, assists, fg3m, minutes')
+    .select('player_name, game_date, matchup, is_home, points, rebounds, assists, fg3m, blocks, steals, minutes')
     .in('player_name', playerNames)
     .order('game_date', { ascending: false })
     .limit(playerNames.length * 15)
@@ -277,7 +287,7 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     }
   }
 
-  const STAT_FIELD: Record<string, string> = { points: 'points', rebounds: 'rebounds', three_pointers: 'fg3m', assists: 'assists' }
+  const STAT_FIELD: Record<string, string> = { points: 'points', rebounds: 'rebounds', three_pointers: 'fg3m', assists: 'assists', blocks: 'blocks', steals: 'steals' }
 
   // 3. Build scored pool with l10 stats + avg minutes (last 20 qualifying games)
   const pool: ScoredProp[] = props.map((prop) => {
@@ -411,7 +421,8 @@ export async function POST(req: Request) {
       p.commence_time &&
       toEasternDate(p.commence_time) === gameDate &&
       ALLOWED_MARKETS.has(p.stat_type) &&
-      (p.line ?? 0) >= (MIN_LINE[p.stat_type] ?? 0)
+      (p.line ?? 0) >= (MIN_LINE[p.stat_type] ?? 0) &&
+      (!VOLATILE_STATS.has(p.stat_type) || p.confidence_label === 'LOCK')
     )
 
     const playerNames = [...new Set(eligible.map((p) => p.player_name))]
@@ -453,14 +464,20 @@ export async function POST(req: Request) {
       const k = `${p.stat_type}|${p.direction ?? 'unknown'}`
       byStatDir.set(k, (byStatDir.get(k) ?? 0) + 1)
     }
-    const filtered = allLockPlay.filter((p) => !ALLOWED_MARKETS.has(p.stat_type) || (p.line ?? 0) < (MIN_LINE[p.stat_type] ?? 0))
+    const filtered = allLockPlay.filter((p) =>
+      !ALLOWED_MARKETS.has(p.stat_type) ||
+      (p.line ?? 0) < (MIN_LINE[p.stat_type] ?? 0) ||
+      (VOLATILE_STATS.has(p.stat_type) && p.confidence_label !== 'LOCK')
+    )
     const filteredReasons = filtered.map((p) => ({
       player: p.player_name,
       stat: p.stat_type,
       line: p.line,
       dir: p.direction,
       label: p.confidence_label,
-      reason: !ALLOWED_MARKETS.has(p.stat_type) ? 'market excluded' : 'below min line',
+      reason: !ALLOWED_MARKETS.has(p.stat_type) ? 'market excluded'
+        : (p.line ?? 0) < (MIN_LINE[p.stat_type] ?? 0) ? 'below min line'
+        : 'volatile stat requires LOCK',
     }))
 
     return NextResponse.json({

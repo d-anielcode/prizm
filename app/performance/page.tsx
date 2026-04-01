@@ -820,6 +820,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
         // Build 10-bar tracker: today first (left), then current streak days, then empty
         // Resets on miss — only shows active streak + today's pending
+        // Each bar = 1 day (1-leg Prop of the Day).
         const TOTAL = 10
         const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = Array(TOTAL).fill('empty')
         const todayEntry = allHistory[0] // allHistory is newest-first
@@ -827,18 +828,16 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
           todayEntry?.isPending ? 'pending'
           : todayEntry?.result === 'hit' ? 'hit'
           : 'empty' // miss = reset, show empty
-        // Bars 0-1: today
+        // Bar 0: today
         bubbles[0] = todayState
-        bubbles[1] = todayState
-        // Bars 2+: past consecutive hit days — stop at first miss/pending
-        let barIdx = 2
+        // Bars 1+: past consecutive hit days — stop at first miss/pending
+        let barIdx = 1
         for (const e of allHistory) {
-          if (e.isPending) continue          // skip today (already in bars 0-1)
+          if (e.isPending) continue          // skip today (already in bar 0)
           if (e.result !== 'hit') break      // miss breaks the streak → stop
           if (barIdx >= TOTAL) break
-          bubbles[barIdx]     = 'hit'
-          bubbles[barIdx + 1] = 'hit'
-          barIdx += 2
+          bubbles[barIdx] = 'hit'
+          barIdx += 1
         }
 
         return (
@@ -853,15 +852,14 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             {/* Stat cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: 'Current Streak', value: currentStreak > 0 ? `${currentStreak}` : '0', sub: currentStreak > 0 ? `day${currentStreak !== 1 ? 's' : ''} in a row` : 'start a new one!', color: currentStreak >= 3 ? 'text-emerald-400' : currentStreak > 0 ? 'text-[#f0c060]' : 'text-white/50', glow: currentStreak >= 3 ? 'shadow-[0_0_12px_rgba(16,185,129,0.2)]' : '' },
-                { label: 'Longest Streak', value: `${longestStreak}`, sub: longestStreak > 0 ? `day${longestStreak !== 1 ? 's' : ''} all-time best` : 'no streak yet', color: 'text-violet-400', glow: longestStreak >= 3 ? 'shadow-[0_0_12px_rgba(139,92,246,0.2)]' : '' },
-                { label: 'Hit Rate', value: hitRate !== null ? `${Math.round(hitRate * 100)}%` : '—', sub: `${allHistory.filter((e) => e.result === 'hit').length}/${allHistory.filter((e) => e.result === 'hit' || e.result === 'miss').length} days hit`, color: hitRate !== null && hitRate >= 0.6 ? 'text-emerald-400' : hitRate !== null ? 'text-[#f0c060]' : 'text-white/50', glow: '' },
-                { label: 'Days Tracked', value: `${totalDays}`, sub: 'total streak days', color: 'text-white/70', glow: '' },
-              ].map(({ label, value, sub, color, glow }) => (
+                { label: 'Current Streak', value: currentStreak > 0 ? `${currentStreak}` : '0', color: currentStreak >= 3 ? 'text-emerald-400' : currentStreak > 0 ? 'text-[#f0c060]' : 'text-white/50', glow: currentStreak >= 3 ? 'shadow-[0_0_12px_rgba(16,185,129,0.2)]' : '' },
+                { label: 'Longest Streak', value: `${longestStreak}`, color: 'text-violet-400', glow: longestStreak >= 3 ? 'shadow-[0_0_12px_rgba(139,92,246,0.2)]' : '' },
+                { label: 'Hit Rate', value: hitRate !== null ? `${Math.round(hitRate * 100)}%` : '—', color: hitRate !== null && hitRate >= 0.6 ? 'text-emerald-400' : hitRate !== null ? 'text-[#f0c060]' : 'text-white/50', glow: '' },
+                { label: 'Days Tracked', value: `${totalDays}`, color: 'text-white/70', glow: '' },
+              ].map(({ label, value, color, glow }) => (
                 <div key={label} className={`rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 flex flex-col gap-1 ${glow}`}>
                   <span className="text-[10px] font-black uppercase tracking-wider text-white/30">{label}</span>
                   <span className={`text-3xl font-black mt-1 ${color}`}>{value}</span>
-                  <span className="text-xs text-white/25">{sub}</span>
                 </div>
               ))}
             </div>
@@ -870,7 +868,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-white/30 font-semibold">Streak Progress</span>
-                <span className="text-[10px] text-white/20">last 5 days · 2 picks each</span>
+                <span className="text-[10px] text-white/20">last 10 days · 1 pick each</span>
               </div>
               <div className="flex items-center gap-2">
                 {bubbles.map((state, i) => (
@@ -904,7 +902,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             {currentStreakPicks.length > 0 && (
               <div className="flex flex-col gap-2">
                 <p className="text-[11px] text-white/25 uppercase tracking-widest">
-                  {currentStreak > 0 ? `Current Streak · ${currentStreak} day${currentStreak !== 1 ? 's' : ''}` : 'Today\'s Picks'}
+                  {currentStreak > 0 ? `Current Streak · ${currentStreak} day${currentStreak !== 1 ? 's' : ''}` : 'Today\'s Pick'}
                 </p>
                 {currentStreakPicks.map((entry) => (
                   <div key={entry.id} className={`rounded-2xl border overflow-hidden ${entry.isPending ? 'border-orange-400/20 bg-orange-400/[0.03]' : 'border-emerald-400/20 bg-emerald-400/[0.03]'}`}>
@@ -1000,9 +998,9 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
       {/* ═══ PARLAYS TAB ═══ */}
       {tab === 'parlays' && ([
-        { label: 'Consistent Picks', sublabel: '3-leg · PTS/REB/AST/3PM · LOCK+PLAY · ~33% hit rate',  parlays: valueParlays,   accent: 'text-emerald-400', dot: 'bg-emerald-400', minHitPct: 28 },
-        { label: 'High Rollers',     sublabel: '4-leg · PTS/REB/AST/3PM · 24+ min avg · ~10x payout',  parlays: premiumParlays, accent: 'text-[#e8a820]',   dot: 'bg-[#e8a820]',   minHitPct: 12 },
-        { label: 'Jackpot',          sublabel: '5-leg · PTS/REB/AST/3PM · 24+ min avg · ~17x payout',  parlays: jackpotParlays, accent: 'text-violet-400', dot: 'bg-violet-400', minHitPct: 8  },
+        { label: 'Safe Picks',  sublabel: '2-leg · LOCK+PLAY · ~43% hit rate',              parlays: valueParlays,   accent: 'text-emerald-400', dot: 'bg-emerald-400', minHitPct: 35 },
+        { label: 'High Roller', sublabel: '4-leg · 24+ min avg · ~33% hit rate · ~5–6x payout',  parlays: premiumParlays, accent: 'text-[#e8a820]',   dot: 'bg-[#e8a820]',   minHitPct: 25 },
+        { label: 'Jackpot',     sublabel: '5-leg · 24+ min avg · ~27% hit rate · ~11x payout',   parlays: jackpotParlays, accent: 'text-violet-400', dot: 'bg-violet-400', minHitPct: 20 },
       ] as const).map(({ label, sublabel, parlays, accent, dot, minHitPct }) => {
         const settled   = parlays.filter((p) => p.hit !== null)
         const hits      = settled.filter((p) => p.hit === true)

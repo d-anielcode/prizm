@@ -8,7 +8,8 @@
 import type { Prop, StatType, Direction } from '@/types'
 
 const BASE_URL = 'https://api.odds-api.io/v3'
-const API_KEY = process.env.ODDS_API_IO_KEY!
+const API_KEY = process.env.ODDS_API_IO_KEY
+if (!API_KEY) throw new Error('Missing ODDS_API_IO_KEY environment variable')
 const BOOKMAKERS = 'DraftKings,FanDuel'
 
 // Map stat type strings in labels → our StatType

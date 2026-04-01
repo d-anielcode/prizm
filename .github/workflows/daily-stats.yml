@@ -112,10 +112,11 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      # ── Full pipeline only: refresh today's lines after stats are loaded ───
+      # ── Both runs: refresh today's lines after stats are loaded ────────────
+      # Lines shift significantly between morning and tipoff — midday refresh
+      # catches these movements so the re-enrich uses current lines.
 
       - name: Refresh today's props from odds API
-        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}

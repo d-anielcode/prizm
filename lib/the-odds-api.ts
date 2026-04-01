@@ -8,7 +8,8 @@
 // 45-day backfill estimate: ~18,900 requests.
 
 const BASE = 'https://api.the-odds-api.com/v4'
-const API_KEY = process.env.ODDS_API_KEY!
+const API_KEY = process.env.ODDS_API_KEY
+if (!API_KEY) throw new Error('Missing ODDS_API_KEY environment variable')
 
 // Markets we track — matches our StatType enum
 const MARKETS = [

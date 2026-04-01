@@ -15,7 +15,7 @@ Usage:
   py -3.13 scripts/backtest_parlay.py --top 20        (show top N configs)
 """
 
-import os, sys, argparse
+import os, sys, argparse, csv
 from collections import defaultdict
 
 import requests
@@ -240,20 +240,42 @@ def run_config(config, by_date, sorted_dates):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--source', default='real', choices=['real', 'all'],
-                        help='real = 2026-02-04+; all = all dates')
+                        help='real = 2026-02-04+; all = all dates (ignored when --pit-csv is used)')
     parser.add_argument('--top', type=int, default=30, help='Show top N configs by ROI')
+    parser.add_argument('--pit-csv', metavar='PATH', default=None,
+                        help='Use PIT backtest CSV output instead of prop_grades (covers Dec+ data). '
+                             'Generate with: py -3 scripts/backtest_pit.py --mode real --days 120 --save-csv pit_output.csv')
     args = parser.parse_args()
 
     REAL_START = '2026-02-04'
 
-    print("Loading prop_grades...")
-    grades_raw = supabase_get_all(
-        'prop_grades',
-        'select=game_date,player_name,stat_type,line,direction,confidence_label,confidence_score,hit'
-        '&confidence_label=not.is.null&direction=eq.over&hit=not.is.null'
-        '&order=game_date.asc'
-    )
-    print(f"  {len(grades_raw)} graded props loaded")
+    if args.pit_csv:
+        print(f"Loading PIT CSV from {args.pit_csv}...")
+        grades_raw = []
+        with open(args.pit_csv, newline='', encoding='utf-8') as f:
+            for row in csv.DictReader(f):
+                grades_raw.append({
+                    'game_date':        row['game_date'],
+                    'player_name':      row['player_name'],
+                    'stat_type':        row['stat_type'],
+                    'line':             float(row['line']),
+                    'direction':        row['direction'],
+                    'confidence_label': row['confidence_label'],
+                    'confidence_score': int(row['confidence_score']),
+                    'hit':              row['hit'].lower() == 'true',
+                })
+        # Filter to over direction (PIT CSV includes both; parlay backtest works on over)
+        grades_raw = [g for g in grades_raw if g['direction'] == 'over']
+        print(f"  {len(grades_raw)} graded props loaded from CSV")
+    else:
+        print("Loading prop_grades...")
+        grades_raw = supabase_get_all(
+            'prop_grades',
+            'select=game_date,player_name,stat_type,line,direction,confidence_label,confidence_score,hit'
+            '&confidence_label=not.is.null&direction=eq.over&hit=not.is.null'
+            '&order=game_date.asc'
+        )
+        print(f"  {len(grades_raw)} graded props loaded")
 
     print("Loading prop_history for odds...")
     hist_raw = supabase_get_all(
@@ -316,7 +338,9 @@ def main():
         by_date[p['game_date']].append(p)
 
     all_dates = sorted(by_date.keys())
-    if args.source == 'real':
+    if args.pit_csv:
+        dates = all_dates  # use full date range from CSV
+    elif args.source == 'real':
         dates = [d for d in all_dates if d >= REAL_START]
     else:
         dates = all_dates

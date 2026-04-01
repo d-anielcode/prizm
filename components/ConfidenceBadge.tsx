@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import type { ConfidenceLabel } from '@/types'
+import { ConfidenceTooltip } from '@/components/ConfidenceTooltip'
 
 const styles: Record<ConfidenceLabel, string> = {
   LOCK: 'bg-violet-500/12  text-violet-400  border-violet-500/25 shadow-[0_0_10px_rgba(139,92,246,0.2)]',
@@ -11,19 +12,24 @@ const styles: Record<ConfidenceLabel, string> = {
 export function ConfidenceBadge({
   label,
   score,
+  showTooltip = false,
 }: {
   label: ConfidenceLabel
   score: number
+  showTooltip?: boolean
 }) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-xs font-semibold tabular-nums',
-        styles[label],
-      )}
-    >
-      <span className="text-[10px] opacity-70">{score}</span>
-      {label}
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={cn(
+          'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-xs font-semibold tabular-nums',
+          styles[label],
+        )}
+      >
+        <span className="text-[10px] opacity-70">{score}</span>
+        {label}
+      </span>
+      {showTooltip && <ConfidenceTooltip label={label} />}
     </span>
   )
 }

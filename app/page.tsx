@@ -3,6 +3,8 @@ import type { Prop } from '@/types'
 import Image from 'next/image'
 import Link from 'next/link'
 import ResultsHistory from '@/components/ResultsHistory'
+import { ConfidenceExplainer } from '@/components/ConfidenceExplainer'
+import { TodaysPicks } from '@/components/TodaysPicks'
 
 export const revalidate = 0
 
@@ -312,6 +314,9 @@ export default async function HomePage() {
             <span className="text-xs text-white/30 uppercase tracking-wider">Total</span>
           </div>
         </div>
+
+        <ConfidenceExplainer />
+        <TodaysPicks />
       </div>
 
       {/* ── Game cards ── */}

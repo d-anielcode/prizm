@@ -133,24 +133,23 @@ export default async function FeedPage() {
 
   // Build 10-bar tracker: today first (leftmost), then current streak days, then empty.
   // Resets on miss — no red bars, only active streak + today's pending shown.
+  // Each bar = 1 day (1-leg Prop of the Day).
   const TOTAL = 10
   const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = Array(TOTAL).fill('empty')
-  // Bars 0-1: today
+  // Bar 0: today
   const todayState: 'pending' | 'hit' | 'empty' =
     todayPick && todayPick.result === 'hit' ? 'hit'
     : todayPick && (todayPick.result == null || todayPick.result === undefined) ? 'pending'
     : 'empty' // miss = reset
   bubbles[0] = todayState
-  bubbles[1] = todayState
-  // Bars 2+: consecutive past hit days only (stop at first miss/pending)
-  let barIdx = 2
+  // Bars 1+: consecutive past hit days only (stop at first miss/pending)
+  let barIdx = 1
   for (const s of history) {
     if (s.game_date >= new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })) continue // skip today
     if (s.result !== 'hit') break  // miss breaks streak → reset, stop
     if (barIdx >= TOTAL) break
-    bubbles[barIdx]     = 'hit'
-    bubbles[barIdx + 1] = 'hit'
-    barIdx += 2
+    bubbles[barIdx] = 'hit'
+    barIdx += 1
   }
 
   return (
@@ -196,7 +195,7 @@ export default async function FeedPage() {
           {/* Today's picks */}
           {todayPick ? (
             <div className="flex flex-col gap-2">
-              <p className="text-[10px] text-white/25 uppercase tracking-widest font-semibold">Today&apos;s Picks</p>
+              <p className="text-[10px] text-white/25 uppercase tracking-widest font-semibold">Today&apos;s Pick</p>
               <div className="flex flex-col gap-1.5">
                 {(todayPick.legs as FeedLeg[]).map((leg, i) => (
                   <Link
@@ -232,7 +231,7 @@ export default async function FeedPage() {
               )}
             </div>
           ) : (
-            <p className="text-xs text-white/25 text-center py-2">Today&apos;s picks generate after morning props refresh</p>
+            <p className="text-xs text-white/25 text-center py-2">Today&apos;s pick generates after morning props refresh</p>
           )}
         </div>
       </div>
@@ -276,7 +275,7 @@ export default async function FeedPage() {
                         : parlay.parlay_type === 'jackpot' ? 'text-violet-400 bg-violet-400/10 border-violet-400/25'
                         :                                    'text-white/40 bg-white/5 border-white/10'}`}>
                         {parlay.parlay_type === 'sgp'     ? 'SGP'
-                          : parlay.parlay_type === 'value'   ? 'Consistent'
+                          : parlay.parlay_type === 'value'   ? 'Safe Pick'
                           : parlay.parlay_type === 'premium' ? 'High Roller'
                           : parlay.parlay_type === 'jackpot' ? 'Jackpot'
                           : 'Multi'}

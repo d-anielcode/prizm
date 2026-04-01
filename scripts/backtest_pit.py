@@ -12,9 +12,10 @@ Usage:
   py -3.13 scripts/backtest_pit.py --mode real --days 40
   py -3.13 scripts/backtest_pit.py --mode synthetic --days 40
   py -3.13 scripts/backtest_pit.py --mode both --days 40
+  py -3.13 scripts/backtest_pit.py --mode real --days 120 --save-csv pit_output.csv
 """
 
-import os, sys, json, argparse, math, re
+import os, sys, json, argparse, math, re, csv
 from collections import defaultdict
 from datetime import datetime, timedelta, date
 import numpy as np
@@ -682,6 +683,8 @@ def main():
     parser.add_argument('--days',  type=int, default=55,
                         help='Days back from today to include (default 55 covers all of historical_prop_lines)')
     parser.add_argument('--optimize', action='store_true', help='Run weight optimizer after eval')
+    parser.add_argument('--save-csv', metavar='PATH', default=None,
+                        help='Save scored props to CSV for use with backtest_parlay.py --pit-csv')
     args = parser.parse_args()
 
     cutoff_date = (datetime.today() - timedelta(days=args.days)).strftime('%Y-%m-%d')
@@ -978,6 +981,27 @@ def main():
                 for k, v in w.items():
                     print(f"  {k}: {v:.2f},")
                 print(f"}}  // LOCK {data['lock_accuracy']:.1%} on {data['n_locks']} props (PIT backtest)")
+
+    # ── Save CSV for parlay backtest ───────────────────────────────────────────
+    if args.save_csv:
+        fields = ['game_date', 'player_name', 'stat_type', 'line', 'direction',
+                  'confidence_score', 'confidence_label', 'hit']
+        with open(args.save_csv, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fields)
+            writer.writeheader()
+            for p in all_scored:
+                writer.writerow({
+                    'game_date':        p['game_date'],
+                    'player_name':      p['player_name'],
+                    'stat_type':        p['stat_type'],
+                    'line':             p['line'],
+                    'direction':        p['direction'],
+                    'confidence_score': round(p['pit_score']),
+                    'confidence_label': p['pit_label'],
+                    'hit':              p['result'] == 'hit',
+                })
+        print(f"\nSaved {len(all_scored)} scored props to {args.save_csv}")
+        print("  Run parlay backtest with: py -3 scripts/backtest_parlay.py --pit-csv " + args.save_csv)
 
     print("\nDone.")
 

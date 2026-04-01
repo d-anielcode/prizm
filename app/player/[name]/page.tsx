@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import { ConfidenceBadge } from '@/components/ConfidenceBadge'
 import { PropReasonChips } from '@/components/PropReasonChips'
 import { StatChart } from '@/components/StatChart'
+import { PropSparkline } from '@/components/PropSparkline'
 import Link from 'next/link'
 import type { Prop, StatType } from '@/types'
 import { getEspnVariants } from '@/lib/player-aliases'
@@ -524,6 +525,8 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
             date:  formatDate(g.date),
             value: getStatValue(g, prop.stat_type),
           }))
+          const sparkValues = gameLogs.filter((g) => g.minutes >= 5).slice(0, 10)
+            .map((g) => getStatValue(g, prop.stat_type))
           const { hits, total } = hitRate(gameLogs, prop.stat_type, prop.line, prop.direction)
           const hitPct = total > 0 ? Math.round((hits / total) * 100) : null
 
@@ -559,9 +562,12 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                     </span>
                   )}
                 </div>
-                {prop.confidence_label && prop.confidence_score != null && (
-                  <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
-                )}
+                <div className="flex items-center gap-2">
+                  <PropSparkline values={sparkValues} line={prop.line} direction={prop.direction} />
+                  {prop.confidence_label && prop.confidence_score != null && (
+                    <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+                  )}
+                </div>
               </div>
 
               <PropReasonChips reason={prop.confidence_reason} />
