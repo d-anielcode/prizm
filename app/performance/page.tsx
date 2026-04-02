@@ -895,27 +895,31 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         const { currentStreak, longestStreak, totalDays, hitRate, currentStreakPicks, allHistory } = streakData
         const STAT_SHORT: Record<string, string> = { points: 'PTS', rebounds: 'REB', assists: 'AST', steals: 'STL', blocks: 'BLK', three_pointers: '3PM', pra: 'PRA' }
 
-        // Build 10-bar tracker: today first (left), then current streak days, then empty
-        // Resets on miss — only shows active streak + today's pending
-        // Each bar = 1 day (1-leg Prop of the Day).
+        // Build 10-bar tracker: hits fill from the RIGHT, today's pending sits
+        // just after the last hit, empty bars fill the LEFT.
         const TOTAL = 10
-        const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = Array(TOTAL).fill('empty')
-        const todayEntry = allHistory[0] // allHistory is newest-first
+        const todayEntry = allHistory[0]
         const todayState: 'pending' | 'hit' | 'empty' =
           todayEntry?.isPending ? 'pending'
           : todayEntry?.result === 'hit' ? 'hit'
-          : 'empty' // miss = reset, show empty
-        // Bar 0: today
-        bubbles[0] = todayState
-        // Bars 1+: past consecutive hit days — stop at first miss/pending
-        let barIdx = 1
+          : 'empty'
+
+        let streakHits = 0
         for (const e of allHistory) {
-          if (e.isPending) continue          // skip today (already in bar 0)
-          if (e.result !== 'hit') break      // miss breaks the streak → stop
-          if (barIdx >= TOTAL) break
-          bubbles[barIdx] = 'hit'
-          barIdx += 1
+          if (e.isPending) continue
+          if (e.result !== 'hit') break
+          streakHits++
+          if (streakHits >= TOTAL) break
         }
+
+        const hasToday = todayState !== 'empty' ? 1 : 0
+        const filledCount = Math.min(streakHits + hasToday, TOTAL)
+        const emptyCount  = TOTAL - filledCount
+
+        const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = []
+        for (let i = 0; i < Math.min(streakHits, TOTAL - hasToday); i++) bubbles.push('hit')
+        if (hasToday) bubbles.push(todayState)
+        for (let i = 0; i < emptyCount; i++) bubbles.push('empty')
 
         return (
           <div className="flex flex-col gap-4">

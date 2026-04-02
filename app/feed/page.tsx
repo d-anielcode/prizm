@@ -137,26 +137,33 @@ export default async function FeedPage() {
   }
   const dates = [...byDate.keys()].sort((a, b) => b.localeCompare(a))
 
-  // Build 10-bar tracker: today first (leftmost), then current streak days, then empty.
-  // Resets on miss — no red bars, only active streak + today's pending shown.
-  // Each bar = 1 day (1-leg Prop of the Day).
+  // Build 10-bar tracker: hits fill from the RIGHT, today's pending sits just
+  // after the last hit, and empty bars fill the LEFT.
+  // Example with 2 streak + pending today: [empty][empty][...][green][green][orange]
   const TOTAL = 10
-  const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = Array(TOTAL).fill('empty')
-  // Bar 0: today
   const todayState: 'pending' | 'hit' | 'empty' =
     todayPick && todayPick.result === 'hit' ? 'hit'
     : todayPick && (todayPick.result == null || todayPick.result === undefined) ? 'pending'
-    : 'empty' // miss = reset
-  bubbles[0] = todayState
-  // Bars 1+: consecutive past hit days only (stop at first miss/pending)
-  let barIdx = 1
+    : 'empty'
+
+  // Count consecutive past hits (the current streak)
+  let streakHits = 0
   for (const s of history) {
-    if (s.game_date >= new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })) continue // skip today
-    if (s.result !== 'hit') break  // miss breaks streak → reset, stop
-    if (barIdx >= TOTAL) break
-    bubbles[barIdx] = 'hit'
-    barIdx += 1
+    if (s.game_date >= new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })) continue
+    if (s.result !== 'hit') break
+    streakHits++
+    if (streakHits >= TOTAL) break
   }
+
+  // Fill from the right: [empty...] [hits...] [today]
+  const hasToday = todayState !== 'empty' ? 1 : 0
+  const filledCount = Math.min(streakHits + hasToday, TOTAL)
+  const emptyCount  = TOTAL - filledCount
+
+  const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = []
+  for (let i = 0; i < Math.min(streakHits, TOTAL - hasToday); i++) bubbles.push('hit')
+  if (hasToday) bubbles.push(todayState)
+  for (let i = 0; i < emptyCount; i++) bubbles.push('empty')
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-8">
