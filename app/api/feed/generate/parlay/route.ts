@@ -34,6 +34,7 @@ import { createClient } from '@supabase/supabase-js'
 import { supabase }     from '@/lib/supabase'
 import { requireCronAuth, internalAuthHeaders } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
+import { detectChanges, type ChangeReport } from '@/lib/change-detection'
 
 const adminClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -394,6 +395,196 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
   return results
 }
 
+// ── Pass 2: Midday re-evaluation ─────────────────────────────────────────────
+// Compares morning parlays against re-enriched props and injury data.
+// Only generates replacement parlays if material changes detected.
+
+async function handlePass2(gameDate: string) {
+  // 1. Load morning (Pass 1) parlays for today
+  const { data: morningParlays, error: mpErr } = await adminClient
+    .from('curated_parlays')
+    .select('id, title, parlay_type, legs, est_multiplier')
+    .eq('game_date', gameDate)
+    .eq('active', true)
+    .eq('superseded', false)
+    .in('parlay_type', ['value', 'premium', 'jackpot'])
+
+  if (mpErr || !morningParlays || morningParlays.length === 0) {
+    return NextResponse.json({
+      message: 'No morning parlays found to re-evaluate',
+      date: gameDate,
+      pass: 2,
+      updated: 0,
+    })
+  }
+
+  // 2. Load current re-enriched props (already updated by 11 AM enrich step)
+  const { data: currentProps } = await supabase
+    .from('props')
+    .select('player_name, stat_type, line, direction, confidence_label, confidence_score, odds, game_id, home_team, away_team, commence_time')
+    .in('confidence_label', ['LOCK', 'PLAY', 'LEAN', 'FADE'])
+
+  const middayPropMap = new Map<string, {
+    player_name: string; stat_type: string; line: number; direction: string;
+    confidence_label: string | null; confidence_score: number | null;
+  }>()
+  for (const p of currentProps ?? []) {
+    if (!p.commence_time || toEasternDate(p.commence_time) !== gameDate) continue
+    const key = `${p.player_name}|${p.stat_type}`
+    // Keep highest score per player|stat (same dedup as morning)
+    const existing = middayPropMap.get(key)
+    if (!existing || (p.confidence_score ?? 0) > (existing.confidence_score ?? 0)) {
+      middayPropMap.set(key, p)
+    }
+  }
+
+  // 3. Load injury data from props' confidence_reason (contains injury status)
+  // We detect injuries by checking if a player's midday prop disappeared or
+  // if their confidence reason mentions OUT/DOUBTFUL
+  const injuryMap = new Map<string, { player_name: string; status: 'out' | 'doubtful' | 'questionable' | 'active' }>()
+  const { data: allProps } = await supabase
+    .from('props')
+    .select('player_name, confidence_reason')
+    .not('confidence_reason', 'is', null)
+
+  for (const p of allProps ?? []) {
+    if (!p.confidence_reason) continue
+    const outMatch = (p.confidence_reason as string).match(/listed as (OUT|DOUBTFUL|QUESTIONABLE)/)
+    if (outMatch) {
+      const status = outMatch[1].toLowerCase() as 'out' | 'doubtful' | 'questionable'
+      injuryMap.set(p.player_name, { player_name: p.player_name, status })
+    }
+  }
+
+  // 4. Run change detection on each morning parlay
+  const reports: ChangeReport[] = []
+  for (const parlay of morningParlays) {
+    const legs = (parlay.legs as Array<Record<string, unknown>>) ?? []
+    const morningLegs = legs.map((l) => ({
+      player_name:      l.player_name as string,
+      stat_type:        l.stat_type as string,
+      line:             Number(l.line),
+      direction:        l.direction as string,
+      confidence_label: l.confidence_label as string | undefined,
+      confidence_score: l.confidence_score != null ? Number(l.confidence_score) : undefined,
+    }))
+
+    const report = detectChanges(
+      parlay.id as string,
+      parlay.parlay_type as string,
+      morningLegs,
+      middayPropMap,
+      injuryMap,
+    )
+    reports.push(report)
+  }
+
+  const needsUpdate = reports.filter((r) => r.hasSignificantChange)
+
+  if (needsUpdate.length === 0) {
+    console.log(`[generate/parlay] Pass 2: No material changes detected for ${gameDate} — morning picks confirmed`)
+    return NextResponse.json({
+      message: `Pass 2: Morning picks confirmed — no material changes detected`,
+      date: gameDate,
+      pass: 2,
+      updated: 0,
+      confirmed: morningParlays.length,
+      reports: reports.map((r) => ({ parlayType: r.parlayType, changes: r.changes.length })),
+    })
+  }
+
+  // 5. Generate replacement parlays for those with significant changes
+  const results = await generateCuratedParlays(gameDate)
+  if (results.length === 0) {
+    return NextResponse.json({
+      message: 'Pass 2: Changes detected but not enough qualifying props to rebuild',
+      date: gameDate,
+      pass: 2,
+      updated: 0,
+      reports: needsUpdate.map((r) => ({ parlayType: r.parlayType, summary: r.summary })),
+    })
+  }
+
+  let updated = 0
+  const errors: string[] = []
+
+  for (const report of needsUpdate) {
+    const replacement = results.find((r) => r.tier === report.parlayType)
+    if (!replacement) continue
+
+    // 5a. Insert the Pass 2 replacement parlay
+    const { data: inserted, error: insertErr } = await adminClient
+      .from('curated_parlays')
+      .insert({
+        title:          replacement.title,
+        description:    replacement.description,
+        parlay_type:    replacement.tier,
+        game_date:      gameDate,
+        est_multiplier: replacement.multiplier,
+        legs:           replacement.legs.map((l) => ({
+          player_name:      l.player_name,
+          team:             l.team,
+          stat_type:        l.stat_type,
+          line:             l.line,
+          direction:        l.direction,
+          odds:             l.odds,
+          confidence_label: l.confidence_label,
+          confidence_score: l.confidence_score,
+          l10_hits:         l.l10_hits,
+          l10_total:        l.l10_total,
+        })),
+        active:         true,
+        pass:           2,
+        replaces_id:    report.parlayId,
+        change_summary: report.summary,
+        superseded:     false,
+      })
+      .select('id')
+      .single()
+
+    if (insertErr) {
+      errors.push(`Insert ${report.parlayType}: ${insertErr.message}`)
+      continue
+    }
+
+    // 5b. Mark the morning parlay as superseded
+    const { error: updateErr } = await adminClient
+      .from('curated_parlays')
+      .update({ superseded: true })
+      .eq('id', report.parlayId)
+
+    if (updateErr) {
+      errors.push(`Supersede ${report.parlayId}: ${updateErr.message}`)
+    } else {
+      updated++
+    }
+
+    console.log(`[generate/parlay] Pass 2: Replaced ${report.parlayType} parlay (${report.parlayId}) → ${inserted?.id} | ${report.summary}`)
+  }
+
+  // 6. Also fire streak re-evaluation
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+  fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}&pass=2`, {
+    headers: internalAuthHeaders(),
+  }).catch((e) => logger.error('[generate/parlay] streak pass2 fire-and-forget error', { err: String(e) }))
+
+  return NextResponse.json({
+    message: `Pass 2: Updated ${updated} parlay(s) for ${gameDate}`,
+    date:    gameDate,
+    pass:    2,
+    updated,
+    confirmed: morningParlays.length - updated,
+    reports: reports.map((r) => ({
+      parlayType: r.parlayType,
+      hasChange:  r.hasSignificantChange,
+      summary:    r.summary,
+      changes:    r.changes,
+    })),
+    ...(errors.length > 0 && { errors }),
+  })
+}
+
 // GET aliases POST so GitHub Actions curl (GET) saves parlays to DB.
 export async function GET(req: Request) {
   const authError = requireCronAuth(req)
@@ -407,7 +598,13 @@ export async function POST(req: Request) {
   const url      = new URL(req.url)
   const gameDate = url.searchParams.get('date')
     ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const pass     = url.searchParams.get('pass')
   const stats    = url.searchParams.get('stats') === 'true'
+
+  // ?pass=2 — midday re-evaluation (compare morning picks against re-enriched data)
+  if (pass === '2') {
+    return handlePass2(gameDate)
+  }
 
   // ?stats=true — return pool breakdown without saving anything
   if (stats) {
@@ -550,6 +747,8 @@ export async function POST(req: Request) {
         l10_total:        l.l10_total,
       })),
       active: true,
+      pass: 1,
+      superseded: false,
     }))
 
     const { data, error } = await adminClient

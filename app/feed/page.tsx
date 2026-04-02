@@ -39,6 +39,10 @@ interface CuratedParlay {
   created_at:     string
   active:         boolean
   result?:        'hit' | 'miss' | 'void' | null
+  pass?:          1 | 2 | null
+  replaces_id?:   string | null
+  change_summary?: string | null
+  superseded?:    boolean
 }
 
 interface StreakState {
@@ -48,10 +52,12 @@ interface StreakState {
 }
 
 async function getFeedData(): Promise<{ parlays: CuratedParlay[]; streakState: StreakState }> {
+  // Only show the final version of each parlay (non-superseded)
   const { data, error } = await supabase
     .from('curated_parlays')
     .select('*')
     .eq('active', true)
+    .or('superseded.is.null,superseded.eq.false')
     .in('parlay_type', ['value', 'premium', 'jackpot', 'streak'])
     .order('game_date', { ascending: false })
     .order('created_at', { ascending: false })
@@ -260,6 +266,19 @@ export default async function FeedPage() {
             <div key={parlay.id} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
               <div className="h-px w-full bg-gradient-to-r from-transparent via-[#e8a820]/35 to-transparent" />
 
+              {/* Pass 2 update banner */}
+              {parlay.pass === 2 && parlay.change_summary && (
+                <div className="flex items-start gap-2.5 px-4 py-2.5 bg-amber-500/[0.06] border-b border-amber-500/15">
+                  <svg className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <p className="text-[11px] text-amber-300/80 leading-snug">
+                    <span className="font-bold text-amber-400">Updated at 11 AM ET</span>
+                    {' \u2014 '}{parlay.change_summary}
+                  </p>
+                </div>
+              )}
+
               <div className="p-4 sm:p-5 flex flex-col gap-3">
 
                 {/* Parlay header */}
@@ -344,6 +363,40 @@ export default async function FeedPage() {
           ))}
         </div>
       ))}
+
+      {/* How Prizm Feed Works — explainer */}
+      <details className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+        <summary className="p-4 cursor-pointer select-none flex items-center justify-between">
+          <span className="text-sm font-bold text-white/50">How Prizm Feed Works</span>
+          <span className="text-[10px] text-white/20 uppercase tracking-wider">tap to expand</span>
+        </summary>
+        <div className="px-4 pb-4 text-xs text-white/40 leading-relaxed flex flex-col gap-3 border-t border-white/[0.05] pt-3">
+          <div>
+            <p className="font-bold text-white/55 mb-0.5">5 AM ET &mdash; Morning Picks</p>
+            <p>
+              Our model scores every available prop using game logs, defense matchups,
+              and historical trends. The top picks become your daily Safe Pick, High Roller,
+              and Jackpot parlays.
+            </p>
+          </div>
+          <div>
+            <p className="font-bold text-white/55 mb-0.5">11 AM ET &mdash; Midday Re-evaluation</p>
+            <p>
+              We re-check all morning picks against updated injury reports and line movements.
+              If a key player is ruled out or a line has shifted significantly, we generate
+              updated picks marked with an amber banner explaining what changed.
+            </p>
+          </div>
+          <div>
+            <p className="font-bold text-white/55 mb-0.5">Performance Tracking</p>
+            <p>
+              Only the final version of each parlay (updated if available, otherwise the
+              morning pick) is graded for our performance stats. You can see the original
+              morning pick and what it would have scored on the performance page.
+            </p>
+          </div>
+        </div>
+      </details>
     </div>
   )
 }

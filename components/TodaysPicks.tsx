@@ -22,6 +22,8 @@ interface Parlay {
   parlay_type: string
   est_multiplier: number | null
   legs: ParlayLeg[]
+  pass?: 1 | 2 | null
+  change_summary?: string | null
 }
 
 const TYPE_BADGE: Record<string, { label: string; style: string }> = {
@@ -41,9 +43,10 @@ export async function TodaysPicks() {
 
   const { data } = await supabase
     .from('curated_parlays')
-    .select('id, title, parlay_type, est_multiplier, legs')
+    .select('id, title, parlay_type, est_multiplier, legs, pass, change_summary')
     .eq('game_date', today)
     .eq('active', true)
+    .or('superseded.is.null,superseded.eq.false')
     .in('parlay_type', ['value', 'premium', 'jackpot'])
     .order('created_at', { ascending: false })
     .limit(3)
@@ -79,6 +82,11 @@ export async function TodaysPicks() {
                     {badge && (
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badge.style}`}>
                         {badge.label}
+                      </span>
+                    )}
+                    {parlay.pass === 2 && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border text-amber-400 bg-amber-400/10 border-amber-400/25">
+                        UPDATED
                       </span>
                     )}
                     <span className="text-xs text-white/25">{parlay.legs.length} legs</span>

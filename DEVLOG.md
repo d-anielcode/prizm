@@ -4,6 +4,148 @@ NBA prop betting confidence app. Built on Next.js 15 / Supabase / Vercel.
 
 ---
 
+## 2026-04-02 — Two-Pass Parlay System, Backtest Re-grading with Current Model
+
+### Two-Pass Parlay System (Major Feature)
+Parlays are now generated in two passes to incorporate midday line movement and injury news:
+
+- **Pass 1 (5 AM ET)**: Morning parlays generated as before — users see picks on wake-up
+- **Pass 2 (11 AM ET)**: After re-enriching props with fresh odds/lines, runs change detection against morning parlays. If material changes detected (injury, confidence drop, line move), generates replacement parlays and marks the morning version as superseded
+
+**Change detection thresholds** (`lib/change-detection.ts` — new file):
+- Player ruled OUT or DOUBTFUL → replace leg
+- Confidence score dropped below PLAY floor (< 60) → replace leg
+- Confidence score dropped ≥ 10 points (even if still PLAY) → replace leg
+- Line moved significantly (≥ 2 pts for PTS/REB/AST/PRA, ≥ 1 for 3PM/BLK/STL) → re-evaluate, replace if confidence also dropped
+- Prop no longer available at midday → replace leg
+
+**Database migration** (`supabase/two_pass_parlay.sql`):
+- Added 4 columns to `curated_parlays`: `pass` (1 or 2), `replaces_id` (FK to morning parlay), `change_summary` (human-readable), `superseded` (bool, marks morning version as replaced)
+- Indexes on `(game_date, active, superseded)` and `(replaces_id)` for fast queries
+- All existing rows default to `pass=1, superseded=false` — fully backward compatible
+
+**Backend changes**:
+- `app/api/feed/generate/parlay/route.ts`: Added `?pass=2` handler. Loads morning parlays, runs change detection, conditionally generates replacements. Pass 1 inserts now include `pass: 1, superseded: false` explicitly. Fire-and-forget triggers streak Pass 2 alongside parlay Pass 2.
+- `app/api/feed/generate/streak/route.ts`: Added `?pass=2` handler. Checks if morning streak player is OUT or dropped below LOCK. If so, generates replacement with `pass: 2, replaces_id, change_summary`. Marks morning pick as superseded. If pick still good, returns confirmation without changes.
+- `app/api/feed/grade/route.ts`: Added `.or('superseded.is.null,superseded.eq.false')` filter — only the final version of each parlay gets graded. Superseded morning parlays are preserved for display but never scored.
+
+**Feed UI changes** (`app/feed/page.tsx`):
+- Query filters out superseded parlays via `.or('superseded.is.null,superseded.eq.false')`
+- Pass 2 parlay cards show amber update banner: "Updated at 11 AM ET — [change_summary]" with refresh icon
+- Added collapsible "How Prizm Feed Works" explainer at bottom of feed explaining the two-pass system (5 AM morning picks → 11 AM re-evaluation → performance tracking)
+- `CuratedParlay` interface extended with `pass`, `replaces_id`, `change_summary`, `superseded`
+
+**TodaysPicks component** (`components/TodaysPicks.tsx`):
+- Same superseded filter on query
+- Pass 2 parlays show amber "UPDATED" pill badge next to the type badge (Safe Pick / High Roller / Jackpot)
+
+**Performance page** (`app/performance/page.tsx`):
+- Both `loadGradedParlays()` and `loadStreakData()` filter to `superseded=false`
+- `loadGradedParlays()` also loads superseded originals via `replaces_id` to grade the morning legs for comparison display
+- `GradedParlay` interface extended with `pass`, `change_summary`, `original_legs`, `original_hit`
+- Pass 2 parlays show "UPDATED" amber badge in the summary row
+- Inside expanded details: "Original Morning Pick" section shows the morning legs with strikethrough styling, actual values, hit/miss results, and "WOULD HAVE HIT" / "WOULD HAVE MISSED" verdict — full transparency on whether the update helped or not
+
+**Workflow** (`.github/workflows/daily-stats.yml`):
+- Added "Re-evaluate daily parlays (Pass 2)" step after the 11 AM enrich step, gated to `github.event.schedule == '0 16 * * *'` only
+- Calls `GET /api/feed/generate/parlay?pass=2` with `Authorization: Bearer CRON_SECRET`
+- Streak Pass 2 is triggered as fire-and-forget from within the parlay Pass 2 handler (no extra workflow step needed)
+
+### Backtest: Re-grading Historical Data with Current Model
+- Called `/api/prophistory/reenrich?start=2025-12-01&end=2026-03-31` to re-score all 49,545 historical props with the current confidence model (v10) and upsert 39,646 grades to `prop_grades`
+- This ensures the backtest uses consistent model weights/thresholds across the full 109-day date range, not a mix of old model versions
+
+### Backtest: Overlapping vs Exclusive Parlay Strategy (Expanded)
+Extended `scripts/backtest_exclusive.py` from 2 strategies to 5:
+1. **Full Overlap** (current) — every tier picks independently
+2. **Locks Only Overlap** — only LOCK-tier picks can repeat across parlays
+3. **Top-1 Pick Overlaps** — single best pick can appear in all tiers, rest exclusive
+4. **Top-2 Picks Overlap** — top 2 picks can appear in all tiers, rest exclusive
+5. **Fully Exclusive** — no pick in more than one parlay
+
+**Results with current model (v10)**:
+
+| Strategy | Days | ROI | $/day |
+|---|---|---|---|
+| Full Overlap | 25 | +48.7% | +$8.10 |
+| Top-2 Overlap | 9 | +6.7% | +$1.00 |
+| Locks Only | 6 | -82.6% | -$12.39 |
+| Top-1 Overlap | 4 | +56.4% | +$8.46 |
+| Fully Exclusive | 1 | -100.0% | -$15.00 |
+
+**Conclusion**: Full overlap is the clear winner. The current model is highly selective (fewer LOCKs/PLAYs per day), making any overlap restriction even more punishing — exclusive mode could only fill all 3 tiers on 1 out of 109 days. Keeping the overlapping approach is optimal.
+
+---
+
+## 2026-04-01 — Props Bloat Fix, Alt Lines Redesign, Void Handling, PropReasonChips Expansion
+
+### Props Bloat Diagnosis + Fix
+- **Root cause**: odds-api.io returns ALL sportsbook alt lines as separate props (15+ lines per player/stat × 2 directions × 2 sportsbooks = ~11,362 rows, all classified as main lines)
+- **Solution in `scripts/seed_props.js`**: Implemented canonical line detection + main/alt separation
+  - `separateMainAndAlts()` function finds the canonical line per player/stat (the line appearing in both over AND under directions, closest to -110 odds)
+  - One main line per player/stat/direction, rest become alts
+  - Synthetic alt lines: ±1 increment from main line only (step size: points/PRA=2, others=1)
+  - `distTo110(odds)` helper for canonical line detection
+  - Result: 424 main props + 790 alts instead of 11,362 flat rows
+
+### `.env.local` Quote Stripping Fix
+- `loadEnv()` in `scripts/seed_props.js` wasn't stripping quotes from values — API keys sent as `"key"` instead of `key`, causing 401 from odds-api.io
+- Fixed with `.replace(/^["']|["']$/g, '')`
+
+### Alt Lines: ±1 Increment Only
+- `app/api/props/route.ts`: Changed synthetic alt generation from `[-2, -1, 1, 2]` to `[-1, 1]` (±1 only, both over and under)
+- Removed sportsbook alt row storage (was `altRows` from `deduplicatePropsWithAlts`)
+- User explicitly requested: "I want only 1 increment up and down, do the overs and unders, and thats it"
+
+### Duplicate React Key Fix (250+ Console Errors)
+- **Root cause**: `prop.id` from odds-api.io is shared across over/under of the same prop
+- **Fix**: `key={prop.id}` → `key={\`${prop.id}-${prop.stat_type}-${prop.line}-${i}\`}` in `components/PropsTable.tsx`
+- Also added deduplication in `app/props/page.tsx` before sorting: `bestMap` keyed by `player_name|stat_type|line|direction`
+
+### Alt Lines Toggle Removal
+- Removed `showAlts` state and toggle button from `components/PropsTable.tsx`
+- Alt lines now always available via dropdown (no user toggle needed)
+- Mobile cards: changed from conditional `showAlts` rendering to always render alt dropdown when alt lines exist
+- Desktop: changed `isOpen = expandedId === rowKey || showAlts` to `isOpen = expandedId === rowKey`
+
+### Prop History Snapshot in Seeder
+- Added step 4 to `scripts/seed_props.js`: snapshots enriched props to `prop_history` before deleting old props
+- Prevents data loss when seeder runs before the cron snapshot step
+- Also deletes from `prop_alts` table when clearing game dates
+
+### PropReasonChips Expansion (7 New Chips)
+- Added new `EXPLANATIONS` entries: `lineValue`, `homeAway`, `minutes`, `minutesStability`, `injury`, `teammateInjury`, `staleData`
+- New parsers in `parseReason()`:
+  - **Stale data**: `/Data may be stale/` → `⚠️ Stale Data (Xd ago)` (amber)
+  - **Player injury**: `/listed as (OUT|DOUBTFUL|QUESTIONABLE)/` → `⚠️ STATUS` (red for OUT/DOUBTFUL, amber for QUESTIONABLE)
+  - **Teammate injury**: `/Teammate upgrade opportunity/` → `📈 Teammate(s) OUT → Usage Boost` (emerald)
+  - **Teammate questionable**: `/Teammate .+ is (?:questionable|doubtful)/` → `Teammate Questionable` (amber)
+  - **Line value**: `/Line value:/` → `Generous Line (L10 Avg X)` (emerald) or `/Tight line:/` → `Tight Line (L10 Avg X)` (red)
+  - **Home/Away splits**: `/Averaging ([\d.]+) \w+ (at home|on the road) this season \((\d+) games\)/` → `Home/Away Avg X (NG)` (sky blue)
+  - **Minutes + player tier**: `/Playing (\d+) minutes per game/` + Star/Rotation check → `★ Star · X MPG` / `Starter · X MPG` / `Rotation · X MPG`
+  - **Minutes stability**: `/Minutes vary significantly \(σ≈(\d+) min\/game\)/` → `⚠️ Unstable Minutes (σ Xm)` (amber)
+
+### Sportsbook-Accurate Void Handling (Parlay Grading)
+- **Old logic**: If any leg was DNP, entire parlay was voided (incorrect)
+- **New logic** (matches sportsbook rules): DNP legs are voided individually, remaining legs evaluated normally. Only fully void if ALL legs are DNP.
+- `app/api/feed/grade/route.ts`:
+  ```
+  playableLegs = legGrades.filter(l => l.hit !== null)
+  if (playableLegs.length === 0) → 'void'
+  else if (playableLegs.some(l => l.hit === false)) → 'miss'
+  else → 'hit'
+  ```
+- `app/performance/page.tsx`: Updated `settledLegs` → `playableLegs`, added re-evaluation of stored 'void' results when playable legs exist
+- **Impact**: Re-graded 9 previously-voided parlays — 5 flipped to hit (including one where 4/5 legs hit with 1 DNP), 4 to miss
+
+### Today's Picks Positioning
+- Moved `<TodaysPicks />` from header section to below game cards grid on the home page (`app/page.tsx`)
+
+### Prop History Coverage Check
+- Verified all 9 games for the day were saved in `prop_history` (14,836 rows from morning cron) — no data loss despite seeder issues
+
+---
+
 ## 2026-03-28 (session 2) — UI Polish, Performance Snapshot, Daily Breakdown Fix
 
 ### UI / UX Polish

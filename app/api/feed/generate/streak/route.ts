@@ -34,6 +34,7 @@ export async function GET(req: Request) {
   const url      = new URL(req.url)
   const gameDate = url.searchParams.get('date')
     ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const pass = url.searchParams.get('pass')
   try {
     // Safety guard: abort if today's props haven't been enriched yet
     const { count: scoredCount } = await adminClient
@@ -50,13 +51,75 @@ export async function GET(req: Request) {
       })
     }
 
-    // Always delete existing streak for the date and regenerate fresh.
-    await adminClient
-      .from('curated_parlays')
-      .delete()
-      .eq('game_date', gameDate)
-      .eq('parlay_type', 'streak')
-      .eq('active', true)
+    // ── Pass 2: check if morning streak pick needs replacing ────────────────
+    if (pass === '2') {
+      const { data: morningStreak } = await adminClient
+        .from('curated_parlays')
+        .select('id, legs, game_date')
+        .eq('game_date', gameDate)
+        .eq('parlay_type', 'streak')
+        .eq('active', true)
+        .eq('superseded', false)
+        .limit(1)
+        .single()
+
+      if (!morningStreak) {
+        return NextResponse.json({ message: 'No morning streak pick to re-evaluate', pass: 2, updated: 0 })
+      }
+
+      const morningLegs = (morningStreak.legs as Array<Record<string, unknown>>) ?? []
+      const morningPlayer = morningLegs[0]?.player_name as string | undefined
+
+      if (!morningPlayer) {
+        return NextResponse.json({ message: 'Morning streak has no legs', pass: 2, updated: 0 })
+      }
+
+      // Check if the morning pick player is now injured or confidence dropped
+      const { data: currentProp } = await supabase
+        .from('props')
+        .select('player_name, confidence_label, confidence_score, confidence_reason')
+        .eq('player_name', morningPlayer)
+        .eq('stat_type', morningLegs[0]?.stat_type as string)
+        .limit(1)
+        .single()
+
+      const isInjured = currentProp?.confidence_reason &&
+        /listed as (OUT|DOUBTFUL)/.test(currentProp.confidence_reason as string)
+      const scoreDrop = currentProp
+        ? (Number(morningLegs[0]?.confidence_score ?? 0) - Number(currentProp.confidence_score ?? 0))
+        : 0
+      const droppedBelowLock = currentProp?.confidence_label !== 'LOCK'
+
+      if (!isInjured && !droppedBelowLock && scoreDrop < 10) {
+        console.log(`[generate/streak] Pass 2: Morning streak pick confirmed (${morningPlayer})`)
+        return NextResponse.json({ message: 'Morning streak pick confirmed', pass: 2, updated: 0 })
+      }
+
+      // Need to replace — fall through to normal generation, but mark the old one as superseded
+      const changeSummary = isInjured
+        ? `${morningPlayer} ruled ${currentProp?.confidence_reason?.match(/listed as (OUT|DOUBTFUL)/)?.[1] ?? 'OUT'}`
+        : droppedBelowLock
+          ? `${morningPlayer} no longer LOCK confidence`
+          : `${morningPlayer} confidence dropped significantly`
+
+      // Don't delete — supersede the morning pick, generate new one below
+      // (will be inserted with pass=2, replaces_id, change_summary)
+      // Store context for after generation
+      ;(req as unknown as Record<string, unknown>).__pass2Context = {
+        morningId: morningStreak.id,
+        changeSummary,
+      }
+    }
+
+    if (pass !== '2') {
+      // Pass 1: Always delete existing streak for the date and regenerate fresh.
+      await adminClient
+        .from('curated_parlays')
+        .delete()
+        .eq('game_date', gameDate)
+        .eq('parlay_type', 'streak')
+        .eq('active', true)
+    }
 
     // ── Fetch today's LOCK props, sorted by confidence desc ─────────────────
     // Exclude STL/BLK — integer stats with too much game-to-game variance for a
@@ -111,7 +174,11 @@ export async function GET(req: Request) {
 
     const legDesc = `${pick.player_name} ${pick.direction.toUpperCase()} ${pick.line} ${STAT_LABELS[pick.stat_type] ?? pick.stat_type}`
 
-    const { error } = await adminClient.from('curated_parlays').insert({
+    // Pass 2 context (set above when replacing a morning pick)
+    const pass2Ctx = (req as unknown as Record<string, unknown>).__pass2Context as
+      { morningId: string; changeSummary: string } | undefined
+
+    const insertRow: Record<string, unknown> = {
       title:          `Prop of the Day · ${gameDate}`,
       description:    legDesc,
       parlay_type:    'streak',
@@ -119,7 +186,24 @@ export async function GET(req: Request) {
       est_multiplier: null,
       legs,
       active:         true,
-    })
+      pass:           pass2Ctx ? 2 : 1,
+      superseded:     false,
+    }
+
+    if (pass2Ctx) {
+      insertRow.replaces_id    = pass2Ctx.morningId
+      insertRow.change_summary = pass2Ctx.changeSummary
+    }
+
+    const { error } = await adminClient.from('curated_parlays').insert(insertRow)
+
+    // If Pass 2, mark the morning pick as superseded
+    if (pass2Ctx && !error) {
+      await adminClient
+        .from('curated_parlays')
+        .update({ superseded: true })
+        .eq('id', pass2Ctx.morningId)
+    }
 
     if (error) {
       console.error('[generate/streak] insert error:', error.message)

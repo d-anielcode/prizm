@@ -33,6 +33,10 @@ interface GradedParlay {
   hit:            boolean | null
   leg_hit_rate:   number | null
   is_pending:     boolean
+  pass?:          number | null
+  change_summary?: string | null
+  original_legs?: GradedLeg[] | null  // morning pick legs (if this is a Pass 2 update)
+  original_hit?:  boolean | null      // what the morning pick would have scored
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -227,8 +231,9 @@ interface StreakData {
 async function loadStreakData(): Promise<StreakData> {
   const { data: raw } = await supabase
     .from('curated_parlays')
-    .select('id, game_date, legs, result')
+    .select('id, game_date, legs, result, pass, change_summary')
     .eq('active', true)
+    .or('superseded.is.null,superseded.eq.false')
     .eq('parlay_type', 'streak')
     .order('game_date', { ascending: false })
     .limit(60)
@@ -324,12 +329,29 @@ async function loadGradedParlays(): Promise<GradedParlay[]> {
 
   const { data: parlays } = await supabase
     .from('curated_parlays')
-    .select('id, title, game_date, parlay_type, est_multiplier, legs, result')
+    .select('id, title, game_date, parlay_type, est_multiplier, legs, result, pass, change_summary, replaces_id')
     .eq('active', true)
+    .or('superseded.is.null,superseded.eq.false')
     .gte('game_date', cutoff)
     .order('game_date', { ascending: false })
 
   if (!parlays || parlays.length === 0) return []
+
+  // Also load superseded (original morning) parlays for Pass 2 comparison display
+  const replacesIds = parlays
+    .filter((p) => (p as Record<string, unknown>).replaces_id)
+    .map((p) => (p as Record<string, unknown>).replaces_id as string)
+
+  const originalMap = new Map<string, Record<string, unknown>>()
+  if (replacesIds.length > 0) {
+    const { data: originals } = await supabase
+      .from('curated_parlays')
+      .select('id, legs')
+      .in('id', replacesIds)
+    for (const o of originals ?? []) {
+      originalMap.set(o.id as string, o as Record<string, unknown>)
+    }
+  }
 
   const lookups = new Set<string>()
   for (const p of parlays) {
@@ -409,6 +431,39 @@ async function loadGradedParlays(): Promise<GradedParlay[]> {
         : null
     }
 
+    // If this is a Pass 2 update, grade the original morning legs too
+    const replacesId = (p as Record<string, unknown>).replaces_id as string | null
+    let originalLegs: GradedLeg[] | null = null
+    let originalHit: boolean | null = null
+
+    if (replacesId && originalMap.has(replacesId)) {
+      const origParlay = originalMap.get(replacesId)!
+      const origRawLegs = (origParlay.legs as Array<Record<string, unknown>> | null) ?? []
+      originalLegs = origRawLegs.map((l) => {
+        const log    = logIndex.get(`${l.player_name}|${p.game_date}`)
+        const mins   = log ? Number(log.minutes ?? 0) : null
+        const noData = !log || (mins !== null && mins < 5)
+        const actual = noData ? null : getActual(log!, l.stat_type as string)
+        const hit    = actual === null ? null
+          : l.direction === 'over' ? actual > Number(l.line) : actual < Number(l.line)
+        return {
+          player_name: l.player_name as string,
+          team:        l.team as string,
+          stat_type:   l.stat_type as string,
+          line:        Number(l.line),
+          direction:   l.direction as 'over' | 'under',
+          actual, hit,
+          l10_hits:  Number(l.l10_hits ?? 0),
+          l10_total: Number(l.l10_total ?? 1),
+        }
+      })
+      const origPlayable = originalLegs.filter((l) => l.hit !== null)
+      originalHit = origPlayable.length === 0 ? null
+        : origPlayable.some((l) => l.hit === false) ? false
+        : origPlayable.every((l) => l.hit === true) ? true
+        : null
+    }
+
     return {
       id:             p.id as string,
       title:          p.title as string,
@@ -419,6 +474,10 @@ async function loadGradedParlays(): Promise<GradedParlay[]> {
       hit:            parlayHit,
       leg_hit_rate:   settledLegs.length > 0 ? hitLegs.length / settledLegs.length : null,
       is_pending:     isPending,
+      pass:           (p as Record<string, unknown>).pass as number | null,
+      change_summary: (p as Record<string, unknown>).change_summary as string | null,
+      original_legs:  originalLegs,
+      original_hit:   originalHit,
     }
   })
 }
@@ -1079,6 +1138,9 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                               : parlay.hit ? 'bg-emerald-400' : 'bg-red-400'
                             }`} />
                             <span className="text-sm font-semibold text-white/70 truncate">{parlay.title}</span>
+                            {parlay.pass === 2 && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border text-amber-400 bg-amber-400/10 border-amber-400/25 shrink-0">UPDATED</span>
+                            )}
                             <span className="text-xs text-white/25 shrink-0">{parlay.game_date}</span>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
@@ -1109,6 +1171,42 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                               </div>
                             </div>
                           ))}
+
+                          {/* Original morning pick (for Pass 2 updated parlays) */}
+                          {parlay.pass === 2 && parlay.original_legs && parlay.original_legs.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-white/[0.05]">
+                              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-white/25">Original Morning Pick</span>
+                                {parlay.change_summary && (
+                                  <span className="text-[10px] text-amber-400/60 italic">{parlay.change_summary}</span>
+                                )}
+                                <span className={`text-[10px] font-bold ml-auto ${
+                                  parlay.original_hit === null ? 'text-white/20'
+                                  : parlay.original_hit ? 'text-emerald-400/60' : 'text-red-400/60'
+                                }`}>
+                                  {parlay.original_hit === null ? 'VOID' : parlay.original_hit ? 'WOULD HAVE HIT' : 'WOULD HAVE MISSED'}
+                                </span>
+                              </div>
+                              {parlay.original_legs.map((leg, i) => (
+                                <div key={i} className="flex items-center justify-between gap-2 py-0.5 opacity-50">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-[11px] text-white/40 truncate line-through">{leg.player_name}</span>
+                                    <span className="text-[11px] text-white/20 shrink-0">
+                                      {leg.direction === 'over' ? 'O' : 'U'}{leg.line} {STAT_SHORT[leg.stat_type] ?? leg.stat_type}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {leg.actual !== null && (
+                                      <span className="text-[11px] font-mono text-white/20">actual: {leg.actual}</span>
+                                    )}
+                                    <span className={`text-[11px] font-bold ${leg.hit === null ? 'text-white/15' : leg.hit ? 'text-emerald-400/50' : 'text-red-400/50'}`}>
+                                      {leg.hit === null ? 'VOID' : leg.hit ? '\u2713' : '\u2717'}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </details>
                     )

@@ -67,6 +67,8 @@ async function gradePendingParlays(): Promise<ParlayGrade[]> {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
   // Only fetch parlays from past dates with no result yet
+  // Only grade the final version of each parlay (non-superseded).
+  // Superseded Pass 1 parlays are kept for "original pick" display but never graded.
   const { data: parlays, error } = await supabase
     .from('curated_parlays')
     .select('id, title, game_date, legs')
@@ -74,6 +76,7 @@ async function gradePendingParlays(): Promise<ParlayGrade[]> {
     .is('result', null)
     .lt('game_date', today)
     .in('parlay_type', ['value', 'premium', 'jackpot', 'streak'])
+    .or('superseded.is.null,superseded.eq.false')
     .order('game_date', { ascending: false })
     .limit(100)
 

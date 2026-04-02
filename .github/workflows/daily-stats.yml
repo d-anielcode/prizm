@@ -169,5 +169,20 @@ jobs:
             "$VERCEL_APP_URL/api/feed/generate/parlay" | head -c 300
           echo ""
 
+      # ── Midday only: re-evaluate parlays with fresh line movement + injury data ──
+
+      - name: Re-evaluate daily parlays (Pass 2)
+        if: github.event.schedule == '0 16 * * *'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Running Pass 2 parlay re-evaluation..."
+          curl -sf --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/feed/generate/parlay?pass=2" | head -c 500
+          echo ""
+
       - name: Done
         run: echo "NBA IQ refresh complete"
