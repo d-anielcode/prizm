@@ -125,6 +125,8 @@ export async function GET(req: Request) {
     // Exclude STL/BLK — integer stats with too much game-to-game variance for a
     // "high confidence" daily challenge. Focus on PTS/REB/AST/3PM/PRA.
     const STREAK_EXCLUDED_STATS = new Set(['steals', 'blocks'])
+    // DFS platforms don't offer lines heavier than -130
+    const MAX_FAVORITE_ODDS = -130
 
     const { data: propsRaw } = await supabase
       .from('props')
@@ -135,7 +137,8 @@ export async function GET(req: Request) {
     const todayProps = (propsRaw ?? []).filter((p) =>
       p.commence_time &&
       toEasternDate(p.commence_time) === gameDate &&
-      !STREAK_EXCLUDED_STATS.has(p.stat_type)
+      !STREAK_EXCLUDED_STATS.has(p.stat_type) &&
+      (p.odds == null || (p.odds as number) >= MAX_FAVORITE_ODDS)
     )
 
     // Fall back to LOCK+PLAY if not enough LOCKs after exclusions
@@ -148,7 +151,8 @@ export async function GET(req: Request) {
       const playToday = (playProps ?? []).filter((p) =>
         p.commence_time &&
         toEasternDate(p.commence_time) === gameDate &&
-        !STREAK_EXCLUDED_STATS.has(p.stat_type)
+        !STREAK_EXCLUDED_STATS.has(p.stat_type) &&
+        (p.odds == null || (p.odds as number) >= MAX_FAVORITE_ODDS)
       )
       todayProps.push(...playToday.filter((p) => !todayProps.find((e) => e.player_name === p.player_name)))
     }
