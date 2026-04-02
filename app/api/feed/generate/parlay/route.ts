@@ -55,6 +55,9 @@ const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers', 'assis
 // Volatile stats only qualify at LOCK — PLAY hit rate too low (blocks 46.7%, steals 55.3%)
 const VOLATILE_STATS   = new Set(['blocks', 'steals'])
 const ALLOWED_TIERS    = new Set(['LOCK', 'PLAY'])
+// Maximum favorite odds — lines heavier than -150 are dropped by DFS platforms
+// (PrizePicks, Underdog, Sleeper, Chalkboard) and aren't real bettable props.
+const MAX_FAVORITE_ODDS = -130
 
 // Minimum lines per stat — filter out trivial/gimme props that aren't real bets
 const MIN_LINE: Record<string, number> = {
@@ -245,7 +248,7 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
 
   if (error || !propsRaw || propsRaw.length === 0) return []
 
-  // Filter to target date + allowed markets + minimum line thresholds
+  // Filter to target date + allowed markets + minimum line thresholds + bettable odds
   const eligible = propsRaw.filter((p) =>
     p.commence_time &&
     toEasternDate(p.commence_time) === gameDate &&
@@ -253,7 +256,9 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     ALLOWED_TIERS.has(p.confidence_label ?? '') &&
     p.line >= (MIN_LINE[p.stat_type] ?? 0) &&
     // blocks/steals: LOCK-only — PLAY hit rate too low to include
-    (!VOLATILE_STATS.has(p.stat_type) || p.confidence_label === 'LOCK')
+    (!VOLATILE_STATS.has(p.stat_type) || p.confidence_label === 'LOCK') &&
+    // Reject heavy favorites — DFS platforms don't offer lines below -150
+    (p.odds == null || p.odds >= MAX_FAVORITE_ODDS)
   )
 
   if (eligible.length === 0) return []
@@ -619,7 +624,8 @@ export async function POST(req: Request) {
       toEasternDate(p.commence_time) === gameDate &&
       ALLOWED_MARKETS.has(p.stat_type) &&
       (p.line ?? 0) >= (MIN_LINE[p.stat_type] ?? 0) &&
-      (!VOLATILE_STATS.has(p.stat_type) || p.confidence_label === 'LOCK')
+      (!VOLATILE_STATS.has(p.stat_type) || p.confidence_label === 'LOCK') &&
+      (p.odds == null || (p.odds as number) >= MAX_FAVORITE_ODDS)
     )
 
     const playerNames = [...new Set(eligible.map((p) => p.player_name))]
