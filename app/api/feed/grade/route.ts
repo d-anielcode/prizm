@@ -5,11 +5,16 @@ export const maxDuration = 60
 // POST — grade and persist result to curated_parlays.result
 //
 // Runs as a nightly cron after game logs are fetched (04:15 UTC).
+//
+// Sportsbook-accurate void handling:
+//   When a player DNPs, sportsbooks void that specific leg (not the whole parlay)
+//   and evaluate the remaining legs normally. The parlay only fully voids if
+//   ALL legs are void (no playable legs remain).
+//
 // A parlay is:
-//   hit  — every leg hit
-//   miss — at least one leg missed
-//   void — at least one leg had no game log or player DNP (< 5 min)
-//          AND no legs missed (if any leg clearly missed, we call it miss)
+//   hit  — all playable legs hit (void legs are removed)
+//   miss — at least one playable leg missed
+//   void — every leg was void (no playable legs at all)
 
 import { NextResponse } from 'next/server'
 import { createClient }  from '@supabase/supabase-js'
@@ -127,10 +132,23 @@ async function gradePendingParlays(): Promise<ParlayGrade[]> {
       })
     }
 
-    // Determine overall parlay result
-    const anyMissed = legGrades.some((l) => l.hit === false)
-    const allHit    = legGrades.every((l) => l.hit === true)
-    const result: 'hit' | 'miss' | 'void' = anyMissed ? 'miss' : allHit ? 'hit' : 'void'
+    // Determine overall parlay result — sportsbook rules:
+    // Void legs are removed; remaining legs are evaluated normally.
+    // Only fully void if no playable legs remain.
+    const playableLegs = legGrades.filter((l) => l.hit !== null)
+    const voidCount    = legGrades.length - playableLegs.length
+
+    let result: 'hit' | 'miss' | 'void'
+    if (playableLegs.length === 0) {
+      // Every leg was DNP/void — entire parlay is void
+      result = 'void'
+    } else if (playableLegs.some((l) => l.hit === false)) {
+      // At least one playable leg missed
+      result = 'miss'
+    } else {
+      // All playable legs hit (void legs removed per sportsbook rules)
+      result = 'hit'
+    }
 
     grades.push({ id: p.id as string, game_date: p.game_date as string, title: p.title as string, legs: legGrades, result })
   }

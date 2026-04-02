@@ -380,16 +380,34 @@ async function loadGradedParlays(): Promise<GradedParlay[]> {
       }
     })
 
-    const settledLegs = gradedLegs.filter((l) => l.hit !== null)
-    const hitLegs     = settledLegs.filter((l) => l.hit === true)
+    const playableLegs = gradedLegs.filter((l) => l.hit !== null)
+    const settledLegs  = playableLegs
+    const hitLegs      = settledLegs.filter((l) => l.hit === true)
     const storedResult = p.result as string | null
-    const parlayHit = isPending ? null
-      : storedResult === 'hit'  ? true
-      : storedResult === 'miss' ? false
-      : storedResult === 'void' ? null
-      : gradedLegs.some((l) => l.hit === false) ? false
-      : gradedLegs.every((l) => l.hit === true) ? true
-      : null
+
+    // Sportsbook rules: void legs are removed, remaining legs evaluated normally.
+    // Only fully void if no playable legs remain.
+    let parlayHit: boolean | null
+    if (isPending) {
+      parlayHit = null
+    } else if (storedResult === 'hit') {
+      parlayHit = true
+    } else if (storedResult === 'miss') {
+      parlayHit = false
+    } else if (storedResult === 'void' && playableLegs.length > 0) {
+      // Re-evaluate voided parlays: if playable legs exist, use sportsbook rules
+      parlayHit = playableLegs.some((l) => l.hit === false) ? false
+        : playableLegs.every((l) => l.hit === true) ? true
+        : null
+    } else if (storedResult === 'void') {
+      parlayHit = null // truly void — no playable legs
+    } else {
+      // No stored result — compute from legs (sportsbook void rules)
+      parlayHit = playableLegs.length === 0 ? null
+        : playableLegs.some((l) => l.hit === false) ? false
+        : playableLegs.every((l) => l.hit === true) ? true
+        : null
+    }
 
     return {
       id:             p.id as string,
