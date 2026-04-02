@@ -28,6 +28,7 @@ interface Parlay {
 
 const TYPE_BADGE: Record<string, { label: string; style: string }> = {
   value:   { label: 'Safe Pick',   style: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/25' },
+  combo:   { label: 'Combo',       style: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/25' },
   premium: { label: 'High Roller', style: 'text-[#e8a820] bg-[#e8a820]/10 border-[#e8a820]/25' },
   jackpot: { label: 'Jackpot',     style: 'text-violet-400 bg-violet-400/10 border-violet-400/25' },
 }
@@ -47,9 +48,9 @@ export async function TodaysPicks() {
     .eq('game_date', today)
     .eq('active', true)
     .or('superseded.is.null,superseded.eq.false')
-    .in('parlay_type', ['value', 'premium', 'jackpot'])
+    .in('parlay_type', ['value', 'combo', 'premium', 'jackpot'])
     .order('created_at', { ascending: false })
-    .limit(3)
+    .limit(4)
 
   const parlays = (data ?? []) as Parlay[]
   if (parlays.length === 0) return null

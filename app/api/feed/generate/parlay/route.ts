@@ -42,11 +42,13 @@ const adminClient = createClient(
   { auth: { persistSession: false } },
 )
 
-const VALUE_LEGS       = 2    // 2-leg "Safe Pick"  — 42.9% hit rate, 34.4% ROI (best consistency)
-const PREMIUM_LEGS     = 4    // 4-leg "High Roller" — 33.3% hit rate, 198.6% ROI (24+ mins)
+const VALUE_LEGS       = 2    // 2-leg "Safe Pick"  — 40.8% hit rate, +47.8% ROI (safe stats + 24min)
+const VALUE_MIN_MINS   = 24   // safe pick: 24+ min filter (boosts hit rate from 33.9% → 40.8%)
+const COMBO_LEGS       = 3    // 3-leg "Combo"      — best single-tier ROI (+189.1%), 17-20% hit rate
+const PREMIUM_LEGS     = 4    // 4-leg "High Roller" — 16% hit rate, strong ROI (24+ mins)
 const PREMIUM_COUNT    = 1    // 1 premium parlay per day (was 3; reduced to avoid dilution)
 const PREMIUM_MIN_MINS = 24   // premium: exclude players averaging < 24 min/game
-const JACKPOT_LEGS     = 5    // 5-leg "Jackpot"    — 27.3% hit rate, 308.4% ROI (24+ mins)
+const JACKPOT_LEGS     = 5    // 5-leg "Jackpot"    — 8.3% hit rate, biggest payouts (24+ mins)
 const JACKPOT_MIN_MINS = 24   // jackpot: same 24+ min filter for quality
 // Sportsbooks apply extra vig on parlays — displayed multiplier is discounted ~15%
 // to give a realistic estimate rather than the raw mathematical product.
@@ -54,10 +56,12 @@ const PARLAY_VIG_FACTOR = 0.85
 const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers', 'assists', 'blocks', 'steals'])
 // Volatile stats only qualify at LOCK — PLAY hit rate too low (blocks 46.7%, steals 55.3%)
 const VOLATILE_STATS   = new Set(['blocks', 'steals'])
+// Safe stats for the 2-leg "Safe Pick" — excludes volatile BLK/STL (boosts leg hit rate 60.7% → 66.3%)
+const SAFE_STATS       = new Set(['points', 'rebounds', 'three_pointers', 'assists'])
 const ALLOWED_TIERS    = new Set(['LOCK', 'PLAY'])
 // Maximum favorite odds — lines heavier than -150 are dropped by DFS platforms
 // (PrizePicks, Underdog, Sleeper, Chalkboard) and aren't real bettable props.
-const MAX_FAVORITE_ODDS = -130
+const MAX_FAVORITE_ODDS = -150
 
 // Minimum lines per stat — filter out trivial/gimme props that aren't real bets
 const MIN_LINE: Record<string, number> = {
@@ -144,7 +148,7 @@ interface ParlayResult {
   multiplier:  number
   title:       string
   description: string
-  tier:        'value' | 'premium' | 'jackpot'
+  tier:        'value' | 'combo' | 'premium' | 'jackpot'
 }
 
 // Pick N legs from a pool. globalUsed prevents reusing the same player|stat within
@@ -220,7 +224,7 @@ function buildResult(
   legs:        ParlayLeg[],
   idx:         number,
   gameDate:    string,
-  tier:        'value' | 'premium' | 'jackpot',
+  tier:        'value' | 'combo' | 'premium' | 'jackpot',
 ): ParlayResult {
   const parlayDecimal = legs.reduce((acc, l) => acc * toDecimal(l.odds), 1)
   // Apply sportsbook parlay vig discount for a conservative displayed estimate
@@ -232,6 +236,7 @@ function buildResult(
     return `${l.player_name} ${dir} ${l.line} ${stat}${l10str}`
   })
   const title = tier === 'value'   ? `Safe Pick · ${gameDate}`
+    : tier === 'combo'             ? `Combo · ${gameDate}`
     : tier === 'jackpot'           ? `Jackpot · ${gameDate}`
     : `High Roller · ${gameDate}`
   const description = legStrs.join(' · ') + ` — ~${multiplier}x payout`
@@ -373,12 +378,21 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     // Grades not yet available — fall back to unmodified pool order
   }
 
-  // 4. Build VALUE parlay (3-leg, independent pool)
+  // 4. Build VALUE parlay (2-leg, safe stats only + 24min filter for best hit rate)
+  //    Safe stats (PTS/REB/AST/3PM) + 24min filter: 40.8% hit rate vs 33.9% current
+  const safePool = pool.filter((p) => SAFE_STATS.has(p.stat_type))
   const results: ParlayResult[] = []
   const valueUsed = new Set<string>()
-  const valuePick = pickParlay(pool, valueUsed, VALUE_LEGS)
+  const valuePick = pickParlay(safePool, valueUsed, VALUE_LEGS, VALUE_MIN_MINS)
   if (valuePick) {
     results.push({ ...buildResult(valuePick.legs, 0, gameDate, 'value'), tier: 'value' })
+  }
+
+  // 4b. Build COMBO parlay (3-leg, full pool, no min mins — best single-tier ROI)
+  const comboUsed = new Set<string>()
+  const comboPick = pickParlay(pool, comboUsed, COMBO_LEGS)
+  if (comboPick) {
+    results.push({ ...buildResult(comboPick.legs, 0, gameDate, 'combo'), tier: 'combo' })
   }
 
   // 5. Build PREMIUM parlays (4-leg, 24+ avg mins filter, independent pool)
@@ -412,7 +426,7 @@ async function handlePass2(gameDate: string) {
     .eq('game_date', gameDate)
     .eq('active', true)
     .eq('superseded', false)
-    .in('parlay_type', ['value', 'premium', 'jackpot'])
+    .in('parlay_type', ['value', 'combo', 'premium', 'jackpot'])
 
   if (mpErr || !morningParlays || morningParlays.length === 0) {
     return NextResponse.json({
@@ -567,7 +581,17 @@ async function handlePass2(gameDate: string) {
     console.log(`[generate/parlay] Pass 2: Replaced ${report.parlayType} parlay (${report.parlayId}) → ${inserted?.id} | ${report.summary}`)
   }
 
-  // 6. Also fire streak re-evaluation
+  // 6. Insert Pass 2 announcement if changes were made
+  if (updated > 0) {
+    const summaries = needsUpdate.filter((r) => r.summary).map((r) => r.summary)
+    await adminClient.from('feed_announcements').insert({
+      game_date: gameDate,
+      message: summaries.join('. ') || `${updated} parlay(s) updated after midday injury and line checks.`,
+      type: 'pass2_update',
+    })
+  }
+
+  // 7. Also fire streak re-evaluation
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL
     ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
   fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}&pass=2`, {
@@ -716,11 +740,14 @@ export async function POST(req: Request) {
       .from('curated_parlays')
       .select('id')
       .eq('game_date', gameDate)
-      .in('parlay_type', ['value', 'premium', 'jackpot'])
+      .in('parlay_type', ['value', 'combo', 'premium', 'jackpot'])
       .eq('active', true)
     if (existing && existing.length > 0) {
       await adminClient.from('curated_parlays').delete().in('id', existing.map((r) => r.id))
     }
+
+    // Also clear existing announcements for the date
+    await adminClient.from('feed_announcements').delete().eq('game_date', gameDate)
 
     const results = await generateCuratedParlays(gameDate)
 
@@ -764,6 +791,33 @@ export async function POST(req: Request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+    // Generate feed announcements based on what we could/couldn't fill
+    const announcements: { game_date: string; message: string; type: string }[] = []
+    const allTiers = ['value', 'combo', 'premium', 'jackpot'] as const
+    const filledTiers = new Set(results.map((r) => r.tier))
+    const missingTiers = allTiers.filter((t) => !filledTiers.has(t))
+
+    if (results.length === 0) {
+      announcements.push({
+        game_date: gameDate,
+        message: "Light slate today — not enough qualifying props to build parlays. We'll be back tomorrow with a full card.",
+        type: 'light_slate',
+      })
+    } else if (missingTiers.length > 0 && results.length < 4) {
+      const tierNames: Record<string, string> = { value: 'Safe Pick', combo: 'Combo', premium: 'High Roller', jackpot: 'Jackpot' }
+      const missingNames = missingTiers.map((t) => tierNames[t])
+      const filled = results.length
+      announcements.push({
+        game_date: gameDate,
+        message: `${filled} of 4 parlays filled today. Not enough qualifying props for ${missingNames.join(', ')} — fewer games or volatile lines today. Quality over quantity.`,
+        type: 'partial_slate',
+      })
+    }
+
+    if (announcements.length > 0) {
+      await adminClient.from('feed_announcements').insert(announcements)
+    }
+
     // Fire-and-forget streak generation alongside parlays (same cron, no extra slot needed)
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL
       ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
@@ -776,6 +830,7 @@ export async function POST(req: Request) {
       date:    gameDate,
       saved:   rows.length,
       parlays: data,
+      announcements: announcements.length,
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error'

@@ -79,8 +79,8 @@ def main():
     print("Loading prop_grades...")
     grades_raw = supabase_get_all(
         'prop_grades',
-        'select=game_date,player_name,stat_type,line,direction,confidence_label,confidence_score,hit'
-        '&confidence_label=not.is.null&direction=eq.over&hit=not.is.null&order=game_date.asc'
+        'select=id,game_date,player_name,stat_type,line,direction,confidence_label,confidence_score,hit'
+        '&confidence_label=not.is.null&direction=eq.over&hit=not.is.null&order=id.asc'
     )
     print(f"  {len(grades_raw)} props loaded")
 
@@ -93,15 +93,16 @@ def main():
 
     print("Loading prop_history for odds...")
     hist_map = {}
-    hist_raw = supabase_get_all('prop_history', 'select=game_date,player_name,stat_type,direction,odds&direction=eq.over')
+    hist_raw = supabase_get_all('prop_history', 'select=game_date,player_name,stat_type,direction,odds,id&direction=eq.over&order=id.asc')
     for r in hist_raw:
         key = f"{r['player_name']}|{r['stat_type']}|{r['game_date']}"
-        if key not in hist_map: hist_map[key] = r['odds']
+        # Always overwrite — sorted by cached_at asc, so last write = most recent snapshot
+        hist_map[key] = r['odds']
     print(f"  {len(hist_map)} odds entries loaded")
 
     print("Loading player_game_logs for avg minutes...")
     logs_by_player = defaultdict(list)
-    logs_raw = supabase_get_all('player_game_logs', 'select=player_name,game_date,minutes&minutes=not.is.null&order=game_date.asc')
+    logs_raw = supabase_get_all('player_game_logs', 'select=player_name,game_date,minutes&minutes=not.is.null&order=id.asc')
     for r in logs_raw:
         logs_by_player[r['player_name']].append((r['game_date'], float(r['minutes'] or 0)))
     for p in logs_by_player: logs_by_player[p].sort(key=lambda x: x[0])
@@ -124,99 +125,141 @@ def main():
 
     # ── Test with different odds filters ──────────────────────────────────────
     filters = [
-        ('NO FILTER (current)',  None),
-        ('MAX -150 (recommended)', -150),
-        ('MAX -130 (stricter)',    -130),
+        ('NO FILTER',           None),
+        ('MAX -165',            -165),
+        ('MAX -160',            -160),
+        ('MAX -155',            -155),
+        ('MAX -150',            -150),
+        ('MAX -140',            -140),
+        ('MAX -130',            -130),
     ]
 
-    tier_labels = ['2-leg Safe', '4-leg Premium', '5-leg Jackpot']
+    from itertools import combinations
 
-    print("\n" + "="*80)
-    print(f"{'ODDS FILTER COMPARISON — FULL OVERLAP':^80}")
-    print(f"{'(1x 2-leg + 1x 4-leg + 1x 5-leg, $5 each = $15/day)':^80}")
-    print("="*80)
+    # Tiers: 2-leg (no min mins), 3-leg (no min mins), 4-leg (24+ mins), 5-leg (24+ mins)
+    tier_defs = [(2, False), (3, False), (4, True), (5, True)]
+    tier_names = ['2L', '3L', '4L', '5L']
 
-    summary_rows = []
+    # All combos: singles, pairs, triples, and all-4
+    all_combos = []
+    for size in range(1, len(tier_defs) + 1):
+        for combo in combinations(range(len(tier_defs)), size):
+            all_combos.append(combo)
+
+    print("\n" + "="*100)
+    print(f"{'TIER COMBINATION x ODDS FILTER COMPARISON':^100}")
+    print(f"{'Full overlap, $5/parlay, partial days included':^100}")
+    print("="*100)
+
+    # Pre-compute tier results for each (filter, date)
+    all_results = []  # list of (filter_label, combo_label, days, roi, dpd, pl)
 
     for label, max_fav in filters:
-        r = {'spent': 0, 'won': 0, 'days': 0, 'hits': [0,0,0], 'total': [0,0,0]}
-        filtered_out_count = 0
+        # Build per-date tier outcomes for this filter
+        daily_tiers = {}  # date -> {tier_idx: (decimal, hit)}
 
         for date in dates:
             all_props = by_date[date]
 
-            # Apply odds filter
             if max_fav is not None:
                 pool_props = []
                 for p in all_props:
                     odds_key = f"{p['player_name']}|{p['stat_type']}|{p['game_date']}"
                     odds = hist_map.get(odds_key)
                     if odds is not None and odds < max_fav:
-                        filtered_out_count += 1
                         continue
                     pool_props.append(p)
             else:
                 pool_props = all_props
 
-            pool = sorted(pool_props, key=lambda p: p['confidence_score'], reverse=True)
+            pool = sorted(pool_props, key=lambda p: (p['confidence_score'], p['player_name']), reverse=True)
 
-            # Build 3 parlays (full overlap — independent pools)
-            tiers = [(2, False), (4, True), (5, True)]
-            parlays_today = []
-
-            for tier_idx, (n_legs, use_min_mins) in enumerate(tiers):
+            tier_results = {}
+            for tier_idx, (n_legs, use_min_mins) in enumerate(tier_defs):
                 min_fn = get_avg_mins if use_min_mins else None
                 legs = pick_parlay(pool, n_legs, min_fn, date)
                 if legs is None: continue
                 decimal, hit = evaluate_parlay(legs, hist_map)
-                parlays_today.append((decimal, hit, tier_idx))
+                tier_results[tier_idx] = (decimal, hit)
 
-            if len(parlays_today) < 3: continue
+            if tier_results:
+                daily_tiers[date] = tier_results
 
-            r['days'] += 1
-            for decimal, hit, tier_idx in parlays_today:
-                r['spent'] += STAKE
-                r['total'][tier_idx] += 1
-                if hit:
-                    r['won'] += STAKE * decimal
-                    r['hits'][tier_idx] += 1
+        # Now evaluate every combo
+        for combo in all_combos:
+            spent = 0
+            won = 0
+            days = 0
+            hits_by_tier = [0] * len(tier_defs)
+            total_by_tier = [0] * len(tier_defs)
 
-        roi = ((r['won'] - r['spent']) / r['spent'] * 100) if r['spent'] > 0 else 0
-        daily_profit = (r['won'] - r['spent']) / r['days'] if r['days'] > 0 else 0
-        total_pl = r['won'] - r['spent']
+            for date, tier_results in daily_tiers.items():
+                # Only count days where at least one tier in this combo filled
+                day_spent = 0
+                day_won = 0
+                for t in combo:
+                    if t not in tier_results: continue
+                    decimal, hit = tier_results[t]
+                    day_spent += STAKE
+                    total_by_tier[t] += 1
+                    if hit:
+                        day_won += STAKE * decimal
+                        hits_by_tier[t] += 1
 
-        print(f"\n-- {label} " + "-" * max(1, 76 - len(label)))
-        print(f"  Days tested:      {r['days']}")
-        print(f"  Props filtered:   {filtered_out_count}")
-        print(f"  Total spent:      ${r['spent']:.0f}")
-        print(f"  Total won:        ${r['won']:.0f}")
-        print(f"  Total P/L:        ${total_pl:+.0f}")
-        print(f"  ROI:              {roi:+.1f}%")
-        print(f"  Daily profit:     ${daily_profit:+.2f}/day")
-        print()
-        for i, tl in enumerate(tier_labels):
-            rate = r['hits'][i]/r['total'][i]*100 if r['total'][i] > 0 else 0
-            print(f"  {tl:22s}  {r['hits'][i]:3d}/{r['total'][i]:3d}  ({rate:.1f}% hit rate)")
+                if day_spent > 0:
+                    spent += day_spent
+                    won += day_won
+                    days += 1
 
-        summary_rows.append((label, r['days'], roi, daily_profit, total_pl, filtered_out_count,
-                             r['hits'][0], r['total'][0], r['hits'][1], r['total'][1], r['hits'][2], r['total'][2]))
+            if days == 0: continue
+            roi = (won - spent) / spent * 100
+            dpd = (won - spent) / days
+            pl = won - spent
+            combo_label = '+'.join(tier_names[t] for t in combo)
 
-    # ── Summary ───────────────────────────────────────────────────────────────
-    print(f"\n{'='*80}")
-    print(f"{'SUMMARY':^80}")
-    print("="*80)
-    print(f"  {'Strategy':<28s} {'Days':>5s} {'ROI':>8s} {'$/day':>8s} {'P/L':>8s} {'Filtered':>9s}  {'2L':>7s} {'4L':>7s} {'5L':>7s}")
-    print(f"  {'-'*26}  {'-'*5} {'-'*8} {'-'*8} {'-'*8} {'-'*9}  {'-'*7} {'-'*7} {'-'*7}")
-    for row in summary_rows:
-        label, days, roi, dpd, pl, filt, h2, t2, h4, t4, h5, t5 = row
-        r2 = h2/t2*100 if t2 else 0
-        r4 = h4/t4*100 if t4 else 0
-        r5 = h5/t5*100 if t5 else 0
-        print(f"  {label:<28s} {days:5d} {roi:+7.1f}% {dpd:+7.2f} {pl:+8.0f} {filt:9d}  {r2:5.1f}% {r4:5.1f}% {r5:5.1f}%")
+            all_results.append((label, combo_label, days, roi, dpd, pl, hits_by_tier, total_by_tier))
 
-    best = max(summary_rows, key=lambda x: x[2])
-    print(f"\n  >>> BEST: {best[0]} ({best[2]:+.1f}% ROI, ${best[3]:+.2f}/day)")
-    print("="*80)
+    # ── Print by combo size ───────────────────────────────────────────────────
+    for size, size_label in [(1, 'SINGLE TIER'), (2, 'TWO-TIER COMBOS'), (3, 'THREE-TIER COMBOS'), (4, 'ALL FOUR TIERS')]:
+        relevant = [r for r in all_results if len(r[1].split('+')) == size]
+        if not relevant: continue
+
+        print(f"\n{'='*100}")
+        print(f"  {size_label}")
+        print(f"{'='*100}")
+        print(f"  {'Filter':<12s} {'Combo':<16s} {'Days':>5s} {'ROI':>8s} {'$/day':>8s} {'P/L':>8s}   Hit rates per tier")
+        print(f"  {'-'*10}  {'-'*14}  {'-'*5} {'-'*8} {'-'*8} {'-'*8}   {'-'*30}")
+
+        # Sort by ROI descending
+        for r in sorted(relevant, key=lambda x: x[3], reverse=True):
+            label, combo_label, days, roi, dpd, pl, hits, totals = r
+            hit_strs = []
+            for t in range(len(tier_defs)):
+                if totals[t] > 0:
+                    hit_strs.append(f"{tier_names[t]}:{hits[t]}/{totals[t]}({hits[t]/totals[t]*100:.0f}%)")
+            hit_info = '  '.join(hit_strs) if hit_strs else '-'
+            print(f"  {label:<12s} {combo_label:<16s} {days:5d} {roi:+7.1f}% {dpd:+7.2f} {pl:+8.0f}   {hit_info}")
+
+    # ── Top 10 overall ────────────────────────────────────────────────────────
+    print(f"\n{'='*100}")
+    print(f"  TOP 15 COMBINATIONS BY ROI")
+    print(f"{'='*100}")
+    print(f"  {'#':>3s}  {'Filter':<12s} {'Combo':<16s} {'Days':>5s} {'ROI':>8s} {'$/day':>8s} {'P/L':>8s}")
+    print(f"  {'-'*3}  {'-'*10}  {'-'*14}  {'-'*5} {'-'*8} {'-'*8} {'-'*8}")
+    for i, r in enumerate(sorted(all_results, key=lambda x: x[3], reverse=True)[:15], 1):
+        label, combo_label, days, roi, dpd, pl, _, _ = r
+        print(f"  {i:3d}  {label:<12s} {combo_label:<16s} {days:5d} {roi:+7.1f}% {dpd:+7.2f} {pl:+8.0f}")
+
+    print(f"\n{'='*100}")
+    print(f"  TOP 15 COMBINATIONS BY TOTAL PROFIT")
+    print(f"{'='*100}")
+    print(f"  {'#':>3s}  {'Filter':<12s} {'Combo':<16s} {'Days':>5s} {'ROI':>8s} {'$/day':>8s} {'P/L':>8s}")
+    print(f"  {'-'*3}  {'-'*10}  {'-'*14}  {'-'*5} {'-'*8} {'-'*8} {'-'*8}")
+    for i, r in enumerate(sorted(all_results, key=lambda x: x[5], reverse=True)[:15], 1):
+        label, combo_label, days, roi, dpd, pl, _, _ = r
+        print(f"  {i:3d}  {label:<12s} {combo_label:<16s} {days:5d} {roi:+7.1f}% {dpd:+7.2f} {pl:+8.0f}")
+
+    print("="*100)
 
 
 if __name__ == '__main__':

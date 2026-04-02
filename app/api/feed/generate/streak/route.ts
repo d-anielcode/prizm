@@ -125,8 +125,8 @@ export async function GET(req: Request) {
     // Exclude STL/BLK — integer stats with too much game-to-game variance for a
     // "high confidence" daily challenge. Focus on PTS/REB/AST/3PM/PRA.
     const STREAK_EXCLUDED_STATS = new Set(['steals', 'blocks'])
-    // DFS platforms don't offer lines heavier than -130
-    const MAX_FAVORITE_ODDS = -130
+    // DFS platforms don't offer lines heavier than -150
+    const MAX_FAVORITE_ODDS = -150
 
     const { data: propsRaw } = await supabase
       .from('props')

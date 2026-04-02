@@ -32,7 +32,7 @@ interface CuratedParlay {
   id:             string
   title:          string
   description?:   string | null
-  parlay_type:    'sgp' | 'multi' | 'premium' | 'value' | 'jackpot' | 'streak'
+  parlay_type:    'sgp' | 'multi' | 'premium' | 'value' | 'combo' | 'jackpot' | 'streak'
   game_date:      string
   est_multiplier?: number | null
   legs:           FeedLeg[]
@@ -45,30 +45,50 @@ interface CuratedParlay {
   superseded?:    boolean
 }
 
+interface FeedAnnouncement {
+  id:         string
+  game_date:  string
+  message:    string
+  type:       string
+  created_at: string
+}
+
 interface StreakState {
   currentStreak: number          // consecutive days both picks hit
   history:       CuratedParlay[] // last 10 streak entries, newest first
   todayPick:     CuratedParlay | null
 }
 
-async function getFeedData(): Promise<{ parlays: CuratedParlay[]; streakState: StreakState }> {
+async function getFeedData(): Promise<{ parlays: CuratedParlay[]; streakState: StreakState; announcements: FeedAnnouncement[] }> {
   // Only show the final version of each parlay (non-superseded)
-  const { data, error } = await supabase
-    .from('curated_parlays')
-    .select('*')
-    .eq('active', true)
-    .or('superseded.is.null,superseded.eq.false')
-    .in('parlay_type', ['value', 'premium', 'jackpot', 'streak'])
-    .order('game_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(70)
+  const [parlayRes, announcementRes] = await Promise.all([
+    supabase
+      .from('curated_parlays')
+      .select('*')
+      .eq('active', true)
+      .or('superseded.is.null,superseded.eq.false')
+      .in('parlay_type', ['value', 'combo', 'premium', 'jackpot', 'streak'])
+      .order('game_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(70),
+    supabase
+      .from('feed_announcements')
+      .select('*')
+      .order('game_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(30),
+  ])
+
+  const { data, error } = parlayRes
+  const emptyState = { parlays: [], streakState: { currentStreak: 0, history: [], todayPick: null }, announcements: [] }
 
   if (error) {
-    if (error.code === '42P01') return { parlays: [], streakState: { currentStreak: 0, history: [], todayPick: null } }
+    if (error.code === '42P01') return emptyState
     console.error('[feed] Supabase error:', error.message)
-    return { parlays: [], streakState: { currentStreak: 0, history: [], todayPick: null } }
+    return emptyState
   }
 
+  const announcements = (announcementRes?.data ?? []) as FeedAnnouncement[]
   const all     = (data ?? []) as CuratedParlay[]
   const parlays = all.filter((p) => p.parlay_type !== 'streak')
   const streaks = all.filter((p) => p.parlay_type === 'streak')
@@ -88,6 +108,7 @@ async function getFeedData(): Promise<{ parlays: CuratedParlay[]; streakState: S
   return {
     parlays,
     streakState: { currentStreak, history: streaks.slice(0, 10), todayPick },
+    announcements,
   }
 }
 
@@ -126,8 +147,15 @@ function resultBadge(result?: 'hit' | 'miss' | 'void' | null) {
 }
 
 export default async function FeedPage() {
-  const { parlays, streakState } = await getFeedData()
+  const { parlays, streakState, announcements } = await getFeedData()
   const { currentStreak, history, todayPick } = streakState
+
+  // Group announcements by game_date
+  const announcementsByDate = new Map<string, FeedAnnouncement[]>()
+  for (const a of announcements) {
+    if (!announcementsByDate.has(a.game_date)) announcementsByDate.set(a.game_date, [])
+    announcementsByDate.get(a.game_date)!.push(a)
+  }
 
   // Group parlays by game_date
   const byDate = new Map<string, CuratedParlay[]>()
@@ -265,9 +293,40 @@ export default async function FeedPage() {
             <div className="flex-1 h-px bg-white/[0.06]" />
           </div>
 
-          {/* Parlay cards — value first, then premium, then jackpot */}
+          {/* Announcements for this date */}
+          {(announcementsByDate.get(date) ?? []).map((ann) => (
+            <div key={ann.id} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+              <div className={`h-px w-full bg-gradient-to-r from-transparent ${
+                ann.type === 'pass2_update' ? 'via-amber-400/40' : 'via-blue-400/30'
+              } to-transparent`} />
+              <div className="p-4 sm:p-5 flex items-start gap-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                  ann.type === 'pass2_update'
+                    ? 'bg-amber-400/10 text-amber-400'
+                    : 'bg-blue-400/10 text-blue-400'
+                }`}>
+                  {ann.type === 'pass2_update' ? (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-white/25 uppercase tracking-widest font-semibold mb-1">Prizm Update</p>
+                  <p className="text-sm text-white/60 leading-relaxed">{ann.message}</p>
+                  <p className="text-[10px] text-white/15 mt-1.5">{formatPostedAt(ann.created_at)}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Parlay cards — value first, combo, then premium, then jackpot */}
           {[...byDate.get(date)!].sort((a, b) => {
-            const order = (t: string) => t === 'value' ? 0 : t === 'premium' ? 1 : t === 'jackpot' ? 2 : 3
+            const order = (t: string) => t === 'value' ? 0 : t === 'combo' ? 1 : t === 'premium' ? 2 : t === 'jackpot' ? 3 : 4
             return order(a.parlay_type) - order(b.parlay_type)
           }).map((parlay) => (
             <div key={parlay.id} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
@@ -297,11 +356,13 @@ export default async function FeedPage() {
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border
                         ${parlay.parlay_type === 'sgp'     ? 'text-blue-400 bg-blue-400/10 border-blue-400/25'
                         : parlay.parlay_type === 'value'   ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/25'
+                        : parlay.parlay_type === 'combo'   ? 'text-cyan-400 bg-cyan-400/10 border-cyan-400/25'
                         : parlay.parlay_type === 'premium' ? 'text-[#e8a820] bg-[#e8a820]/10 border-[#e8a820]/25'
                         : parlay.parlay_type === 'jackpot' ? 'text-violet-400 bg-violet-400/10 border-violet-400/25'
                         :                                    'text-white/40 bg-white/5 border-white/10'}`}>
                         {parlay.parlay_type === 'sgp'     ? 'SGP'
                           : parlay.parlay_type === 'value'   ? 'Safe Pick'
+                          : parlay.parlay_type === 'combo'   ? 'Combo'
                           : parlay.parlay_type === 'premium' ? 'High Roller'
                           : parlay.parlay_type === 'jackpot' ? 'Jackpot'
                           : 'Multi'}
@@ -382,8 +443,8 @@ export default async function FeedPage() {
             <p className="font-bold text-white/55 mb-0.5">5 AM ET &mdash; Morning Picks</p>
             <p>
               Our model scores every available prop using game logs, defense matchups,
-              and historical trends. The top picks become your daily Safe Pick, High Roller,
-              and Jackpot parlays.
+              and historical trends. The top picks become your daily Safe Pick, Combo,
+              High Roller, and Jackpot parlays.
             </p>
           </div>
           <div>

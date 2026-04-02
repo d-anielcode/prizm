@@ -575,6 +575,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
   const hasData       = (totals?.ALL.total ?? 0) > 0
 
   const valueParlays   = gradedParlays.filter((p) => p.parlay_type === 'value')
+  const comboParlays   = gradedParlays.filter((p) => p.parlay_type === 'combo')
   const premiumParlays = gradedParlays.filter((p) => p.parlay_type === 'premium')
   const jackpotParlays = gradedParlays.filter((p) => p.parlay_type === 'jackpot')
 
@@ -1079,9 +1080,10 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
       {/* ═══ PARLAYS TAB ═══ */}
       {tab === 'parlays' && ([
-        { label: 'Safe Picks',  sublabel: '2-leg · LOCK+PLAY · ~43% hit rate',              parlays: valueParlays,   accent: 'text-emerald-400', dot: 'bg-emerald-400', minHitPct: 35 },
-        { label: 'High Roller', sublabel: '4-leg · 24+ min avg · ~33% hit rate · ~5–6x payout',  parlays: premiumParlays, accent: 'text-[#e8a820]',   dot: 'bg-[#e8a820]',   minHitPct: 25 },
-        { label: 'Jackpot',     sublabel: '5-leg · 24+ min avg · ~27% hit rate · ~11x payout',   parlays: jackpotParlays, accent: 'text-violet-400', dot: 'bg-violet-400', minHitPct: 20 },
+        { label: 'Safe Picks',  sublabel: '2-leg · Safe stats · 24+ min · ~41% hit rate',           parlays: valueParlays,   accent: 'text-emerald-400', dot: 'bg-emerald-400', minHitPct: 35 },
+        { label: 'Combo',      sublabel: '3-leg · Best ROI tier · ~19% hit rate · ~4x payout',   parlays: comboParlays,   accent: 'text-cyan-400',    dot: 'bg-cyan-400',    minHitPct: 15 },
+        { label: 'High Roller', sublabel: '4-leg · 24+ min avg · ~16% hit rate · ~6x payout',    parlays: premiumParlays, accent: 'text-[#e8a820]',   dot: 'bg-[#e8a820]',   minHitPct: 12 },
+        { label: 'Jackpot',     sublabel: '5-leg · 24+ min avg · ~8% hit rate · ~11x payout',    parlays: jackpotParlays, accent: 'text-violet-400', dot: 'bg-violet-400', minHitPct: 5 },
       ] as const).map(({ label, sublabel, parlays, accent, dot, minHitPct }) => {
         const settled   = parlays.filter((p) => p.hit !== null)
         const hits      = settled.filter((p) => p.hit === true)
