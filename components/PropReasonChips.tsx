@@ -21,20 +21,34 @@ const EXPLANATIONS: Record<string, string> = {
     'This player\'s track record against tonight\'s specific opponent. Some players consistently over- or under-perform against certain teams due to matchup style or individual defenders.',
   seasonAvg:
     'The player\'s season average relative to tonight\'s line. A large gap above the line is a potential edge — books sometimes shade lines low to attract action on both sides.',
+  lineValue:
+    'How the prop line compares to recent performance. A generous line sits well below the player\'s average, giving a built-in edge. A tight line means the book has priced it aggressively.',
   matchup:
     'How well tonight\'s opponent defends this stat league-wide. A weak defense (high rank) gives up more of this stat on average, which favors OVER props. A strong defense (low rank) is a headwind.',
   trend:
     'Whether the player is trending up or down over their last 5 games vs their season average. A sustained shift often reflects a real change — usage, role, health, or matchup run — not just variance.',
+  homeAway:
+    'Players often perform differently at home vs on the road. Home players benefit from familiar surroundings and crowd energy. Road splits can reveal players who struggle away from home.',
   consistency:
     'How much this stat varies game to game. A consistent performer\'s average is a reliable predictor. A volatile stat can swing wildly even when the average looks good — factor in extra uncertainty.',
   blowout:
     'A large spread means one team is heavily favored. Coaches rest starters early when games get out of hand, which cuts into counting stats like points, assists, and rebounds.',
   pace:
     'The game total reflects expected pace. More possessions mean more opportunities to accumulate stats. High totals favor counting stat OVERs; low totals are a mild headwind.',
+  minutes:
+    'How many minutes this player averages and their role tier. Star players with high minutes have more stable, predictable stat lines. Rotation players with fewer minutes carry more variance.',
+  minutesStability:
+    'How consistent this player\'s minutes are game to game. Large swings in playing time make stat predictions less reliable, even if averages look solid.',
   lineMove:
     'How much the line has moved since opening. A line moving in the same direction as your pick means the market agrees. A line moving against your pick is a warning sign.',
   sharpMoney:
     'The odds have shifted toward this pick since morning lines opened. Sportsbooks adjust when large, sophisticated bettors place heavy action on one side. A big shift in your direction means the sharp money agrees.',
+  injury:
+    'This player\'s current injury/availability status as reported by the team. OUT and DOUBTFUL players are unlikely to play. QUESTIONABLE players should be monitored up to tip-off.',
+  teammateInjury:
+    'When key teammates are out, remaining players often see increased usage, minutes, and opportunities — especially for points, assists, and rebounds.',
+  staleData:
+    'This player hasn\'t played recently. The model discounts historical stats when data is old, since form, fitness, and role may have changed during the absence.',
 }
 
 // ── Parser ────────────────────────────────────────────────────────────────────
@@ -42,7 +56,58 @@ const EXPLANATIONS: Record<string, string> = {
 function parseReason(reason: string): Chip[] {
   const chips: Chip[] = []
 
-  // 1. Recent hit rate
+  // 0a. Data staleness warning
+  if (/Data may be stale/.test(reason)) {
+    const daysMatch = reason.match(/last game was (\d+) days ago/)
+    chips.push({
+      label: `⚠️ Stale Data (${daysMatch ? daysMatch[1] + 'd' : '?'} ago)`,
+      explanation: EXPLANATIONS.staleData,
+      color: 'bg-amber-500/20 text-amber-300',
+    })
+  }
+
+  // 0b. Player injury status
+  const injuryMatch = reason.match(/listed as (OUT|DOUBTFUL|QUESTIONABLE)/)
+  if (injuryMatch) {
+    const status = injuryMatch[1]
+    const color = status === 'OUT' ? 'bg-red-500/20 text-red-300' : status === 'DOUBTFUL' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400'
+    chips.push({ label: `⚠️ ${status}`, explanation: EXPLANATIONS.injury, color })
+  }
+
+  // 0c. Injured teammates boost
+  if (/Teammate upgrade opportunity/.test(reason)) {
+    const namesMatch = reason.match(/Teammate upgrade opportunity: (.+?) (?:is|are) OUT/)
+    chips.push({
+      label: `📈 Teammate${namesMatch?.[1]?.includes(',') ? 's' : ''} OUT → Usage Boost`,
+      explanation: EXPLANATIONS.teammateInjury,
+      color: 'bg-emerald-500/15 text-emerald-400',
+    })
+  } else if (/Teammate .+ is (?:questionable|doubtful)/.test(reason)) {
+    chips.push({
+      label: 'Teammate Questionable',
+      explanation: EXPLANATIONS.teammateInjury,
+      color: 'bg-amber-500/10 text-amber-400',
+    })
+  }
+
+  // 1. Line value (generous/tight market pricing)
+  if (/Line value:/.test(reason)) {
+    const lvMatch = reason.match(/line of ([\d.]+) sits ([\d.]+) (?:below|above) their L10 average of ([\d.]+)/)
+    chips.push({
+      label: lvMatch ? `Generous Line (L10 Avg ${lvMatch[3]})` : 'Generous Line',
+      explanation: EXPLANATIONS.lineValue,
+      color: 'bg-emerald-500/15 text-emerald-400',
+    })
+  } else if (/Tight line:/.test(reason)) {
+    const tlMatch = reason.match(/line of ([\d.]+) sits ([\d.]+) (?:above|below) their L10 average of ([\d.]+)/)
+    chips.push({
+      label: tlMatch ? `Tight Line (L10 Avg ${tlMatch[3]})` : 'Tight Line',
+      explanation: EXPLANATIONS.lineValue,
+      color: 'bg-red-500/15 text-red-400',
+    })
+  }
+
+  // 2. Recent hit rate
   const hitMatch = reason.match(/has gone \w+ [\d.]+ \w+ in (\d+) of their last (\d+) games/)
   if (hitMatch) {
     const hits = parseInt(hitMatch[1])
@@ -55,7 +120,7 @@ function parseReason(reason: string): Chip[] {
     })
   }
 
-  // 2. Head-to-head
+  // 3. Head-to-head
   const h2hMatch = reason.match(/In (\d+) previous matchups against (.+?), they've hit the \w+ (\d+)\/\d+/)
   if (h2hMatch) {
     const total = parseInt(h2hMatch[1])
@@ -69,7 +134,7 @@ function parseReason(reason: string): Chip[] {
     })
   }
 
-  // 3. Season average vs line
+  // 4. Season average vs line
   const avgMatch = reason.match(/Season average of ([\d.]+)[^—]*—\s*([\d.]+)%\s*(above|below)/)
   if (avgMatch) {
     const dir = avgMatch[3]
@@ -80,7 +145,33 @@ function parseReason(reason: string): Chip[] {
     })
   }
 
-  // 4. Matchup quality
+  // 5. Home/Away splits
+  const homeAwayMatch = reason.match(/Averaging ([\d.]+) \w+ (at home|on the road) this season \((\d+) games\)/)
+  if (homeAwayMatch) {
+    const avg = homeAwayMatch[1]
+    const venue = homeAwayMatch[2] === 'at home' ? 'Home' : 'Away'
+    chips.push({
+      label: `${venue} Avg ${avg} (${homeAwayMatch[3]}G)`,
+      explanation: EXPLANATIONS.homeAway,
+      color: 'bg-sky-500/10 text-sky-400',
+    })
+  }
+
+  // 6. Minutes + player tier
+  const minMatch = reason.match(/Playing (\d+) minutes per game/)
+  if (minMatch) {
+    const mins = parseInt(minMatch[1])
+    const isStar = /Star-player usage/.test(reason)
+    const isRotation = /Rotation player/.test(reason)
+    const tierLabel = isStar ? '★ Star' : isRotation ? 'Rotation' : 'Starter'
+    chips.push({
+      label: `${tierLabel} · ${mins} MPG`,
+      explanation: EXPLANATIONS.minutes,
+      color: isStar ? 'bg-violet-500/10 text-violet-400' : isRotation ? 'bg-white/5 text-white/40' : 'bg-white/5 text-white/50',
+    })
+  }
+
+  // 7. Matchup quality
   const matchupMatch = reason.match(/(Tough|Favorable) matchup[^#]*#(\d+)/)
   if (matchupMatch) {
     const favorable = matchupMatch[1] === 'Favorable'
@@ -91,7 +182,7 @@ function parseReason(reason: string): Chip[] {
     })
   }
 
-  // 5. Trend
+  // 8. Trend
   const trendMatch = reason.match(/Trending (up|down) recently — ([\d.]+)[^v]+vs a season average of ([\d.]+)/)
   if (trendMatch) {
     const up = trendMatch[1] === 'up'
@@ -102,24 +193,7 @@ function parseReason(reason: string): Chip[] {
     })
   }
 
-  // 6. Consistency / variance
-  if (/Rock-solid consistency/.test(reason)) {
-    chips.push({ label: 'Consistent Performer', explanation: EXPLANATIONS.consistency, color: 'bg-emerald-500/10 text-emerald-500' })
-  } else if (/High-variance stat/.test(reason)) {
-    chips.push({ label: 'Volatile Stat', explanation: EXPLANATIONS.consistency, color: 'bg-amber-500/15 text-amber-400' })
-  }
-
-  // 7. Blowout risk
-  const blowoutMatch = reason.match(/(High|Moderate) blowout risk — ([\d.]+)-point spread/)
-  if (blowoutMatch) {
-    chips.push({
-      label: `${blowoutMatch[1]} Blowout Risk (−${blowoutMatch[2]} Spread)`,
-      explanation: EXPLANATIONS.blowout,
-      color: 'bg-amber-500/15 text-amber-400',
-    })
-  }
-
-  // 8. Pace
+  // 9. Pace
   const paceMatch = reason.match(/(High|Slow)-paced game expected \(O\/U ([\d.]+)\)/)
   if (paceMatch) {
     chips.push({
@@ -129,19 +203,46 @@ function parseReason(reason: string): Chip[] {
     })
   }
 
-  // 9. Line movement
+  // 10. Blowout risk
+  const blowoutMatch = reason.match(/(High|Moderate) blowout risk — ([\d.]+)-point spread/)
+  if (blowoutMatch) {
+    chips.push({
+      label: `${blowoutMatch[1]} Blowout Risk (${blowoutMatch[2]}pt Spread)`,
+      explanation: EXPLANATIONS.blowout,
+      color: 'bg-amber-500/15 text-amber-400',
+    })
+  }
+
+  // 11. Consistency / variance
+  if (/Rock-solid consistency/.test(reason)) {
+    chips.push({ label: 'Consistent Performer', explanation: EXPLANATIONS.consistency, color: 'bg-emerald-500/10 text-emerald-500' })
+  } else if (/High-variance stat/.test(reason)) {
+    chips.push({ label: 'Volatile Stat', explanation: EXPLANATIONS.consistency, color: 'bg-amber-500/15 text-amber-400' })
+  }
+
+  // 12. Minutes stability
+  const minStabMatch = reason.match(/Minutes vary significantly \(σ≈(\d+) min\/game\)/)
+  if (minStabMatch) {
+    chips.push({
+      label: `⚠️ Unstable Minutes (σ ${minStabMatch[1]}m)`,
+      explanation: EXPLANATIONS.minutesStability,
+      color: 'bg-amber-500/15 text-amber-400',
+    })
+  }
+
+  // 13. Line movement
   const lineMovMatch = reason.match(/Line moved (up|down) ([\d.]+) pts.*?(confirming|going against)/)
   if (lineMovMatch) {
     const up = lineMovMatch[1] === 'up'
     const confirming = lineMovMatch[3] === 'confirming'
     chips.push({
-      label: `Line ${up ? 'Rose' : 'Fell'} ${lineMovMatch[2]}pt${parseFloat(lineMovMatch[2]) !== 1 ? 's' : ''} — ${confirming ? 'Books Agree' : 'Books Pushing Other Side'}`,
+      label: `Line ${up ? 'Rose' : 'Fell'} ${lineMovMatch[2]}pt${parseFloat(lineMovMatch[2]) !== 1 ? 's' : ''} — ${confirming ? 'Books Agree' : 'Pushing Other Side'}`,
       explanation: EXPLANATIONS.lineMove,
       color: confirming ? 'bg-violet-500/15 text-violet-400' : 'bg-white/5 text-white/35',
     })
   }
 
-  // 10. Sharp odds movement
+  // 14. Sharp odds movement
   const oddsMatch = reason.match(/Odds juice shifted[^+]*\+?([\d.]+)pp (toward|away from)/)
   if (oddsMatch) {
     const confirming = oddsMatch[2] === 'toward'
