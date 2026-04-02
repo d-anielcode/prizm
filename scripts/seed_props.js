@@ -28,7 +28,7 @@ function loadEnv() {
     const eqIdx = trimmed.indexOf('=')
     if (eqIdx === -1) continue
     const key = trimmed.slice(0, eqIdx).trim()
-    const value = trimmed.slice(eqIdx + 1).trim()
+    const value = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '')
     if (key && !(key in process.env)) {
       process.env[key] = value
     }
@@ -173,15 +173,98 @@ async function fetchPropsForEvents(events) {
   return allProps
 }
 
-// ---- Dedup ----
+// ---- Dedup + Main/Alt separation ----
+// Mirrors lib/dedup.ts — picks canonical line per player+stat, rest become alts
 function deduplicateProps(props) {
   const seen = new Set()
-  return props.filter((p) => {
+  const unique = props.filter((p) => {
     const key = `${p.player_name}|${p.stat_type}|${p.line}|${p.direction}|${p.sportsbook}`
     if (seen.has(key)) return false
     seen.add(key)
     return true
   })
+  return unique
+}
+
+function distTo110(odds) {
+  if (odds == null) return Infinity
+  return Math.abs(Math.abs(odds) - 110)
+}
+
+// Pick one main line per player+stat+direction, then generate ±1 synthetic alts
+function separateMainAndAlts(props) {
+  // Find canonical line per player+stat (shared over+under line closest to -110)
+  const byPlayerStat = new Map()
+  for (const p of props) {
+    const key = `${p.player_name}|${p.stat_type}`
+    if (!byPlayerStat.has(key)) byPlayerStat.set(key, { over: [], under: [] })
+    byPlayerStat.get(key)[p.direction].push(p)
+  }
+
+  const canonicalLine = new Map()
+  for (const [key, { over, under }] of byPlayerStat) {
+    if (over.length === 0) continue
+    if (under.length > 0) {
+      const overLineSet = new Set(over.map((p) => p.line))
+      const sharedLines = under.filter((p) => overLineSet.has(p.line)).map((p) => p.line)
+      if (sharedLines.length > 0) {
+        const best = sharedLines.sort((a, b) => {
+          const oA = over.find((p) => p.line === a)
+          const oB = over.find((p) => p.line === b)
+          return distTo110(oA?.odds) - distTo110(oB?.odds)
+        })[0]
+        canonicalLine.set(key, best)
+        continue
+      }
+    }
+    const mainOver = [...over].sort((a, b) => distTo110(a.odds) - distTo110(b.odds))[0]
+    canonicalLine.set(key, mainOver.line)
+  }
+
+  // Pick one main prop per player+stat+direction
+  const groups = new Map()
+  for (const p of props) {
+    const key = `${p.player_name}|${p.stat_type}|${p.direction}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(p)
+  }
+
+  const mainProps = []
+  for (const [groupKey, group] of groups) {
+    const psKey = groupKey.split('|').slice(0, 2).join('|')
+    const canon = canonicalLine.get(psKey)
+    group.sort((a, b) => {
+      const aCanon = a.line === canon ? 0 : 1
+      const bCanon = b.line === canon ? 0 : 1
+      if (aCanon !== bCanon) return aCanon - bCanon
+      return distTo110(a.odds) - distTo110(b.odds)
+    })
+    mainProps.push(group[0])
+  }
+
+  // Generate ±1 synthetic alt lines from each main prop
+  const STEP = { points: 2, pra: 2, rebounds: 1, assists: 1, steals: 1, blocks: 1, three_pointers: 1 }
+  const altProps = mainProps.flatMap((p) => {
+    const step = STEP[p.stat_type] || 1
+    return [-1, 1]
+      .map((n) => Math.round((p.line + n * step) * 2) / 2)
+      .filter((altLine) => altLine >= 0.5)
+      .map((altLine) => ({
+        player_name:   p.player_name,
+        stat_type:     p.stat_type,
+        direction:     p.direction,
+        game_id:       p.game_id,
+        line:          altLine,
+        odds:          null,
+        sportsbook:    p.sportsbook,
+        home_team:     p.home_team,
+        away_team:     p.away_team,
+        commence_time: p.commence_time,
+        cached_at:     p.cached_at,
+      }))
+  })
+
+  return { mainProps, altProps }
 }
 
 // ---- Main ----
@@ -207,41 +290,84 @@ async function main() {
     return
   }
 
-  // 3. Delete old props scoped to today's game dates only (not the entire table)
-  const gameDates = [...new Set(deduped.map((p) => {
+  // 3. Separate main lines from alt lines
+  const { mainProps, altProps } = separateMainAndAlts(deduped)
+  console.log(`[seed] Main lines: ${mainProps.length}, Alt lines: ${altProps.length}`)
+
+  const BATCH = 500
+
+  // 4. Snapshot existing enriched props to prop_history before deleting
+  const gameDates = [...new Set(mainProps.map((p) => {
     if (!p.commence_time) return null
     return new Date(p.commence_time).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
   }).filter(Boolean))]
+
+  for (const date of gameDates) {
+    const startOfDay = `${date}T00:00:00.000Z`
+    const endOfDay   = `${date}T23:59:59.999Z`
+    const existing = await supabaseRequest(
+      'GET',
+      `props?commence_time=gte.${startOfDay}&commence_time=lte.${endOfDay}&confidence_label=not.is.null&select=*&limit=10000`,
+      null
+    )
+    if (existing && existing.length > 0) {
+      const historyRows = existing.map((p) => {
+        const gameDate = p.commence_time
+          ? new Date(p.commence_time).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+          : date
+        return { ...p, game_date: gameDate }
+      })
+      for (let i = 0; i < historyRows.length; i += BATCH) {
+        const batch = historyRows.slice(i, i + BATCH)
+        await supabaseRequest('POST', 'prop_history?on_conflict=id,game_date', batch)
+      }
+      console.log(`[seed] Snapshotted ${existing.length} enriched props to prop_history for ${date}`)
+    }
+  }
+
+  // 5. Delete old props scoped to today's game dates only (not the entire table)
   console.log(`\n[seed] Deleting old props for game dates: ${gameDates.join(', ')}...`)
   for (const date of gameDates) {
     const startOfDay = `${date}T00:00:00.000Z`
     const endOfDay   = `${date}T23:59:59.999Z`
     await supabaseRequest('DELETE', `props?commence_time=gte.${startOfDay}&commence_time=lte.${endOfDay}`, null)
+    await supabaseRequest('DELETE', `prop_alts?commence_time=gte.${startOfDay}&commence_time=lte.${endOfDay}`, null)
   }
-  console.log('[seed] Old props for target dates deleted.')
+  console.log('[seed] Old props + alts for target dates deleted.')
 
-  // 4. Insert new props in batches
-  const BATCH = 500
+  // 6. Insert main props in batches
   let inserted = 0
-  for (let i = 0; i < deduped.length; i += BATCH) {
-    const batch = deduped.slice(i, i + BATCH)
+  for (let i = 0; i < mainProps.length; i += BATCH) {
+    const batch = mainProps.slice(i, i + BATCH)
     await supabaseRequest('POST', 'props', batch)
     inserted += batch.length
-    console.log(`[seed] Inserted ${inserted}/${deduped.length} props...`)
+    console.log(`[seed] Inserted ${inserted}/${mainProps.length} main props...`)
   }
 
-  // 5. Summary
-  const games = [...new Set(deduped.map((p) => p.game_id))]
-  const withTeams = deduped.filter((p) => p.home_team && p.away_team).length
+  // 7. Insert alt lines in batches
+  if (altProps.length > 0) {
+    let altInserted = 0
+    for (let i = 0; i < altProps.length; i += BATCH) {
+      const batch = altProps.slice(i, i + BATCH)
+      await supabaseRequest('POST', 'prop_alts', batch)
+      altInserted += batch.length
+      console.log(`[seed] Inserted ${altInserted}/${altProps.length} alt lines...`)
+    }
+  }
+
+  // 8. Summary
+  const games = [...new Set(mainProps.map((p) => p.game_id))]
+  const withTeams = mainProps.filter((p) => p.home_team && p.away_team).length
   console.log(`\n[seed] Done!`)
   console.log(`  Games:        ${games.length}`)
-  console.log(`  Total props:  ${deduped.length}`)
+  console.log(`  Main props:   ${mainProps.length}`)
+  console.log(`  Alt lines:    ${altProps.length}`)
   console.log(`  With teams:   ${withTeams}`)
-  console.log(`  Without teams: ${deduped.length - withTeams}`)
+  console.log(`  Without teams: ${mainProps.length - withTeams}`)
 
   // Log unique games
   const gameSet = new Map()
-  for (const p of deduped) {
+  for (const p of mainProps) {
     if (!gameSet.has(p.game_id)) {
       gameSet.set(p.game_id, { home: p.home_team, away: p.away_team, time: p.commence_time })
     }

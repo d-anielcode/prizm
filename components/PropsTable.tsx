@@ -156,7 +156,6 @@ export function PropsTable({
   const [labelFilter, setLabelFilter] = useState<ConfidenceLabel | 'all'>('all')
   const [directionFilter, setDirectionFilter] = useState<'all' | 'over' | 'under'>('all')
   const [gameFilter, setGameFilter] = useState<string>('all')
-  const [showAlts, setShowAlts] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Derive unique games from props
@@ -254,17 +253,8 @@ export function PropsTable({
           </div>
         )}
 
-        {/* Alt lines toggle + count */}
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => setShowAlts(!showAlts)}
-            className="flex items-center gap-2 text-xs text-white/40 hover:text-white/60 transition-colors"
-          >
-            <div className={`w-8 h-4 rounded-full transition-colors relative ${showAlts ? 'bg-[#e8a820]/40' : 'bg-white/10'}`}>
-              <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all ${showAlts ? 'left-4 bg-[#e8a820]' : 'left-0.5 bg-white/40'}`} />
-            </div>
-            <span className="font-semibold">Alt Lines</span>
-          </button>
+        {/* Prop count */}
+        <div className="flex items-center justify-end">
           <span className="text-sm text-white/40">{filtered.length} props</span>
         </div>
       </div>
@@ -276,7 +266,7 @@ export function PropsTable({
         {filtered.length === 0 ? (
           <div className="py-16 text-center text-white/30">No props match your filters.</div>
         ) : filtered.map((prop, i) => (
-          <div key={prop.id ?? i} className="px-4 py-3 bg-white/[0.02]">
+          <div key={`${prop.id}-${prop.stat_type}-${prop.line}-${i}`} className="px-4 py-3 bg-white/[0.02]">
             <div className="flex items-center justify-between gap-2 mb-1">
               <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
                 className="font-medium text-white text-sm leading-tight hover:text-[#f0c060] transition-colors">
@@ -303,7 +293,7 @@ export function PropsTable({
               <SharpMoneyBadge opening={prop.opening_line} current={prop.line} direction={prop.direction} />
             </div>
             <PropReasonChips reason={prop.confidence_reason} />
-            {showAlts && prop.altLines && prop.altLines.length > 0 && (
+            {prop.altLines && prop.altLines.length > 0 && (
               <AltLinesPanel mainLine={prop.line} altLines={prop.altLines} direction={prop.direction} />
             )}
           </div>
@@ -325,8 +315,8 @@ export function PropsTable({
           </thead>
           <tbody>
             {filtered.map((prop, i) => {
-              const rowKey = prop.id ?? String(i)
-              const isOpen = expandedId === rowKey || showAlts
+              const rowKey = `${prop.id}-${prop.stat_type}-${prop.line}-${i}`
+              const isOpen = expandedId === rowKey
               const hasAlts = (prop.altLines?.length ?? 0) > 0
 
               return (
@@ -351,7 +341,7 @@ export function PropsTable({
                           {prop.line}
                           <LineMovement opening={prop.opening_line} current={prop.line} />
                         </span>
-                        {hasAlts && !showAlts && (
+                        {hasAlts && (
                           <svg
                             className={`w-3.5 h-3.5 text-white/30 transition-transform duration-300 ${expandedId === rowKey ? 'rotate-180' : ''}`}
                             fill="none" stroke="currentColor" viewBox="0 0 24 24"

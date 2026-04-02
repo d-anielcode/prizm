@@ -316,7 +316,6 @@ export default async function HomePage() {
         </div>
 
         <ConfidenceExplainer />
-        <TodaysPicks />
       </div>
 
       {/* ── Game cards ── */}
@@ -372,6 +371,9 @@ export default async function HomePage() {
           ))}
         </div>
       )}
+
+      {/* ── Today's Picks ── */}
+      <TodaysPicks />
 
       {/* ── Model Performance / Results History ── */}
       {results.length > 0 && <ResultsHistory results={results} />}

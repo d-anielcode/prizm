@@ -27,9 +27,20 @@ async function getProps(): Promise<PropWithAlts[]> {
 
   if (allRows.length === 0) return []
 
+  // Deduplicate: same player + stat + line → keep highest confidence
+  const bestMap = new Map<string, Prop>()
+  for (const p of allRows) {
+    const key = `${p.player_name}|${p.stat_type}|${p.line}|${p.direction}`
+    const existing = bestMap.get(key)
+    if (!existing || (p.confidence_score ?? 0) > (existing.confidence_score ?? 0)) {
+      bestMap.set(key, p)
+    }
+  }
+  const deduped = [...bestMap.values()]
+
   // Sort by tier first (LOCK > PLAY > LEAN > FADE), then by score within tier
   const TIER_ORDER: Record<string, number> = { LOCK: 0, PLAY: 1, LEAN: 2, FADE: 3 }
-  allRows.sort((a, b) => {
+  deduped.sort((a, b) => {
     const ta = TIER_ORDER[a.confidence_label ?? ''] ?? 4
     const tb = TIER_ORDER[b.confidence_label ?? ''] ?? 4
     if (ta !== tb) return ta - tb
@@ -53,7 +64,7 @@ async function getProps(): Promise<PropWithAlts[]> {
     altFrom += ALT_PAGE
   }
 
-  return allRows.map((p) => ({
+  return deduped.map((p) => ({
     ...p,
     altLines: altRows
       .filter((a) => a.player_name === p.player_name && a.stat_type === p.stat_type && a.direction === p.direction)

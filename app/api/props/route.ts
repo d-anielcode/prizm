@@ -59,21 +59,6 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
     const dedupedWithAlts = deduplicatePropsWithAlts(deduped)
     const mainProps = dedupedWithAlts.map(({ altLines: _alts, ...p }) => p)
     const now = new Date().toISOString()
-    const altRows = dedupedWithAlts.flatMap((p) =>
-      (p.altLines ?? []).map((alt) => ({
-        player_name:    p.player_name,
-        stat_type:      p.stat_type,
-        direction:      alt.direction,
-        game_id:        p.game_id,
-        line:           alt.line,
-        odds:           alt.odds ?? null,
-        sportsbook:     alt.sportsbook ?? null,
-        home_team:      p.home_team ?? null,
-        away_team:      p.away_team ?? null,
-        commence_time:  p.commence_time ?? null,
-        cached_at:      now,
-      }))
-    )
 
     // Snapshot existing main props to prop_history BEFORE deleting (for results grading)
     const { data: existing } = await supabase
@@ -119,18 +104,15 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
       if (error) console.error(`[/api/props] props insert error:`, error.message)
     }
 
-    // Generate synthetic alt lines: ±2 increments from each main line
-    // Points/PRA use step=2; all other stats use step=1
+    // Generate synthetic alt lines: ±1 increment from each main line
     const STEP: Record<string, number> = {
       points: 2, pra: 2, rebounds: 1, assists: 1, steals: 1, blocks: 1, three_pointers: 1,
     }
-    const realAltKeys = new Set(altRows.map((a) => `${a.player_name}|${a.stat_type}|${a.direction}|${a.line}`))
-    const syntheticAltRows = mainProps.flatMap((p) => {
+    const allAltRows = mainProps.flatMap((p) => {
       const step = STEP[p.stat_type] ?? 1
-      return [-2, -1, 1, 2]
+      return [-1, 1]
         .map((n) => Math.round((p.line + n * step) * 2) / 2)
         .filter((altLine) => altLine >= 0.5)
-        .filter((altLine) => !realAltKeys.has(`${p.player_name}|${p.stat_type}|${p.direction}|${altLine}`))
         .map((altLine) => ({
           player_name:   p.player_name,
           stat_type:     p.stat_type,
@@ -145,16 +127,13 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
           cached_at:     now,
         }))
     })
-
-    // Clear and insert alt lines (real sportsbook + synthetic)
-    const allAltRows = [...altRows, ...syntheticAltRows]
     await supabase.from('prop_alts').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     for (let i = 0; i < allAltRows.length; i += BATCH) {
       const { error } = await supabase.from('prop_alts').insert(allAltRows.slice(i, i + BATCH))
       if (error) console.error(`[/api/props] prop_alts insert error:`, error.message)
     }
 
-    console.log(`[/api/props] Refreshed — ${mainProps.length} main props + ${altRows.length} sportsbook alts + ${syntheticAltRows.length} synthetic alts for ${events.length} games`)
+    console.log(`[/api/props] Refreshed — ${mainProps.length} main props + ${allAltRows.length} alt lines for ${events.length} games`)
   } else {
     console.log(`[/api/props] Refreshed — 0 props for ${events.length} games`)
   }
