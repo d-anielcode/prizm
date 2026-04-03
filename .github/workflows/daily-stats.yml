@@ -1,16 +1,16 @@
 name: Daily NBA Stats Refresh
 
-# Two runs per day:
-#   10:00 UTC = 5:00 AM ET  — full pipeline: grade, stats, defense, props, enrich, streak, parlay
-#   16:00 UTC = 11:00 AM ET — defense stats + re-enrich only (lines shift midday)
+# Two runs per day (EDT, UTC-4):
+#   09:00 UTC = 5:00 AM EDT — full pipeline: grade, stats, defense, props, enrich, streak, parlay
+#   15:00 UTC = 11:00 AM EDT — defense stats + re-enrich only (lines shift midday)
 #
 # All Vercel API calls pass Authorization: Bearer CRON_SECRET so they pass requireCronAuth.
 # Add CRON_SECRET to GitHub repo secrets (same value as the Vercel CRON_SECRET env var).
 
 on:
   schedule:
-    - cron: '0 10 * * *'   # 5:00 AM ET  — full pipeline
-    - cron: '0 16 * * *'   # 11:00 AM ET — defense stats + enrich only
+    - cron: '0 9 * * *'    # 5:00 AM EDT — full pipeline
+    - cron: '0 15 * * *'   # 11:00 AM EDT — defense stats + enrich only
   workflow_dispatch:        # Manual trigger also runs the full pipeline
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
       # ── Full pipeline only (5 AM ET + manual) ──────────────────────────────
 
       - name: Pull game logs (last 3 days)
-        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
@@ -35,7 +35,7 @@ jobs:
           echo ""
 
       - name: Grade yesterday's feed props
-        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
@@ -48,7 +48,7 @@ jobs:
           echo ""
 
       - name: Refresh player season stats
-        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
@@ -61,7 +61,7 @@ jobs:
           echo ""
 
       - name: Update prop results
-        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
@@ -74,7 +74,7 @@ jobs:
           echo ""
 
       - name: Grade props
-        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
@@ -144,7 +144,7 @@ jobs:
       # ── Full pipeline only: generate streak + parlay once ─────────────────
 
       - name: Generate daily streak picks
-        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
@@ -157,7 +157,7 @@ jobs:
           echo ""
 
       - name: Generate daily parlay
-        if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
@@ -172,7 +172,7 @@ jobs:
       # ── Midday only: re-evaluate parlays with fresh line movement + injury data ──
 
       - name: Re-evaluate daily parlays (Pass 2)
-        if: github.event.schedule == '0 16 * * *'
+        if: github.event.schedule == '0 15 * * *'
         continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
