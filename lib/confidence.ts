@@ -1146,11 +1146,27 @@ export function scoreProps(
   // correction to all OVER props to offset this systematic pricing edge.
   const overBiasAdj = direction === 'over' ? -3 : 0
 
+  // 3PM zone simulation adjustment: Monte Carlo sim with zone-specific defense
+  // produces p(over) — compare to baseline 0.50 to determine sim edge.
+  // Only applies to three_pointers props.
+  let simAdj = 0
+  if (stat_type === 'three_pointers' && ctx.simThreePm) {
+    const simEdge = ctx.simThreePm.p_over - 0.50
+    if (simEdge > 0.10)      simAdj =  6
+    else if (simEdge > 0.05) simAdj =  4
+    else if (simEdge > 0.02) simAdj =  2
+    else if (simEdge < -0.10) simAdj = -6
+    else if (simEdge < -0.05) simAdj = -4
+    else if (simEdge < -0.02) simAdj = -2
+    // Flip for UNDER picks: if sim favors over, that's bad for an under pick
+    if (direction === 'under') simAdj = -simAdj
+  }
+
   // No-log cap: props without sufficient game log history (injury returns, new acquisitions)
   // are capped at 65 (top of PLAY) — insufficient data to justify LOCK confidence.
   const scoreMax = hasLogs ? 95 : 65
   const score = Math.round(Math.min(scoreMax, Math.max(18,
-    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + opponentB2bAdj
+    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + opponentB2bAdj + simAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
   // Derive correct opponent display name from game-log-based opponentAbbr.
@@ -1164,6 +1180,7 @@ export function scoreProps(
     ctx.lineMovementDelta ?? null,
     ctx.oddsMovementDelta ?? null,
     opponentDisplayName,
+    ctx,
   )
 
   return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason }
@@ -1251,6 +1268,7 @@ function buildReason(
   lineMovementDelta?: number | null,
   oddsMovementDelta?: number | null,
   opponentName?: string | null,
+  ctx?: ScoringContext | null,
 ): string {
   const { stat_type, line, direction, player_name, opponent: rawOpponent } = prop
   // Use game-log-derived opponent name when available (more reliable than prop.opponent,
@@ -1522,6 +1540,19 @@ function buildReason(
         ? `Odds juice shifted +${pctShift}pp toward the ${dir.toUpperCase()} since morning — sharp syndicate action detected.`
         : `Odds juice shifted ${pctShift}pp away from the ${dir.toUpperCase()} since morning — books taking ${dir === 'over' ? 'under' : 'over'} action.`
     )
+  }
+
+  // 11. 3PM simulation note
+  if (stat_type === 'three_pointers' && ctx?.simThreePm) {
+    const pOverPct = (ctx.simThreePm.p_over * 100).toFixed(0)
+    const meanStr = ctx.simThreePm.sim_mean.toFixed(1)
+    if (ctx.simThreePm.p_over > 0.55) {
+      sentences.push(`Zone sim model projects ${meanStr} 3PM avg (${pOverPct}% over) — zone-adjusted defense favors the OVER.`)
+    } else if (ctx.simThreePm.p_over < 0.45) {
+      sentences.push(`Zone sim model projects ${meanStr} 3PM avg (only ${pOverPct}% over) — zone-adjusted defense limits upside.`)
+    } else {
+      sentences.push(`Zone sim model projects ${meanStr} 3PM avg (${pOverPct}% over) — neutral zone-defense signal.`)
+    }
   }
 
   return sentences.join(' ') || 'Limited data available for this pick.'
