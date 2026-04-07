@@ -11,7 +11,7 @@ Usage:
 """
 
 import os, sys, argparse, time, requests
-from datetime import date
+from datetime import date, datetime, timezone
 import numpy as np
 
 try:
@@ -58,42 +58,9 @@ THREE_PT_ZONES = [
     'Above the Break 3',
 ]
 
-# Full team name → NBA abbreviation (matches the-odds-api.io home_team/away_team values)
-TEAM_NAME_TO_ABBR = {
-    'Atlanta Hawks':          'ATL',
-    'Boston Celtics':         'BOS',
-    'Brooklyn Nets':          'BKN',
-    'Charlotte Hornets':      'CHA',
-    'Chicago Bulls':          'CHI',
-    'Cleveland Cavaliers':    'CLE',
-    'Dallas Mavericks':       'DAL',
-    'Denver Nuggets':         'DEN',
-    'Detroit Pistons':        'DET',
-    'Golden State Warriors':  'GSW',
-    'Houston Rockets':        'HOU',
-    'Indiana Pacers':         'IND',
-    'Los Angeles Clippers':   'LAC',
-    'Los Angeles Lakers':     'LAL',
-    'Memphis Grizzlies':      'MEM',
-    'Miami Heat':              'MIA',
-    'Milwaukee Bucks':        'MIL',
-    'Minnesota Timberwolves': 'MIN',
-    'New Orleans Pelicans':   'NOP',
-    'New York Knicks':        'NYK',
-    'Oklahoma City Thunder':  'OKC',
-    'Orlando Magic':          'ORL',
-    'Philadelphia 76ers':     'PHI',
-    'Phoenix Suns':           'PHX',
-    'Portland Trail Blazers': 'POR',
-    'Sacramento Kings':       'SAC',
-    'San Antonio Spurs':      'SAS',
-    'Toronto Raptors':        'TOR',
-    'Utah Jazz':              'UTA',
-    'Washington Wizards':     'WAS',
-}
-
-# Build nba_api team_id → abbreviation lookup
+# Build team lookups dynamically from nba_api (avoids hardcoded abbreviations drifting)
 _TEAM_LIST = nba_teams.get_teams()
+TEAM_NAME_TO_ABBR = {t['full_name']: t['abbreviation'] for t in _TEAM_LIST}
 TEAM_ID_TO_ABBR = {t['id']: t['abbreviation'] for t in _TEAM_LIST}
 
 
@@ -131,7 +98,7 @@ def fetch_todays_3pm_props():
     own team is stored in the `team` column, so the opponent is whichever
     of home_team/away_team doesn't match the player's team.
     """
-    today = date.today().strftime('%Y-%m-%d')
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     params = (
         f'select=player_name,stat_type,line,direction,team,home_team,away_team'
         f'&stat_type=eq.three_pointers'
@@ -517,7 +484,7 @@ def simulate_player(player_name, opponent_abbr, line, zone_stats, fga_per_game,
 # ── Supabase upsert ───────────────────────────────────────────────────────────
 def upsert_sim_results(results):
     """Upsert simulation results to Supabase sim_3pm table."""
-    today = date.today().strftime('%Y-%m-%d')
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     rows = []
     for r in results:
         rows.append({
