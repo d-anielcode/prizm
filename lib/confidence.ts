@@ -127,6 +127,14 @@ export interface OpponentStatLeak {
   sample_count:  number  // number of games used
 }
 
+/** 3PM simulation result from Monte Carlo zone model */
+export interface SimThreePm {
+  p_over:   number  // probability of hitting over the line
+  p_under:  number
+  sim_mean: number  // average simulated 3PM
+  sim_std:  number
+}
+
 export interface ScoringContext {
   defStats?:          TeamDefenseStats | null
   isHome?:            boolean | null
@@ -147,6 +155,7 @@ export interface ScoringContext {
   opponentOnB2B?:     boolean | null             // opponent played yesterday (fatigued defense)
   homePace?:          number | null              // home team pace (possessions/48)
   awayPace?:          number | null              // away team pace (possessions/48)
+  simThreePm?:        SimThreePm | null          // Monte Carlo 3PM simulation result
 }
 
 export interface ScoredProp extends Prop {
