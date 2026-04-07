@@ -514,16 +514,46 @@ def simulate_player(player_name, opponent_abbr, line, zone_stats, fga_per_game,
     }
 
 
+# ── Supabase upsert ───────────────────────────────────────────────────────────
+def upsert_sim_results(results):
+    """Upsert simulation results to Supabase sim_3pm table."""
+    today = date.today().strftime('%Y-%m-%d')
+    rows = []
+    for r in results:
+        rows.append({
+            'player_name': r['player_name'],
+            'opponent': r['opponent'],
+            'game_date': today,
+            'line': r['line'],
+            'p_over': r['p_over'],
+            'p_under': r['p_under'],
+            'sim_mean': r['sim_mean'],
+            'sim_std': r['sim_std'],
+            'n_sims': r['n_sims'],
+        })
+
+    url = f'{SUPABASE_URL}/rest/v1/sim_3pm'
+    upserted = 0
+    for i in range(0, len(rows), 50):
+        chunk = rows[i:i+50]
+        r = requests.post(url, headers=SB_HEADERS, json=chunk, timeout=30)
+        if r.ok:
+            upserted += len(chunk)
+        else:
+            print(f"  [supabase] error: {r.status_code} {r.text[:200]}")
+    return upserted
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description='Monte Carlo 3PM simulation (data layer)')
+    parser = argparse.ArgumentParser(description='Monte Carlo 3PM simulation')
     parser.add_argument('--dry-run', action='store_true',
-                        help='Fetch and print data only; do not run simulations')
+                        help='Run full pipeline but skip upsert; print results table instead')
     parser.add_argument('--n-sims', type=int, default=10000,
                         help='Number of Monte Carlo simulations per player (default: 10000)')
     args = parser.parse_args()
 
-    print(f'\n3PM Monte Carlo Simulation — Data Fetch')
+    print(f'\n3PM Monte Carlo Simulation')
     print(f'{"="*50}')
     print(f'Season : {CURRENT_SEASON}')
     print(f'N-sims : {args.n_sims}')
@@ -531,72 +561,125 @@ def main():
     print()
 
     # ── Step 1: Fetch today's 3PM props ──────────────────────────────────────
-    print('[1/3] Fetching today\'s 3PM props from Supabase...')
+    print('[1/4] Fetching today\'s 3PM props from Supabase...')
     props = fetch_todays_3pm_props()
 
     if not props:
         print('  No 3PM props found for today. Exiting.')
         return
 
-    if args.dry_run:
-        print('\nSample props:')
-        for p in props[:10]:
-            print(f'  {p["player_name"]:<25}  opp={p["opponent_abbr"]:<4}  line={p["line"]}')
-        if len(props) > 10:
-            print(f'  ... and {len(props) - 10} more')
-        print()
+    print(f'  {len(props)} props loaded.')
+    print()
 
-    # ── Step 2: Resolve player IDs ────────────────────────────────────────────
-    print('[2/3] Resolving nba_api player IDs...')
-    for prop in props:
-        pid = find_nba_player_id(prop['player_name'])
-        prop['nba_player_id'] = pid
-        if pid is None:
-            print(f'  [WARN] Could not find nba_api ID for: {prop["player_name"]}')
-        else:
-            print(f'  {prop["player_name"]:<25} -> id={pid}')
-
-    resolved = [p for p in props if p['nba_player_id'] is not None]
-    skipped  = len(props) - len(resolved)
-    if skipped:
-        print(f'  [WARN] {skipped} player(s) skipped (no ID match)')
-
-    # ── Step 3: Fetch shot charts ─────────────────────────────────────────────
-    print(f'\n[3/3] Fetching shot charts for {len(resolved)} player(s)...')
-    for prop in resolved:
-        try:
-            prop['shot_chart'] = fetch_player_shot_chart(prop['nba_player_id'])
-        except Exception as exc:
-            print(f'  [ERROR] Shot chart fetch failed for {prop["player_name"]}: {exc}')
-            prop['shot_chart'] = []
-        time.sleep(0.6)  # be polite to stats.nba.com
-
-    if args.dry_run:
-        print('\nShot chart summary:')
-        for p in resolved[:10]:
-            n = len(p.get('shot_chart', []))
-            print(f'  {p["player_name"]:<25}  {n} 3PA shots')
-        print()
-
-    # League-wide shot chart (used for prior / smoothing)
-    print('Fetching league-wide shot chart...')
+    # ── Step 2: Fetch league-wide shot chart (one call, reused for all players)
+    print('[2/4] Fetching league-wide shot chart...')
     try:
         league_shots = fetch_league_shot_chart()
     except Exception as exc:
         print(f'  [ERROR] League shot chart fetch failed: {exc}')
         league_shots = []
+    print()
 
-    print(f'\nData fetch complete.')
-    print(f'  Props fetched   : {len(props)}')
-    print(f'  Players resolved: {len(resolved)}')
-    print(f'  League shots    : {len(league_shots)}')
+    # ── Step 3: Simulate each player ─────────────────────────────────────────
+    print(f'[3/4] Running simulations for {len(props)} player(s)...')
+    print(f'{"─"*60}')
+    sim_results = []
+    skipped = 0
 
-    if args.dry_run:
-        print('\n[DRY RUN] Simulation step skipped.')
+    for prop in props:
+        player_name  = prop['player_name']
+        opponent_abbr = prop['opponent_abbr']
+        line         = prop['line']
+
+        print(f'\nPlayer : {player_name}  vs {opponent_abbr}  line={line}')
+
+        # Find nba_api player ID
+        pid = find_nba_player_id(player_name)
+        if pid is None:
+            print(f'  [SKIP] No nba_api ID found for {player_name!r}')
+            skipped += 1
+            continue
+
+        # Fetch player shot chart
+        try:
+            player_shots = fetch_player_shot_chart(pid)
+        except Exception as exc:
+            print(f'  [SKIP] Shot chart fetch failed: {exc}')
+            skipped += 1
+            time.sleep(1)
+            continue
+
+        # Compute zone stats
+        zone_stats, fga_per_game = compute_zone_stats(player_shots)
+        if zone_stats is None:
+            print(f'  [SKIP] Insufficient shot data (<20 attempts)')
+            skipped += 1
+            time.sleep(1)
+            continue
+
+        # Compute opponent zone defense adjustment
+        zone_defense_adj = compute_opponent_zone_defense(league_shots, opponent_abbr)
+        print(f'  Zone FG% adjustments:')
+        for zone, mult in zone_defense_adj.items():
+            direction = 'easier' if mult > 1 else 'harder'
+            print(f'    {zone:<22} x{mult:.3f}  ({direction})')
+
+        # Compute opponent FGA adjustment
+        fga_adj = compute_opponent_fga_adjustment(league_shots, opponent_abbr)
+        print(f'  Opponent FGA adjustment : x{fga_adj:.3f}')
+
+        # Run Monte Carlo simulation
+        result = simulate_player(
+            player_name=player_name,
+            opponent_abbr=opponent_abbr,
+            line=line,
+            zone_stats=zone_stats,
+            fga_per_game=fga_per_game,
+            zone_defense_adj=zone_defense_adj,
+            fga_adj=fga_adj,
+            n_sims=args.n_sims,
+        )
+
+        if result is None:
+            print(f'  [SKIP] Simulation returned None')
+            skipped += 1
+            time.sleep(1)
+            continue
+
+        print(f'  Sim result : mean={result["sim_mean"]:.2f}  std={result["sim_std"]:.2f}  '
+              f'p(over)={result["p_over"]:.3f}  p(under)={result["p_under"]:.3f}')
+
+        sim_results.append(result)
+
+        # Rate-limit nba_api calls
+        time.sleep(1)
+
+    print(f'\n{"─"*60}')
+
+    # ── Step 4: Summary + upsert ──────────────────────────────────────────────
+    print(f'\n[4/4] Summary')
+    print(f'  Props total  : {len(props)}')
+    print(f'  Simulated    : {len(sim_results)}')
+    print(f'  Skipped      : {skipped}')
+
+    if not sim_results:
+        print('  No results to upsert. Done.')
         return
 
-    # Placeholder: simulation logic will be added in a future task
-    print('\n[INFO] Simulation logic not yet implemented.')
+    if args.dry_run:
+        print('\n[DRY RUN] Results table (not upserted):')
+        header = f'{"Player":<25}  {"Opp":<4}  {"Line":>4}  {"Mean":>5}  {"p(over)":>7}  {"p(under)":>8}'
+        print(f'  {header}')
+        print(f'  {"─"*len(header)}')
+        for r in sim_results:
+            print(f'  {r["player_name"]:<25}  {r["opponent"]:<4}  {r["line"]:>4.1f}  '
+                  f'{r["sim_mean"]:>5.2f}  {r["p_over"]:>7.3f}  {r["p_under"]:>8.3f}')
+        print('\n[DRY RUN] Skipping upsert.')
+        return
+
+    print(f'\nUpserting {len(sim_results)} results to sim_3pm...')
+    n_upserted = upsert_sim_results(sim_results)
+    print(f'  Done. {n_upserted}/{len(sim_results)} rows upserted.')
 
 
 if __name__ == '__main__':
