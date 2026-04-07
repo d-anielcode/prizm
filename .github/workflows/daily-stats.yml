@@ -128,6 +128,15 @@ jobs:
             "$VERCEL_APP_URL/api/props?refresh=true" | head -c 300
           echo ""
 
+      - name: Run 3PM zone simulations
+        continue-on-error: true
+        run: |
+          pip install nba_api numpy requests -q
+          python3 scripts/sim_3pm.py || py -3 scripts/sim_3pm.py
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       # ── Both runs: enrich with fresh defense stats + current lines ─────────
 
       - name: Enrich props (AI confidence scoring)
