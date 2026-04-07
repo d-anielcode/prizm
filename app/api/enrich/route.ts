@@ -26,6 +26,7 @@ import {
   type SeasonStats,
   type PlayerLineBias,
   type OpponentStatLeak,
+  type SimThreePm,
 } from '@/lib/confidence'
 import type { Prop, StatType, Direction, ConfidenceLabel } from '@/types'
 
@@ -323,6 +324,7 @@ async function runEnrichment(force = false) {
     spreadMap,
     injuryMap,
     yesterdayTeams,
+    { data: simRows },
   ] = await Promise.all([
     loadPagedGameLogs(),
     loadPagedHistLines(),
@@ -336,6 +338,7 @@ async function runEnrichment(force = false) {
     fetchEspnSpreads(),
     fetchEspnInjuries(),
     fetchYesterdayTeams(),
+    supabase.from('sim_3pm').select('player_name, opponent, p_over, p_under, sim_mean, sim_std').eq('game_date', new Date().toISOString().slice(0, 10)),
   ])
 
   // ── Build in-memory maps from raw rows ────────────────────────────────────
@@ -433,6 +436,18 @@ async function runEnrichment(force = false) {
       }
     }
   }
+
+  // Build 3PM simulation map: "player_name|opponent" → SimThreePm
+  const simMap = new Map<string, SimThreePm>()
+  for (const row of simRows ?? []) {
+    simMap.set(`${row.player_name}|${row.opponent}`, {
+      p_over:   Number(row.p_over),
+      p_under:  Number(row.p_under),
+      sim_mean: Number(row.sim_mean),
+      sim_std:  Number(row.sim_std),
+    })
+  }
+  console.log(`[/api/enrich] 3PM sim results loaded: ${simMap.size} players`)
 
   const playersWithLogs = [...logsMap.values()].filter((l) => l.length >= 3).length
   const totalsLoaded    = [...spreadMap.values()].filter((g) => g.total != null).length / 2
@@ -536,6 +551,9 @@ async function runEnrichment(force = false) {
       opponentOnB2B,
       homePace,
       awayPace,
+      simThreePm:     prop.stat_type === 'three_pointers' && opponentAbbr
+                        ? (simMap.get(`${prop.player_name}|${opponentAbbr}`) ?? null)
+                        : null,
     }
 
     return scoreProps(prop, logs, null, ctx)
@@ -650,6 +668,9 @@ async function runEnrichment(force = false) {
         opponentOnB2B:  altB2B,
         homePace:       altHomePace,
         awayPace:       altAwayPace,
+        simThreePm:     pseudoProp.stat_type === 'three_pointers' && opponentAbbr
+                          ? (simMap.get(`${pseudoProp.player_name}|${opponentAbbr}`) ?? null)
+                          : null,
       }
       const scored = scoreProps(pseudoProp, logs, null, ctx)
 
