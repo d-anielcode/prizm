@@ -12,6 +12,7 @@ Usage:
 
 import os, sys, argparse, time, requests
 from datetime import date
+import numpy as np
 
 try:
     from nba_api.stats.endpoints import shotchartdetail
@@ -252,6 +253,265 @@ def fetch_league_shot_chart():
     shots = df_3pt.to_dict('records')
     print(f'    -> {len(df_3pt)} league 3PA shots after zone filter')
     return shots
+
+
+# ── Simulation helpers ────────────────────────────────────────────────────────
+
+def compute_zone_stats(player_shots):
+    """
+    Takes a list of shot dicts (from fetch_player_shot_chart).
+    Groups by SHOT_ZONE_BASIC, computes FG% and attempt weight per zone.
+    Also computes per-game FGA counts by grouping on GAME_ID.
+
+    Returns (zone_stats_dict, fga_per_game_array) or (None, None) if
+    insufficient data (<20 attempts total).
+
+    zone_stats format: { 'Left Corner 3': { 'fg_pct': 0.38, 'weight': 0.15 }, ... }
+    fga_per_game: numpy array of integers (e.g. [5, 7, 3, 8, ...])
+    """
+    if not player_shots or len(player_shots) < 20:
+        return None, None
+
+    # Zone-level stats
+    zone_attempts = {}   # zone -> [made_flag, ...]
+    for shot in player_shots:
+        zone = shot.get('SHOT_ZONE_BASIC')
+        if zone not in THREE_PT_ZONES:
+            continue
+        made = int(shot.get('SHOT_MADE_FLAG', 0))
+        zone_attempts.setdefault(zone, []).append(made)
+
+    total_attempts = sum(len(v) for v in zone_attempts.values())
+    if total_attempts == 0:
+        return None, None
+
+    zone_stats = {}
+    for zone, makes_list in zone_attempts.items():
+        attempts = len(makes_list)
+        makes = sum(makes_list)
+        fg_pct = makes / attempts if attempts > 0 else 0.0
+        weight = attempts / total_attempts
+        zone_stats[zone] = {'fg_pct': fg_pct, 'weight': weight}
+
+    # Per-game FGA counts
+    game_fga = {}
+    for shot in player_shots:
+        gid = shot.get('GAME_ID')
+        if gid is not None:
+            game_fga[gid] = game_fga.get(gid, 0) + 1
+
+    fga_per_game = np.array(list(game_fga.values()), dtype=int)
+
+    return zone_stats, fga_per_game
+
+
+def compute_opponent_zone_defense(league_shots, opponent_abbr):
+    """
+    For each 3PT zone, computes:
+      - League-wide FG% in that zone
+      - Opponent's FG% allowed in that zone (shots taken AGAINST them)
+      - Adjustment multiplier = opponent_zone_fg% / league_zone_fg%
+
+    Shots against opponent: rows where (HTM == opponent_abbr OR VTM == opponent_abbr)
+    AND the shooter's team abbreviation is NOT the opponent.
+
+    Returns { 'Left Corner 3': 1.05, 'Right Corner 3': 0.92, ... }
+    (>1 means opponent allows more makes than league average).
+    Falls back to 1.0 for zones with <10 defensive samples.
+    """
+    # Aggregate league-wide zone makes/attempts
+    league_zone = {}   # zone -> {'makes': int, 'attempts': int}
+    opp_zone    = {}   # zone -> {'makes': int, 'attempts': int}
+
+    for shot in league_shots:
+        zone = shot.get('SHOT_ZONE_BASIC')
+        if zone not in THREE_PT_ZONES:
+            continue
+
+        made = int(shot.get('SHOT_MADE_FLAG', 0))
+        htm  = shot.get('HTM', '')
+        vtm  = shot.get('VTM', '')
+        shooter_team_full = shot.get('TEAM_NAME', '')
+        shooter_abbr = TEAM_NAME_TO_ABBR.get(shooter_team_full, '')
+
+        # League totals
+        if zone not in league_zone:
+            league_zone[zone] = {'makes': 0, 'attempts': 0}
+        league_zone[zone]['attempts'] += 1
+        league_zone[zone]['makes']    += made
+
+        # Shots against opponent: game involves opponent AND shooter is not on opponent
+        if (htm == opponent_abbr or vtm == opponent_abbr) and shooter_abbr != opponent_abbr:
+            if zone not in opp_zone:
+                opp_zone[zone] = {'makes': 0, 'attempts': 0}
+            opp_zone[zone]['attempts'] += 1
+            opp_zone[zone]['makes']    += made
+
+    result = {}
+    for zone in THREE_PT_ZONES:
+        lg = league_zone.get(zone, {})
+        lg_att = lg.get('attempts', 0)
+        lg_makes = lg.get('makes', 0)
+        league_fg = (lg_makes / lg_att) if lg_att > 0 else None
+
+        op = opp_zone.get(zone, {})
+        op_att = op.get('attempts', 0)
+        op_makes = op.get('makes', 0)
+
+        if op_att < 10 or league_fg is None or league_fg == 0:
+            result[zone] = 1.0
+        else:
+            opp_fg = op_makes / op_att
+            result[zone] = opp_fg / league_fg
+
+    return result
+
+
+def compute_opponent_fga_adjustment(league_shots, opponent_abbr):
+    """
+    How many 3PA does this opponent allow per game relative to league average?
+    Returns a multiplier (>1 = opponent allows more 3-point attempts than average).
+
+    Groups league shots by defending team and by GAME_ID to get per-game FGA
+    counts. Compares opponent's average FGA allowed/game to league average.
+    """
+    # team_abbr -> game_id -> count
+    team_game_fga = {}  # defending team abbr -> {game_id -> attempt count}
+
+    for shot in league_shots:
+        zone = shot.get('SHOT_ZONE_BASIC')
+        if zone not in THREE_PT_ZONES:
+            continue
+
+        htm  = shot.get('HTM', '')
+        vtm  = shot.get('VTM', '')
+        gid  = shot.get('GAME_ID')
+        shooter_team_full = shot.get('TEAM_NAME', '')
+        shooter_abbr = TEAM_NAME_TO_ABBR.get(shooter_team_full, '')
+
+        if not shooter_abbr or not gid:
+            continue
+
+        # The defending team is the other team in this game
+        if htm == shooter_abbr:
+            defending_abbr = vtm
+        elif vtm == shooter_abbr:
+            defending_abbr = htm
+        else:
+            # Cannot determine defending team
+            continue
+
+        if not defending_abbr:
+            continue
+
+        if defending_abbr not in team_game_fga:
+            team_game_fga[defending_abbr] = {}
+        game_dict = team_game_fga[defending_abbr]
+        game_dict[gid] = game_dict.get(gid, 0) + 1
+
+    if not team_game_fga:
+        return 1.0
+
+    # League-average FGA allowed per game (across all defending teams)
+    all_per_game = []
+    for _, game_dict in team_game_fga.items():
+        all_per_game.extend(game_dict.values())
+
+    league_avg = np.mean(all_per_game) if all_per_game else None
+    if league_avg is None or league_avg == 0:
+        return 1.0
+
+    # Opponent's average FGA allowed per game
+    opp_games = team_game_fga.get(opponent_abbr, {})
+    if not opp_games:
+        return 1.0
+
+    opp_avg = np.mean(list(opp_games.values()))
+    return float(opp_avg / league_avg)
+
+
+def simulate_player(player_name, opponent_abbr, line, zone_stats, fga_per_game,
+                    zone_defense_adj, fga_adj, n_sims=10000):
+    """
+    Monte Carlo engine for 3PM simulations.
+
+    Parameters
+    ----------
+    player_name     : str
+    opponent_abbr   : str
+    line            : float — the sportsbook line
+    zone_stats      : dict  — output of compute_zone_stats
+    fga_per_game    : np.ndarray — per-game FGA counts
+    zone_defense_adj: dict  — output of compute_opponent_zone_defense
+    fga_adj         : float — output of compute_opponent_fga_adjustment
+    n_sims          : int
+
+    Returns
+    -------
+    dict with keys: player_name, opponent, line, p_over, p_under,
+                    sim_mean, sim_std, n_sims
+    or None if insufficient data.
+    """
+    if zone_stats is None or fga_per_game is None or len(fga_per_game) == 0:
+        return None
+
+    rng = np.random.default_rng()
+
+    # Bootstrap FGA mean/std from observed per-game counts
+    boot_means = np.array([
+        np.mean(rng.choice(fga_per_game, size=len(fga_per_game), replace=True))
+        for _ in range(1000)
+    ])
+    raw_mean = float(np.mean(boot_means))
+    adjusted_mean = max(raw_mean * fga_adj, 0.1)   # keep positive
+
+    # Pre-build zone arrays for vectorised per-attempt sampling
+    zones       = list(zone_stats.keys())
+    weights_arr = np.array([zone_stats[z]['weight'] for z in zones])
+    weights_arr = weights_arr / weights_arr.sum()   # normalise
+
+    # Pre-compute per-zone adjusted FG%
+    zone_fg_adj = {}
+    for z in zones:
+        base_fg  = zone_stats[z]['fg_pct']
+        adj_mult = zone_defense_adj.get(z, 1.0)
+        adj_fg   = np.clip(base_fg * adj_mult, 0.05, 0.65)
+        zone_fg_adj[z] = float(adj_fg)
+
+    fg_pct_arr = np.array([zone_fg_adj[z] for z in zones])   # shape (n_zones,)
+
+    # Run simulations
+    results = np.empty(n_sims, dtype=np.float32)
+    for i in range(n_sims):
+        # Draw FGA from Poisson
+        fga = int(rng.poisson(adjusted_mean))
+        if fga == 0:
+            results[i] = 0.0
+            continue
+
+        # Assign each attempt to a zone
+        zone_indices = rng.choice(len(zones), size=fga, p=weights_arr)
+
+        # Make/miss for each attempt using that zone's adjusted FG%
+        zone_probs = fg_pct_arr[zone_indices]
+        makes = np.sum(rng.random(fga) < zone_probs)
+        results[i] = float(makes)
+
+    p_over  = float(np.sum(results > line) / n_sims)
+    p_under = float(np.sum(results < line) / n_sims)
+    sim_mean = float(np.mean(results))
+    sim_std  = float(np.std(results))
+
+    return {
+        'player_name': player_name,
+        'opponent':    opponent_abbr,
+        'line':        line,
+        'p_over':      p_over,
+        'p_under':     p_under,
+        'sim_mean':    sim_mean,
+        'sim_std':     sim_std,
+        'n_sims':      n_sims,
+    }
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
