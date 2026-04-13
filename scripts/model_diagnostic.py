@@ -598,6 +598,76 @@ def line_movement_analysis(grades):
     }
 
 
+def print_summary(report):
+    """Print a high-level summary with actionable recommendations."""
+    print("=" * 60)
+    print("  DIAGNOSTIC SUMMARY")
+    print("=" * 60)
+
+    recommendations = []
+
+    # 1. Find worst stat/tier combos from accuracy matrix
+    matrix = report.get('accuracy_matrix', {})
+    worst_combos = []
+    for stat, tiers in matrix.items():
+        for tier in ['LOCK', 'PLAY']:
+            cell = tiers.get(tier, {})
+            if cell.get('n', 0) >= 5 and cell.get('hit_rate') is not None:
+                target = 0.65 if tier == 'LOCK' else 0.50
+                if cell['hit_rate'] < target:
+                    worst_combos.append((stat, tier, cell['hit_rate'], cell['n']))
+
+    if worst_combos:
+        worst_combos.sort(key=lambda x: x[2])
+        print("\n  Underperforming stat/tier combos (below target):")
+        for stat, tier, hr, n in worst_combos:
+            target = '65%' if tier == 'LOCK' else '50%'
+            print(f"    {tier} {stat}: {hr:.1%} (target {target}, n={n})")
+            recommendations.append(f"Raise {tier} threshold for {stat} or add stat-specific penalty")
+
+    # 2. Over/under asymmetry
+    ou = report.get('over_under_asymmetry', {})
+    for stat, dirs in ou.items():
+        o = dirs.get('over', {})
+        u = dirs.get('under', {})
+        if o.get('n', 0) >= 10 and u.get('n', 0) >= 10:
+            if o.get('hit_rate') is not None and u.get('hit_rate') is not None:
+                gap = u['hit_rate'] - o['hit_rate']
+                if gap > 0.10:
+                    recommendations.append(f"Increase over bias penalty for {stat} (under outperforms over by {gap:.0%})")
+
+    # 3. Anti-correlated factors
+    fc = report.get('factor_calibration', {})
+    if isinstance(fc, dict) and 'factors' in fc:
+        for f in fc['factors']:
+            if f.get('anti_correlated'):
+                recommendations.append(f"Factor '{f['factor']}' is anti-correlated -- consider reducing its weight or inverting")
+
+    # 4. Calibration issues
+    cal = report.get('calibration_curve', [])
+    overconfident = [b for b in cal if b['actual_rate'] < b['predicted_rate'] - 0.10 and b['n'] >= 10]
+    if overconfident:
+        buckets_str = ', '.join(b['bucket'] for b in overconfident)
+        recommendations.append(f"Model is overconfident in score ranges: {buckets_str}")
+
+    # 5. Temporal drift
+    drift = report.get('temporal', {}).get('drift', {})
+    if drift.get('delta') is not None and abs(drift['delta']) > 0.05:
+        direction = 'improving' if drift['delta'] > 0 else 'degrading'
+        recommendations.append(f"Model accuracy is {direction} over time (delta {drift['delta']:+.1%})")
+
+    # Print recommendations
+    if recommendations:
+        print(f"\n  Top recommendations:")
+        for i, rec in enumerate(recommendations[:8], 1):
+            print(f"    {i}. {rec}")
+    else:
+        print("\n  No major issues detected -- model looks well-calibrated.")
+
+    report['recommendations'] = recommendations
+    print()
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Prizm Model Diagnostic Pipeline')
     parser.add_argument('--stat', choices=STAT_TYPES, help='Analyze a single stat type')
@@ -669,6 +739,8 @@ def main():
     report['high_confidence_misses'] = high_confidence_misses(grades)
     report['temporal'] = temporal_analysis(grades)
     report['line_movement'] = line_movement_analysis(grades)
+
+    print_summary(report)
 
     # ── Save report ──────────────────────────────────────────────────────────
     out_path = os.path.join(os.path.dirname(__file__), '..', 'diagnostic_report.json')
