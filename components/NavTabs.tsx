@@ -23,13 +23,15 @@ export function NavTabs() {
             key={href}
             href={href}
             className={[
-              'relative px-5 py-1 text-sm font-semibold transition-colors duration-200',
-              isActive ? 'text-white' : 'text-white/35 hover:text-white/65',
+              'relative px-5 py-1 text-sm font-semibold transition-colors duration-150',
+              isActive
+                ? 'text-[var(--text-primary)]'
+                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
             ].join(' ')}
           >
             {label}
             {isActive && (
-              <span className="absolute bottom-[-1px] left-3 right-3 h-[2px] rounded-full bg-gradient-to-r from-[#e8a820]/60 via-[#f0c060] to-[#e8a820]/60" />
+              <span className="absolute bottom-[-1px] left-3 right-3 h-[2px] rounded-full bg-primary" />
             )}
           </Link>
         )

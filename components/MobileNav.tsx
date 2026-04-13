@@ -60,7 +60,7 @@ export function MobileNav() {
   const pathname = usePathname()
 
   return (
-    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.07] bg-[#07050f]/90 backdrop-blur-md"
+    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 backdrop-blur-xl"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
       <div className="flex items-center">
         {TABS.map(({ label, href, icon }) => {
@@ -70,14 +70,14 @@ export function MobileNav() {
               key={href}
               href={href}
               className={[
-                'relative flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors duration-200',
-                isActive ? 'text-[#f0c060]' : 'text-white/30',
+                'relative flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors duration-150',
+                isActive ? 'text-primary' : 'text-[var(--text-tertiary)]',
               ].join(' ')}
             >
               {icon}
               <span className="text-[10px] font-semibold tracking-wide">{label}</span>
               {isActive && (
-                <span className="absolute bottom-0 w-8 h-[2px] rounded-full bg-gradient-to-r from-[#e8a820]/60 via-[#f0c060] to-[#e8a820]/60" />
+                <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-full bg-primary" />
               )}
             </Link>
           )
