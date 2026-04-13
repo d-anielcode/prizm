@@ -1,10 +1,11 @@
-// Prizm Confidence Engine v10.0
+// Prizm Confidence Engine v11.0
 //
-// Weights: v9.0 (unchanged). Threshold-only update targeting >60% LOCK and >50% PLAY.
-//   LOCK thresholds: pra/steals raised 76→78 (both were hitting <54% at 76)
-//   PLAY thresholds: points 66→70, rebounds 68→72, blocks 68→72, pra 72→76
-//                    (all were hitting <47% — raised to cut borderline picks into LEAN)
-//   Backtest results: LOCK 66.4% on 110 props | PLAY 52.8% on 415 props (75 game days, Dec 26–Mar 19)
+// v11.0 — Data-driven tuning from diagnostic pipeline (71k graded props, 119 game days):
+//   1. Weights: trend halved (anti-correlated AUC 0.490), restDays dropped to 0.01 (p=0.279)
+//      Freed weight redistributed to last20HitRate (60%) and homeAway (40%). All sets sum 1.00.
+//   2. Over bias: stat-specific (steals -7, blocks -6, reb/ast/pra -4, pts/3PM -3)
+//   3. LOCK thresholds raised: 3PM 72→76, assists 74→78, blocks 74→78. Base LOCK 72→74.
+//   4. PLAY thresholds raised: 3PM 66→70, assists 68→72, blocks 72→74. Base PLAY 66→68.
 //
 // Factors & weights (sum = 1.00):
 //   1.  lineValue      ( 2%) — z-score of tonight's line vs player's L10 average + stdev
@@ -12,11 +13,11 @@
 //   2.  matchupEdge    (14%) — opponent's defensive rank for this stat
 //   3.  last20HitRate  (18%) — exponentially-weighted hit rate (recent games count more)
 //                              Filtered to games within last 90 days.
-//   4.  trend          (12%) — L5 vs L20 momentum (90-day window)
+//   4.  trend          (1-7%) — L5 vs L20 momentum (90-day window) — reduced in v11 (anti-correlated)
 //   5.  seasonCushion  ( 2%) — season average cushion above/below tonight's line
 //   6.  pace           ( 5%) — game O/U total as pace proxy — high-scoring games = more stats
 //   7.  newsInjury     ( 9%) — injury report: teammate out = usage boost, player Q = risk
-//   8.  restDays       ( 5%) — back-to-back fatigue; well-rested boost
+//   8.  restDays       ( 1%) — back-to-back fatigue (demoted in v11: no significant correlation)
 //   9.  blowout        (11%) — large spread = starters may sit 4th quarter
 //  10.  homeAway       (18%) — home vs away performance split (strongest signal with full history)
 //  11.  vsOpponent     ( 4%) — hit rate vs this specific team (Bayesian-blended)
@@ -26,8 +27,8 @@
 //   - minutesUncertaintyPenalty: −4/−8 pts for fringe/bench players (avg < 24/20 min);
 //                               additional −3 pts if minute variance stdev > 6 min.
 //                               Prevents bench players from reaching LOCK/PLAY without dominant signal.
-//   - overBiasAdj:            −3 pts for all OVER props. Empirical data shows OVERs hit 43%
-//                               vs UNDERs at 50% — books systematically price OVERs above fair value.
+//   - overBiasAdj:            −3 to −7 pts for OVER props (stat-specific in v11).
+//                               Steals −7, blocks −6, reb/ast/pra −4, pts/3PM −3.
 //   - lineMovAdj:              ±2–6 pts for sharp money signal (line value movement vs pick direction)
 //   - oddsMovAdj:              ±3–7 pts for odds movement (P(over) shift ≥3pp since morning snapshot)
 //   - biasAdj:                 ±0–5 pts from player-specific historical over/under bias
@@ -39,9 +40,8 @@
 // are compressed toward 0.50 proportionally. A 2-month absence = ~35% of signal retained.
 // This prevents injury-return picks from scoring HIGH based on pre-injury form.
 //
-// Stat-specific weight sets: steals/blocks use W_VOLATILE (matchupEdge+vsOpponent↑, trend+hitRate↓).
-//   three_pointers use W_THREE_POINTERS (trend+pace↑, homeAway↓). All other stats use W.
-// LOCK threshold: 68 (stat-specific: assists/pra ≥74, steals/blocks/3PM ≥72).
+// Stat-specific weight sets: each stat has its own optimized weight object (W_POINTS, W_REBOUNDS, etc.).
+// LOCK threshold: base 74 (stat-specific: assists/pra/steals/blocks ≥78, 3PM ≥76, rebounds ≥74).
 // Star bonus: +3 pts for star players (≥36 min avg) with lineValue ≥0.58 + hitRate ≥0.55.
 
 import type { Prop, StatType, ConfidenceLabel, RiskTier } from '@/types'
