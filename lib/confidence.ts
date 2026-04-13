@@ -46,6 +46,47 @@
 
 import type { Prop, StatType, ConfidenceLabel, RiskTier } from '@/types'
 import { ABBR_TO_TEAM } from '@/lib/team-abbr'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+
+// ── Runtime weight config ────────────────────────────────────────────────────
+// Reads from confidence-weights.json (written by auto_retrain.py).
+// Falls back to hardcoded v11 defaults if file is missing or malformed.
+interface WeightSet {
+  lineValue: number; matchupEdge: number; last20HitRate: number; trend: number;
+  seasonCushion: number; pace: number; newsInjury: number; restDays: number;
+  blowout: number; homeAway: number; vsOpponent: number;
+}
+interface WeightConfig {
+  version: string
+  weights: Record<string, WeightSet>
+  lock_thresholds: Record<string, number>
+  play_thresholds: Record<string, number>
+  base_lock_threshold: number
+  base_play_threshold: number
+  over_bias: Record<string, number>
+}
+
+let _cachedConfig: WeightConfig | null = null
+let _configLoadedAt = 0
+const CONFIG_TTL_MS = 5 * 60 * 1000  // re-read file every 5 minutes
+
+function loadWeightConfig(): WeightConfig | null {
+  const now = Date.now()
+  if (_cachedConfig && (now - _configLoadedAt) < CONFIG_TTL_MS) return _cachedConfig
+  try {
+    const raw = readFileSync(join(process.cwd(), 'lib', 'confidence-weights.json'), 'utf-8')
+    const parsed = JSON.parse(raw)
+    if (parsed.weights && parsed.lock_thresholds && parsed.over_bias) {
+      _cachedConfig = parsed as WeightConfig
+      _configLoadedAt = now
+      return _cachedConfig
+    }
+  } catch {
+    // File missing or malformed — fall back to hardcoded defaults
+  }
+  return null
+}
 
 export interface GameLog {
   game_date:  string
@@ -299,6 +340,10 @@ const W_THREE_POINTERS = {
 
 /** Pick the right weight set for the stat type */
 function getWeights(statType: StatType): typeof W_POINTS {
+  const config = loadWeightConfig()
+  if (config?.weights[statType]) {
+    return config.weights[statType] as typeof W_POINTS
+  }
   if (statType === 'points')         return W_POINTS
   if (statType === 'rebounds')       return W_REBOUNDS
   if (statType === 'assists')        return W_ASSISTS
@@ -1139,19 +1184,15 @@ export function scoreProps(
   // +2 pts for OVER, -2 pts for UNDER. Only applies when opponentOnB2B is confirmed.
   const opponentB2bAdj = opponentOnB2B ? (direction === 'over' ? 2 : -2) : 0
 
-  // Over bias correction — stat-specific (v11.0, diagnostic data from 71k graded props):
-  // Books price popular OVERs above fair value. Gap varies by stat:
-  //   steals +19%, blocks +12%, assists +7%, rebounds +7%, 3PM +4.5%, points +3.3%
-  const OVER_BIAS_BY_STAT: Record<StatType, number> = {
-    points:         -3,
-    rebounds:       -4,
-    assists:        -4,
-    steals:         -7,
-    blocks:         -6,
-    three_pointers: -3,
-    pra:            -4,
+  // Over bias correction — stat-specific (auto-retrained from prop_grades data):
+  const _obConfig = loadWeightConfig()
+  const OVER_BIAS_DEFAULTS: Record<StatType, number> = {
+    points: -3, rebounds: -4, assists: -4,
+    steals: -7, blocks: -6, three_pointers: -3, pra: -4,
   }
-  const overBiasAdj = direction === 'over' ? (OVER_BIAS_BY_STAT[stat_type] ?? -3) : 0
+  const overBiasAdj = direction === 'over'
+    ? (_obConfig?.over_bias?.[stat_type] ?? OVER_BIAS_DEFAULTS[stat_type] ?? -3)
+    : 0
 
   // 3PM zone simulation adjustment: Monte Carlo sim with zone-specific defense
   // produces p(over) — compare to baseline 0.50 to determine sim edge.
@@ -1226,8 +1267,9 @@ const PLAY_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
 }
 
 function getLabel(score: number, statType?: StatType): { label: ConfidenceLabel; tier: RiskTier } {
-  const lockThreshold = (statType && LOCK_THRESHOLD_BY_STAT[statType]) ?? 74  // v11: raised from 72 — calibration shows 70-75 scores hit 56.8% (overconfident)
-  const playThreshold = (statType && PLAY_THRESHOLD_BY_STAT[statType]) ?? 68  // v11: raised from 66 — LOCK - 6
+  const config = loadWeightConfig()
+  const lockThreshold = (statType && (config?.lock_thresholds[statType] ?? LOCK_THRESHOLD_BY_STAT[statType])) ?? (config?.base_lock_threshold ?? 74)
+  const playThreshold = (statType && (config?.play_thresholds[statType] ?? PLAY_THRESHOLD_BY_STAT[statType])) ?? (config?.base_play_threshold ?? 68)
   if (score >= lockThreshold) return { label: 'LOCK', tier: 'PRIME'    }
   if (score >= playThreshold) return { label: 'PLAY', tier: 'LOW_RISK' }
   if (score >= 50)            return { label: 'LEAN', tier: 'MED_RISK' }
