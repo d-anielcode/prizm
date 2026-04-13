@@ -1208,21 +1208,21 @@ export function scoreProps(
 //
 // PLAY thresholds: LOCK - 6 (tighter band to keep PLAY meaningful).
 const LOCK_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
-  assists:        74,  // 64.3% on 14 LOCKs — confirmed; keep at 74
-  pra:            78,  // raised from 76 — 76 was hitting 52.2% (too low); 78 gives 72.7%
-  steals:         78,  // raised from 76 — 76 was hitting 53.1% (too low); 78 gives 92.9%
-  blocks:         74,  // 88.2% on 17 LOCKs — confirmed accurate; keep at 74
-  three_pointers: 72,  // 60.0% on 35 LOCKs — best-sampled stat; keep at 72
-  rebounds:       74,  // 55.6% on 10 LOCKs — keep at 74; v10 weights may improve
+  assists:        78,  // v11: raised from 74 — 50.0% on 14 LOCKs was unacceptable
+  pra:            78,  // v10: 72.7% — keep at 78
+  steals:         78,  // v10: 92.9% — keep at 78
+  blocks:         78,  // v11: raised from 74 — 52.6% on 19 LOCKs was too low
+  three_pointers: 76,  // v11: raised from 72 — 48.9% on 45 LOCKs was worst performer
+  rebounds:       74,  // v10: 66.7% on 24 LOCKs — acceptable, keep at 74
 }
 const PLAY_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
-  assists:        68,  // LOCK - 6; 51.6% hit rate — keep at 68
-  pra:            76,  // raised from 72 — 72 was hitting 40.3%; 76 gives tighter window
-  steals:         72,  // LOCK - 6; 55.4% hit rate — keep at 72
-  blocks:         72,  // raised from 68 — 68 was hitting 39.5%
-  three_pointers: 66,  // LOCK - 6; 53.0% hit rate — keep at 66
-  rebounds:       72,  // raised from 68 — 68 was hitting 46.8%; 72 gives 60.0%
-  points:         70,  // raised from 66 (default) — 66 was hitting 42.5%
+  assists:        72,  // v11: raised from 68 — LOCK-6
+  pra:            76,  // v10: keep at 76
+  steals:         72,  // v10: keep at 72
+  blocks:         74,  // v11: raised from 72 — LOCK-4 (tighter band for volatile stat)
+  three_pointers: 70,  // v11: raised from 66 — LOCK-6
+  rebounds:       72,  // v10: keep at 72
+  points:         70,  // v10: keep at 70
 }
 
 function getLabel(score: number, statType?: StatType): { label: ConfidenceLabel; tier: RiskTier } {
