@@ -302,7 +302,7 @@ export default async function HomePage() {
             <span className="text-xs text-white/30 uppercase tracking-wider">Play</span>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-[#f0c060]">{lean}</span>
+            <span className="text-2xl font-black text-[#3B82F6]">{lean}</span>
             <span className="text-xs text-white/30 uppercase tracking-wider">Lean</span>
           </div>
           <div className="flex items-baseline gap-2">
@@ -329,10 +329,10 @@ export default async function HomePage() {
             <Link
               key={game.game_id}
               href={`/game/${encodeURIComponent(game.game_id)}`}
-              className="group relative flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] hover:border-[#e8a820]/30 hover:bg-white/[0.05] transition-all duration-250 overflow-hidden"
+              className="group relative flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] hover:border-[#6C5CE7]/30 hover:bg-white/[0.05] transition-all duration-250 overflow-hidden"
             >
-              {/* Gold accent top line */}
-              <div className="h-px w-full bg-gradient-to-r from-transparent via-[#e8a820]/45 to-transparent" />
+              {/* Purple accent top line */}
+              <div className="h-px w-full bg-gradient-to-r from-transparent via-[#6C5CE7]/45 to-transparent" />
 
               {/* Matchup row */}
               <div className="flex items-center gap-3 px-5 py-5">
@@ -360,7 +360,7 @@ export default async function HomePage() {
                       })
                     : ''}
                 </span>
-                <span className="flex items-center gap-1 text-xs font-semibold text-white/35 group-hover:text-[#e8a820] transition-colors duration-200">
+                <span className="flex items-center gap-1 text-xs font-semibold text-white/35 group-hover:text-primary transition-colors duration-200">
                   {game.prop_count} props
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />

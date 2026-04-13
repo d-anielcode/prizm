@@ -242,7 +242,7 @@ async function getTierAccuracy(): Promise<TierAccuracy[]> {
 
 function hitRateColor(rate: number): string {
   if (rate >= 0.65) return 'text-emerald-400'
-  if (rate >= 0.52) return 'text-[#f0c060]'
+  if (rate >= 0.52) return 'text-[#FFB800]'
   return 'text-red-400'
 }
 
@@ -254,7 +254,7 @@ function tierTargetRate(label: ConfidenceLabel): number {
 const TIER_COLORS: Record<ConfidenceLabel, string> = {
   LOCK: 'text-violet-400',
   PLAY: 'text-emerald-400',
-  LEAN: 'text-[#f0c060]',
+  LEAN: 'text-[#3B82F6]',
   FADE: 'text-red-400',
 }
 

@@ -29,7 +29,7 @@ interface Parlay {
 const TYPE_BADGE: Record<string, { label: string; style: string }> = {
   value:   { label: 'Safe Pick',   style: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/25' },
   combo:   { label: 'Combo',       style: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/25' },
-  premium: { label: 'High Roller', style: 'text-[#e8a820] bg-[#e8a820]/10 border-[#e8a820]/25' },
+  premium: { label: 'High Roller', style: 'text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/25' },
   jackpot: { label: 'Jackpot',     style: 'text-violet-400 bg-violet-400/10 border-violet-400/25' },
 }
 
@@ -57,14 +57,14 @@ export async function TodaysPicks() {
 
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
-      <div className="h-px w-full bg-gradient-to-r from-transparent via-[#e8a820]/40 to-transparent" />
+      <div className="h-px w-full bg-gradient-to-r from-transparent via-[#6C5CE7]/40 to-transparent" />
       <div className="p-4 sm:p-5 flex flex-col gap-4">
 
         <div className="flex items-center justify-between">
           <p className="text-sm font-black text-white">Today&apos;s Picks</p>
           <Link
             href="/feed"
-            className="text-[11px] text-[#f0c060] font-semibold hover:text-[#e8a820] transition-colors flex items-center gap-1"
+            className="text-[11px] text-primary font-semibold hover:text-[#6C5CE7] transition-colors flex items-center gap-1"
           >
             View all
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -93,7 +93,7 @@ export async function TodaysPicks() {
                     <span className="text-xs text-white/25">{parlay.legs.length} legs</span>
                   </div>
                   {parlay.est_multiplier != null && (
-                    <span className="text-sm font-black text-[#f0c060]">~{parlay.est_multiplier}x</span>
+                    <span className="text-sm font-black text-[#FFB800]">~{parlay.est_multiplier}x</span>
                   )}
                 </div>
 

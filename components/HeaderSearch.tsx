@@ -96,7 +96,7 @@ export function HeaderSearch() {
             onFocus={() => suggestions.length > 0 && setOpen(true)}
             placeholder="Search players..."
             autoComplete="off"
-            className="w-8 sm:w-[280px] pl-9 pr-4 py-1.5 rounded-lg bg-transparent sm:bg-[#0e0b18] border border-transparent sm:border-white/[0.08] text-sm text-white placeholder:text-white/25 focus:outline-none focus:w-[200px] focus:bg-[#0e0b18] focus:border-[#e8a820]/40 focus:placeholder:text-white/25 transition-all duration-200 cursor-pointer focus:cursor-text"
+            className="w-8 sm:w-[280px] pl-9 pr-4 py-1.5 rounded-lg bg-transparent sm:bg-[#0e0b18] border border-transparent sm:border-white/[0.08] text-sm text-white placeholder:text-white/25 focus:outline-none focus:w-[200px] focus:bg-[#0e0b18] focus:border-[#6C5CE7]/40 focus:placeholder:text-white/25 transition-all duration-200 cursor-pointer focus:cursor-text"
           />
         </div>
       </form>
@@ -113,7 +113,7 @@ export function HeaderSearch() {
               className={[
                 'w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center gap-2',
                 i === highlighted
-                  ? 'bg-[#e8a820]/12 text-[#f0c060]'
+                  ? 'bg-[#6C5CE7]/12 text-primary'
                   : 'text-white/70 hover:bg-white/[0.05] hover:text-white',
               ].join(' ')}
             >

@@ -13,7 +13,7 @@ const TIPS: Record<ConfidenceLabel, string> = {
 const COLORS: Record<ConfidenceLabel, string> = {
   LOCK: 'border-violet-500/30',
   PLAY: 'border-emerald-500/30',
-  LEAN: 'border-[#e8a820]/30',
+  LEAN: 'border-[#3B82F6]/30',
   FADE: 'border-red-500/30',
 }
 

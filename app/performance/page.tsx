@@ -484,9 +484,9 @@ async function loadGradedParlays(): Promise<GradedParlay[]> {
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
 const TIER_COLORS = {
-  LOCK: { bar: 'bg-violet-500',  text: 'text-violet-400',  badge: 'bg-violet-500/12 border-violet-500/30 text-violet-400',  glow: 'shadow-[0_0_12px_rgba(139,92,246,0.25)]' },
-  PLAY: { bar: 'bg-emerald-500', text: 'text-emerald-400', badge: 'bg-emerald-500/12 border-emerald-500/30 text-emerald-400', glow: 'shadow-[0_0_12px_rgba(16,185,129,0.2)]' },
-  LEAN: { bar: 'bg-[#e8a820]',  text: 'text-[#f0c060]',   badge: 'bg-[#e8a820]/12 border-[#e8a820]/30 text-[#f0c060]',     glow: 'shadow-[0_0_12px_rgba(232,168,32,0.2)]'  },
+  LOCK: { bar: 'bg-[#00D68F]',  text: 'text-[#00D68F]',  badge: 'bg-[#00D68F]/12 border-[#00D68F]/30 text-[#00D68F]',  glow: 'shadow-[0_0_12px_rgba(0,214,143,0.25)]' },
+  PLAY: { bar: 'bg-[#FFB800]', text: 'text-[#FFB800]', badge: 'bg-[#FFB800]/12 border-[#FFB800]/30 text-[#FFB800]', glow: 'shadow-[0_0_12px_rgba(255,184,0,0.2)]' },
+  LEAN: { bar: 'bg-[#3B82F6]', text: 'text-[#3B82F6]',  badge: 'bg-[#3B82F6]/12 border-[#3B82F6]/30 text-[#3B82F6]',     glow: 'shadow-[0_0_12px_rgba(59,130,246,0.2)]'  },
   FADE: { bar: 'bg-red-500',    text: 'text-red-400',      badge: 'bg-red-500/12 border-red-500/30 text-red-400',           glow: '' },
 }
 
@@ -684,7 +684,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                   ] as const).map(({ dir, d, rate, color, border, bg }) => (
                     <div key={dir} className={`rounded-2xl border ${border} ${bg} p-4 flex flex-col gap-1`}>
                       <span className={`text-[10px] font-black uppercase tracking-wider ${color}`}>{dir}</span>
-                      <span className={`text-3xl font-black mt-1 ${rate != null && rate >= 0.55 ? 'text-emerald-400' : rate != null && rate >= 0.45 ? 'text-[#f0c060]' : 'text-red-400'}`}>
+                      <span className={`text-3xl font-black mt-1 ${rate != null && rate >= 0.55 ? 'text-emerald-400' : rate != null && rate >= 0.45 ? 'text-[#FFB800]' : 'text-red-400'}`}>
                         {rate != null ? `${Math.round(rate * 100)}%` : '—'}
                       </span>
                       <span className="text-xs text-white/25">{d.hits}/{d.total} hit</span>
@@ -694,10 +694,10 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
                 {/* Gap + model note */}
                 {gap != null && (
-                  <div className={`rounded-xl border px-4 py-3 flex flex-col gap-1 ${adjDiffers ? 'border-[#e8a820]/20 bg-[#e8a820]/[0.03]' : 'border-white/[0.06] bg-white/[0.01]'}`}>
+                  <div className={`rounded-xl border px-4 py-3 flex flex-col gap-1 ${adjDiffers ? 'border-[#FFB800]/20 bg-[#FFB800]/[0.03]' : 'border-white/[0.06] bg-white/[0.01]'}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-white/40">UNDER outperforms OVER by <span className="text-white/70 font-bold">{gap}pp</span></span>
-                      <span className={`text-[10px] font-black ${adjDiffers ? 'text-[#e8a820]' : 'text-white/25'}`}>
+                      <span className={`text-[10px] font-black ${adjDiffers ? 'text-[#FFB800]' : 'text-white/25'}`}>
                         {adjDiffers ? `Suggest ${calibration!.recommendedOverAdj > 0 ? '+' : ''}${calibration!.recommendedOverAdj}pt adj (current: ${calibration!.currentOverAdj})` : `Current ${calibration!.currentOverAdj}pt adj is calibrated ✓`}
                       </span>
                     </div>
@@ -760,7 +760,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                           <div key={stat} className="px-4 py-2.5 flex items-center gap-3">
                             <span className="text-xs text-white/50 w-10 shrink-0">{STAT_SHORT[stat] ?? stat}</span>
                             <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full ${pct >= 60 ? 'bg-emerald-500' : pct >= 50 ? 'bg-[#e8a820]' : 'bg-red-500'}`}
+                              <div className={`h-full rounded-full ${pct >= 60 ? 'bg-emerald-500' : pct >= 50 ? 'bg-[#FFB800]' : 'bg-red-500'}`}
                                 style={{ width: `${pct}%` }} />
                             </div>
                             <span className="text-xs font-bold tabular-nums text-white/50 w-10 text-right">{pct}%</span>
@@ -807,7 +807,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                       const actual   = Math.round((b.hits / b.total) * 100)
                       const delta    = actual - expected
                       const deltaColor = Math.abs(delta) <= 5 ? 'text-emerald-400'
-                        : Math.abs(delta) <= 12 ? 'text-[#f0c060]' : 'text-red-400'
+                        : Math.abs(delta) <= 12 ? 'text-[#FFB800]' : 'text-red-400'
                       return (
                         <div key={b.label} className="px-4 py-2.5 grid grid-cols-4 items-center">
                           <span className="text-xs text-white/60 font-semibold">{b.label}</span>
@@ -846,14 +846,14 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
               return (
                 <div key={date} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
-                  <div className="h-px w-full bg-gradient-to-r from-transparent via-[#e8a820]/30 to-transparent" />
+                  <div className="h-px w-full bg-gradient-to-r from-transparent via-[#6C5CE7]/30 to-transparent" />
                   <div className="p-5 flex flex-col gap-4">
                     <div className="flex items-center justify-between">
                       <p className="font-bold text-white/70">{formatDate(date)}</p>
                       {overallPct !== null && (
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] text-white/30">Overall</span>
-                          <span className={`text-sm font-black ${overallPct >= 65 ? 'text-emerald-400' : overallPct >= 55 ? 'text-[#f0c060]' : 'text-red-400'}`}>
+                          <span className={`text-sm font-black ${overallPct >= 65 ? 'text-emerald-400' : overallPct >= 55 ? 'text-[#FFB800]' : 'text-red-400'}`}>
                             {overallPct}%
                           </span>
                           <span className="text-xs text-white/25">
@@ -934,9 +934,9 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             {/* Stat cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: 'Current Streak', value: currentStreak > 0 ? `${currentStreak}` : '0', color: currentStreak >= 3 ? 'text-emerald-400' : currentStreak > 0 ? 'text-[#f0c060]' : 'text-white/50', glow: currentStreak >= 3 ? 'shadow-[0_0_12px_rgba(16,185,129,0.2)]' : '' },
-                { label: 'Longest Streak', value: `${longestStreak}`, color: 'text-violet-400', glow: longestStreak >= 3 ? 'shadow-[0_0_12px_rgba(139,92,246,0.2)]' : '' },
-                { label: 'Hit Rate', value: hitRate !== null ? `${Math.round(hitRate * 100)}%` : '—', color: hitRate !== null && hitRate >= 0.6 ? 'text-emerald-400' : hitRate !== null ? 'text-[#f0c060]' : 'text-white/50', glow: '' },
+                { label: 'Current Streak', value: currentStreak > 0 ? `${currentStreak}` : '0', color: currentStreak >= 3 ? 'text-emerald-400' : currentStreak > 0 ? 'text-[#FFB800]' : 'text-white/50', glow: currentStreak >= 3 ? 'shadow-[0_0_12px_rgba(16,185,129,0.2)]' : '' },
+                { label: 'Longest Streak', value: `${longestStreak}`, color: 'text-[#6C5CE7]', glow: longestStreak >= 3 ? 'shadow-[0_0_12px_rgba(108,92,231,0.2)]' : '' },
+                { label: 'Hit Rate', value: hitRate !== null ? `${Math.round(hitRate * 100)}%` : '—', color: hitRate !== null && hitRate >= 0.6 ? 'text-emerald-400' : hitRate !== null ? 'text-[#FFB800]' : 'text-white/50', glow: '' },
                 { label: 'Days Tracked', value: `${totalDays}`, color: 'text-white/70', glow: '' },
               ].map(({ label, value, color, glow }) => (
                 <div key={label} className={`rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 flex flex-col gap-1 ${glow}`}>
@@ -1082,8 +1082,8 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
       {tab === 'parlays' && ([
         { label: 'Safe Picks',  sublabel: '2-leg · Safe stats · 24+ min · ~41% hit rate',           parlays: valueParlays,   accent: 'text-emerald-400', dot: 'bg-emerald-400', minHitPct: 35 },
         { label: 'Combo',      sublabel: '3-leg · Best ROI tier · ~19% hit rate · ~4x payout',   parlays: comboParlays,   accent: 'text-cyan-400',    dot: 'bg-cyan-400',    minHitPct: 15 },
-        { label: 'High Roller', sublabel: '4-leg · 24+ min avg · ~16% hit rate · ~6x payout',    parlays: premiumParlays, accent: 'text-[#e8a820]',   dot: 'bg-[#e8a820]',   minHitPct: 12 },
-        { label: 'Jackpot',     sublabel: '5-leg · 24+ min avg · ~8% hit rate · ~11x payout',    parlays: jackpotParlays, accent: 'text-violet-400', dot: 'bg-violet-400', minHitPct: 5 },
+        { label: 'High Roller', sublabel: '4-leg · 24+ min avg · ~16% hit rate · ~6x payout',    parlays: premiumParlays, accent: 'text-[#FFB800]',   dot: 'bg-[#FFB800]',   minHitPct: 12 },
+        { label: 'Jackpot',     sublabel: '5-leg · 24+ min avg · ~8% hit rate · ~11x payout',    parlays: jackpotParlays, accent: 'text-[#6C5CE7]', dot: 'bg-[#6C5CE7]', minHitPct: 5 },
       ] as const).map(({ label, sublabel, parlays, accent, dot, minHitPct }) => {
         const settled   = parlays.filter((p) => p.hit !== null)
         const hits      = settled.filter((p) => p.hit === true)
@@ -1113,7 +1113,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                   {[
                     { stat: 'Parlay Hit Rate', value: parlayPct !== null ? `${parlayPct}%` : '—', sub: `${hits.length}/${settled.length} settled`, color: parlayPct !== null && parlayPct >= minHitPct ? accent : 'text-white' },
                     { stat: 'Leg Hit Rate',    value: legPct    !== null ? `${legPct}%`    : '—', sub: `${legHits.length}/${allLegs.length} legs`,   color: legPct    !== null && legPct    >= 60       ? accent : 'text-white' },
-                    { stat: 'Pending',         value: String(parlays.filter((p) => p.is_pending).length), sub: 'awaiting results', color: 'text-[#f0c060]' },
+                    { stat: 'Pending',         value: String(parlays.filter((p) => p.is_pending).length), sub: 'awaiting results', color: 'text-[#FFB800]' },
                   ].map(({ stat, value, sub, color }) => (
                     <div key={stat} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 flex flex-col gap-1">
                       <span className="text-[10px] font-black uppercase tracking-wider text-white/30">{stat}</span>
@@ -1125,7 +1125,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
                 <div className="flex flex-col gap-2">
                   {parlays.map((parlay) => {
-                    const statusColor = parlay.is_pending ? 'text-[#f0c060]'
+                    const statusColor = parlay.is_pending ? 'text-[#FFB800]'
                       : parlay.hit === null ? 'text-white/25'
                       : parlay.hit ? 'text-emerald-400' : 'text-red-400'
                     const statusText  = parlay.is_pending ? 'PENDING'

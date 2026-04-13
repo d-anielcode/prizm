@@ -15,9 +15,9 @@ interface Props {
 }
 
 const TIER_COLORS = {
-  LOCK: { bar: 'bg-violet-500',  text: 'text-violet-400',  badge: 'bg-violet-500/12 border-violet-500/30 text-violet-400'  },
-  PLAY: { bar: 'bg-emerald-500', text: 'text-emerald-400', badge: 'bg-emerald-500/12 border-emerald-500/30 text-emerald-400' },
-  LEAN: { bar: 'bg-[#e8a820]',  text: 'text-[#f0c060]',   badge: 'bg-[#e8a820]/12 border-[#e8a820]/30 text-[#f0c060]'     },
+  LOCK: { bar: 'bg-[#00D68F]',  text: 'text-[#00D68F]',  badge: 'bg-[#00D68F]/12 border-[#00D68F]/30 text-[#00D68F]'  },
+  PLAY: { bar: 'bg-[#FFB800]', text: 'text-[#FFB800]', badge: 'bg-[#FFB800]/12 border-[#FFB800]/30 text-[#FFB800]' },
+  LEAN: { bar: 'bg-[#3B82F6]', text: 'text-[#3B82F6]',  badge: 'bg-[#3B82F6]/12 border-[#3B82F6]/30 text-[#3B82F6]'     },
   FADE: { bar: 'bg-red-500',    text: 'text-red-400',      badge: 'bg-red-500/12 border-red-500/30 text-red-400'           },
 }
 
@@ -94,7 +94,7 @@ export default function ResultsHistory({ results }: Props) {
       </div>
 
       <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
-        <div className="h-px w-full bg-gradient-to-r from-transparent via-[#e8a820]/40 to-transparent" />
+        <div className="h-px w-full bg-gradient-to-r from-transparent via-[#6C5CE7]/40 to-transparent" />
 
         {/* Most recent day — expanded */}
         <div className="p-5 flex flex-col gap-3">
@@ -135,7 +135,7 @@ export default function ResultsHistory({ results }: Props) {
                 <div className="text-white/20 uppercase tracking-wider">Date</div>
                 <div className="text-violet-400/60 uppercase tracking-wider text-right">LOCK</div>
                 <div className="text-emerald-400/60 uppercase tracking-wider text-right">PLAY</div>
-                <div className="text-[#f0c060]/60 uppercase tracking-wider text-right">LEAN</div>
+                <div className="text-[#3B82F6]/60 uppercase tracking-wider text-right">LEAN</div>
                 <div className="text-red-400/60 uppercase tracking-wider text-right">FADE</div>
                 <div className="text-white/20 uppercase tracking-wider text-right">ALL</div>
 

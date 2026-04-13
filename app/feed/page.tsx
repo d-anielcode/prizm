@@ -254,7 +254,7 @@ export default async function FeedPage() {
                           {leg.direction.toUpperCase()}
                         </span>
                         {' '}{leg.line} {STAT_LABELS[leg.stat_type] ?? leg.stat_type}
-                        <span className="ml-2 text-[#f0c060]/50 font-semibold">{oddsStr(leg.odds)}</span>
+                        <span className="ml-2 text-[#FFB800]/50 font-semibold">{oddsStr(leg.odds)}</span>
                       </p>
                     </div>
                     {leg.confidence_label && (
@@ -330,7 +330,7 @@ export default async function FeedPage() {
             return order(a.parlay_type) - order(b.parlay_type)
           }).map((parlay) => (
             <div key={parlay.id} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
-              <div className="h-px w-full bg-gradient-to-r from-transparent via-[#e8a820]/35 to-transparent" />
+              <div className="h-px w-full bg-gradient-to-r from-transparent via-[#6C5CE7]/35 to-transparent" />
 
               {/* Pass 2 update banner */}
               {parlay.pass === 2 && parlay.change_summary && (
@@ -357,7 +357,7 @@ export default async function FeedPage() {
                         ${parlay.parlay_type === 'sgp'     ? 'text-blue-400 bg-blue-400/10 border-blue-400/25'
                         : parlay.parlay_type === 'value'   ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/25'
                         : parlay.parlay_type === 'combo'   ? 'text-cyan-400 bg-cyan-400/10 border-cyan-400/25'
-                        : parlay.parlay_type === 'premium' ? 'text-[#e8a820] bg-[#e8a820]/10 border-[#e8a820]/25'
+                        : parlay.parlay_type === 'premium' ? 'text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/25'
                         : parlay.parlay_type === 'jackpot' ? 'text-violet-400 bg-violet-400/10 border-violet-400/25'
                         :                                    'text-white/40 bg-white/5 border-white/10'}`}>
                         {parlay.parlay_type === 'sgp'     ? 'SGP'
@@ -379,7 +379,7 @@ export default async function FeedPage() {
                   {parlay.est_multiplier != null && (
                     <div className="text-right shrink-0">
                       <p className="text-[10px] text-white/30 uppercase tracking-widest">Est. Payout</p>
-                      <p className="text-2xl font-black text-[#f0c060]">~{parlay.est_multiplier.toFixed(1)}×</p>
+                      <p className="text-2xl font-black text-[#FFB800]">~{parlay.est_multiplier.toFixed(1)}×</p>
                     </div>
                   )}
                 </div>
@@ -406,7 +406,7 @@ export default async function FeedPage() {
                             {leg.direction.toUpperCase()}
                           </span>
                           {' '}{leg.line} {STAT_LABELS[leg.stat_type] ?? leg.stat_type}
-                          <span className="ml-2 text-[#f0c060]/50 font-semibold">{oddsStr(leg.odds)}</span>
+                          <span className="ml-2 text-[#FFB800]/50 font-semibold">{oddsStr(leg.odds)}</span>
                         </p>
                       </div>
 

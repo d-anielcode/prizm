@@ -61,7 +61,7 @@ function AltRow({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; ma
   const probPct = prob != null ? Math.round(prob * 100) : null
   const probColor = probPct == null ? 'text-white/30'
     : probPct >= 65 ? 'text-emerald-400'
-    : probPct >= 50 ? 'text-[#f0c060]'
+    : probPct >= 50 ? 'text-[#FFB800]'
     : 'text-red-400'
 
   // Safer = easier to hit than the main line
@@ -76,7 +76,7 @@ function AltRow({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; ma
 
   const confColor = alt.confidence_label === 'LOCK' ? 'text-violet-400'
     : alt.confidence_label === 'PLAY' ? 'text-emerald-400'
-    : alt.confidence_label === 'LEAN' ? 'text-[#f0c060]'
+    : alt.confidence_label === 'LEAN' ? 'text-[#3B82F6]'
     : alt.confidence_label === 'FADE' ? 'text-red-400'
     : 'text-white/30'
 

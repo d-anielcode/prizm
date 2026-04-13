@@ -20,9 +20,9 @@ const STAT_LABELS: Record<StatType, string> = {
 const STAT_ORDER: StatType[] = ['points', 'rebounds', 'assists', 'three_pointers', 'steals', 'blocks', 'pra']
 
 const LABEL_COLORS: Record<ConfidenceLabel, { active: string; inactive: string }> = {
-  LOCK: { active: 'bg-violet-500/20 text-violet-400 border-violet-500/30', inactive: '' },
-  PLAY: { active: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', inactive: '' },
-  LEAN: { active: 'bg-[#e8a820]/20 text-[#f0c060] border-[#e8a820]/30', inactive: '' },
+  LOCK: { active: 'bg-[#00D68F]/20 text-[#00D68F] border-[#00D68F]/30', inactive: '' },
+  PLAY: { active: 'bg-[#FFB800]/20 text-[#FFB800] border-[#FFB800]/30', inactive: '' },
+  LEAN: { active: 'bg-[#3B82F6]/20 text-[#3B82F6] border-[#3B82F6]/30', inactive: '' },
   FADE: { active: 'bg-red-500/20 text-red-400 border-red-500/30', inactive: '' },
 }
 
@@ -80,13 +80,13 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
   const probPct = prob != null ? Math.round(prob * 100) : null
   const probColor = probPct == null ? 'text-white/30'
     : probPct >= 65 ? 'text-emerald-400'
-    : probPct >= 50 ? 'text-[#f0c060]'
+    : probPct >= 50 ? 'text-[#FFB800]'
     : 'text-red-400'
   const safer   = alt.direction === mainDir && (mainDir === 'over' ? alt.line < mainLine : alt.line > mainLine)
   const riskier = alt.direction === mainDir && (mainDir === 'over' ? alt.line > mainLine : alt.line < mainLine)
   const confColor = alt.confidence_label === 'LOCK' ? 'text-violet-400'
     : alt.confidence_label === 'PLAY' ? 'text-emerald-400'
-    : alt.confidence_label === 'LEAN' ? 'text-[#f0c060]'
+    : alt.confidence_label === 'LEAN' ? 'text-[#3B82F6]'
     : alt.confidence_label === 'FADE' ? 'text-red-400'
     : 'text-white/30'
 
@@ -120,7 +120,7 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
 
 const PILL_BASE = 'px-3 py-1 rounded-full text-xs font-semibold border transition-colors cursor-pointer select-none'
 const PILL_INACTIVE = 'bg-white/[0.03] text-white/40 border-white/[0.08] hover:border-white/15 hover:text-white/60'
-const PILL_ACTIVE = 'bg-[#e8a820]/15 text-[#f0c060] border-[#e8a820]/30'
+const PILL_ACTIVE = 'bg-[#6C5CE7]/15 text-primary border-[#6C5CE7]/30'
 
 function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -269,7 +269,7 @@ export function PropsTable({
           <div key={`${prop.id}-${prop.stat_type}-${prop.line}-${i}`} className="px-4 py-3 bg-white/[0.02]">
             <div className="flex items-center justify-between gap-2 mb-1">
               <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
-                className="font-medium text-white text-sm leading-tight hover:text-[#f0c060] transition-colors">
+                className="font-medium text-white text-sm leading-tight hover:text-primary transition-colors">
                 {prop.player_name}
               </Link>
               <div className="flex items-center gap-1.5">

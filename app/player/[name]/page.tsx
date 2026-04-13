@@ -219,7 +219,7 @@ function StatGrid({
             className={[
               'rounded-xl border p-3 text-center',
               highlight
-                ? 'bg-[#f0c060]/[0.06] border-[#f0c060]/[0.15]'
+                ? 'bg-[#6C5CE7]/[0.06] border-[#6C5CE7]/[0.15]'
                 : 'bg-white/[0.04] border-white/[0.07]',
             ].join(' ')}
           >
@@ -439,7 +439,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
           {commence && (
             <>
               <span className="text-white/20">·</span>
-              <span className="text-[#f0c060]">{formatGameTime(commence)}</span>
+              <span className="text-primary">{formatGameTime(commence)}</span>
             </>
           )}
         </div>
@@ -533,7 +533,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
           return (
             <div
               key={prop.id ?? i}
-              className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 flex flex-col gap-4 card-glow"
+              className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 flex flex-col gap-4"
             >
               {/* Prop title row */}
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -624,7 +624,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                   const labelColors: Record<string, string> = {
                     LOCK: 'text-violet-400',
                     PLAY: 'text-emerald-400',
-                    LEAN: 'text-[#f0c060]',
+                    LEAN: 'text-[#3B82F6]',
                     FADE: 'text-red-400',
                   }
                   const hit = g.hit as boolean | null

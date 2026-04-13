@@ -17,8 +17,8 @@ const TIERS = [
   },
   {
     label: 'LEAN',
-    color: 'text-[#f0c060]',
-    dot: 'bg-[#f0c060]',
+    color: 'text-[#3B82F6]',
+    dot: 'bg-[#3B82F6]',
     description: 'Slight edge. Around 50% hit rate \u2014 useful for research, not for betting alone.',
   },
   {
@@ -82,7 +82,7 @@ export function ConfidenceExplainer() {
             <p className="text-[11px] text-white/40 leading-relaxed">
               <span className="text-white/60 font-semibold">Tip:</span>{' '}
               Focus on LOCKs and PLAYs for your bets. Check the{' '}
-              <span className="text-[#f0c060] font-semibold">Feed</span>{' '}
+              <span className="text-primary font-semibold">Feed</span>{' '}
               tab for daily curated parlays that combine our highest-confidence picks
               into ready-to-bet slips.
             </p>

@@ -57,13 +57,13 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
   const probPct = prob != null ? Math.round(prob * 100) : null
   const probColor = probPct == null ? 'text-white/30'
     : probPct >= 65 ? 'text-emerald-400'
-    : probPct >= 50 ? 'text-[#f0c060]'
+    : probPct >= 50 ? 'text-[#FFB800]'
     : 'text-red-400'
   const safer   = alt.direction === mainDir && (mainDir === 'over' ? alt.line < mainLine : alt.line > mainLine)
   const riskier = alt.direction === mainDir && (mainDir === 'over' ? alt.line > mainLine : alt.line < mainLine)
-  const confColor = alt.confidence_label === 'LOCK' ? 'text-violet-400'
-    : alt.confidence_label === 'PLAY' ? 'text-emerald-400'
-    : alt.confidence_label === 'LEAN' ? 'text-[#f0c060]'
+  const confColor = alt.confidence_label === 'LOCK' ? 'text-[#00D68F]'
+    : alt.confidence_label === 'PLAY' ? 'text-[#FFB800]'
+    : alt.confidence_label === 'LEAN' ? 'text-[#3B82F6]'
     : alt.confidence_label === 'FADE' ? 'text-red-400'
     : 'text-white/30'
 
@@ -101,14 +101,14 @@ function OpponentChip({ ctx, direction }: { ctx: OpponentCtx; direction: 'over' 
     const unfavorable = direction === 'over' ? rank <= 9 : rank >= 22
     if (favorable)   rankColor = 'text-emerald-400'
     else if (unfavorable) rankColor = 'text-red-400'
-    else rankColor = 'text-[#f0c060]'
+    else rankColor = 'text-[#FFB800]'
   }
 
   const hitPct = overHitRate != null ? Math.round(overHitRate * 100) : null
   const hitColor = hitPct == null ? 'text-white/30'
     : direction === 'over'
-      ? hitPct >= 58 ? 'text-emerald-400' : hitPct <= 42 ? 'text-red-400' : 'text-[#f0c060]'
-      : hitPct <= 42 ? 'text-emerald-400' : hitPct >= 58 ? 'text-red-400' : 'text-[#f0c060]'
+      ? hitPct >= 58 ? 'text-emerald-400' : hitPct <= 42 ? 'text-red-400' : 'text-[#FFB800]'
+      : hitPct <= 42 ? 'text-emerald-400' : hitPct >= 58 ? 'text-red-400' : 'text-[#FFB800]'
 
   return (
     <div className="flex items-center gap-1.5 mt-1">
@@ -143,7 +143,7 @@ export default function GamePropsTable({
           <div key={prop.id ?? i} className="px-4 py-3 bg-white/[0.02]">
             <div className="flex items-center justify-between gap-2 mb-1">
               <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
-                className="font-medium text-white text-sm leading-tight hover:text-[#f0c060] transition-colors">
+                className="font-medium text-white text-sm leading-tight hover:text-primary transition-colors">
                 {prop.player_name}
               </Link>
               <div className="flex items-center gap-2 shrink-0">
