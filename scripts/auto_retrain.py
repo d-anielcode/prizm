@@ -203,6 +203,91 @@ def score_cases(cases, weights_map, lock_thresholds, play_thresholds, b_lock, b_
     return lock_hr, play_hr, len(locks), len(plays)
 
 
+def optimize_weights(cases, stat, n_iter=10000):
+    """Dirichlet random search for optimal weight vector for one stat type."""
+    stat_cases = [c for c in cases if c['stat'] == stat]
+    if len(stat_cases) < 30:
+        return None, 0.0
+
+    X = np.array([[c['features'][f] for f in FACTOR_NAMES] for c in stat_cases])
+    y = np.array([c['label'] for c in stat_cases])
+
+    best_score, best_w = -1.0, None
+    for _ in range(n_iter):
+        w = np.random.dirichlet(np.ones(11))
+        scores = X @ w
+        lock_mask = scores >= 0.68
+        play_mask = (scores >= 0.60) & (scores < 0.68)
+
+        lock_n = lock_mask.sum()
+        play_n = play_mask.sum()
+        lock_hr = y[lock_mask].mean() if lock_n >= 3 else 0.0
+        play_hr = y[play_mask].mean() if play_n >= 5 else 0.0
+
+        combined = 0.6 * lock_hr + 0.4 * play_hr
+        if combined > best_score:
+            best_score = combined
+            best_w = w
+
+    if best_w is None:
+        return None, 0.0
+
+    weights = {name: round(float(best_w[i]), 3) for i, name in enumerate(FACTOR_NAMES)}
+    total = sum(weights.values())
+    if total > 0:
+        weights = {k: round(v / total, 3) for k, v in weights.items()}
+        diff = round(1.0 - sum(weights.values()), 3)
+        weights['last20HitRate'] = round(weights['last20HitRate'] + diff, 3)
+
+    return weights, best_score
+
+
+def calibrate_thresholds(cases, stat, weights_dict):
+    """Scan LOCK/PLAY thresholds for optimal accuracy."""
+    stat_cases = [c for c in cases if c['stat'] == stat]
+    if len(stat_cases) < 30:
+        return 74, 68
+
+    X = np.array([[c['features'][f] for f in FACTOR_NAMES] for c in stat_cases])
+    y = np.array([c['label'] for c in stat_cases])
+    w = np.array([weights_dict.get(f, 0.0) for f in FACTOR_NAMES])
+    raw_scores = X @ w * 100
+
+    best_combo, best_metric = (74, 68), -1.0
+    for lock_t in range(70, 83, 2):
+        for play_t in [lock_t - 4, lock_t - 6, lock_t - 8]:
+            if play_t < 58: continue
+            lock_mask = raw_scores >= lock_t
+            play_mask = (raw_scores >= play_t) & (raw_scores < lock_t)
+            lock_n = lock_mask.sum()
+            if lock_n < 3: continue
+            lock_hr = y[lock_mask].mean()
+            play_hr = y[play_mask].mean() if play_mask.sum() >= 5 else 0.0
+            metric = 0.6 * lock_hr + 0.4 * play_hr
+            if metric > best_metric:
+                best_metric = metric
+                best_combo = (lock_t, play_t)
+
+    return best_combo
+
+
+def recalibrate_over_bias(grades):
+    """Compute stat-specific over bias from over/under hit rate gap."""
+    bias = {}
+    for stat in STAT_TYPES:
+        overs = [g for g in grades if g['stat_type'] == stat and g.get('direction') == 'over' and g.get('hit') is not None]
+        unders = [g for g in grades if g['stat_type'] == stat and g.get('direction') == 'under' and g.get('hit') is not None]
+        if len(overs) < 20 or len(unders) < 10:
+            bias[stat] = -3
+            continue
+        o_hr = sum(1 for g in overs if g['hit']) / len(overs)
+        u_hr = sum(1 for g in unders if g['hit']) / len(unders)
+        gap = u_hr - o_hr
+        raw_bias = round(gap * 30)
+        bias[stat] = max(-10, min(0, -abs(raw_bias)))
+    return bias
+
+
 def parse_args():
     p = argparse.ArgumentParser(description='Prizm Auto-Retrain')
     p.add_argument('--days', type=int, default=60, help='Rolling window in days (default: 60)')
@@ -254,8 +339,148 @@ if __name__ == '__main__':
     val_cases = all_cases[split_idx:]
     print(f"  Train: {len(train_cases):,} | Validation: {len(val_cases):,}")
 
-    # Placeholders for Tasks 4-5
-    print("\n[3/5] Weight optimization... (not yet implemented)")
-    print("\n[4/5] Threshold calibration... (not yet implemented)")
-    print("\n[5/5] Validation... (not yet implemented)")
-    print("\nDone (skeleton only).")
+    # -- Optimize weights per stat ---------------------------------------------
+    print("\n[3/5] Optimizing weights per stat type...")
+    new_weights = {}
+    new_lock_thresholds = {}
+    new_play_thresholds = {}
+
+    for stat in STAT_TYPES:
+        stat_train = [c for c in train_cases if c['stat'] == stat]
+        if len(stat_train) < 30:
+            print(f"  {stat}: skipped ({len(stat_train)} cases, need 30)")
+            continue
+
+        w, score = optimize_weights(train_cases, stat, n_iter=args.iterations)
+        if w is None:
+            print(f"  {stat}: optimization failed")
+            continue
+
+        lock_t, play_t = calibrate_thresholds(train_cases, stat, w)
+        new_weights[stat] = w
+        new_lock_thresholds[stat] = lock_t
+        new_play_thresholds[stat] = play_t
+        print(f"  {stat}: score={score:.3f} lock_t={lock_t} play_t={play_t}")
+
+    if not new_weights:
+        print("  No stats optimized successfully. Exiting.")
+        sys.exit(0)
+
+    # -- Calibrate base thresholds + over-bias ---------------------------------
+    print("\n[4/5] Calibrating base thresholds and over-bias...")
+    best_base_lock, best_base_metric = 74, -1.0
+    X_all = np.array([[c['features'][f] for f in FACTOR_NAMES] for c in train_cases])
+    y_all = np.array([c['label'] for c in train_cases])
+    w_avg = np.ones(11) / 11
+    scores_all = X_all @ w_avg * 100
+    for base_t in range(70, 79, 2):
+        lock_mask = scores_all >= base_t
+        if lock_mask.sum() < 10: continue
+        hr = y_all[lock_mask].mean()
+        if hr > best_base_metric:
+            best_base_metric = hr
+            best_base_lock = base_t
+    base_lock = best_base_lock
+    base_play = base_lock - 6
+
+    new_over_bias = recalibrate_over_bias(grades)
+    print(f"  Base thresholds: LOCK={base_lock} PLAY={base_play}")
+    print(f"  Over bias: {new_over_bias}")
+
+    # -- Validation ------------------------------------------------------------
+    print("\n[5/5] Validating against held-out set...")
+
+    new_lock_hr, new_play_hr, new_lock_n, new_play_n = score_cases(
+        val_cases, new_weights, new_lock_thresholds, new_play_thresholds, base_lock, base_play
+    )
+    print(f"  New weights:     LOCK {new_lock_hr:.1%} (n={new_lock_n}) | PLAY {new_play_hr:.1%} (n={new_play_n})")
+
+    current_config = None
+    try:
+        with open(JSON_PATH) as f:
+            current_config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    cur_lock_hr, cur_play_hr = 0.0, 0.0
+    if current_config and current_config.get('weights'):
+        cur_lock_hr, cur_play_hr, cur_lock_n, cur_play_n = score_cases(
+            val_cases, current_config['weights'],
+            current_config.get('lock_thresholds', {}),
+            current_config.get('play_thresholds', {}),
+            current_config.get('base_lock_threshold', 74),
+            current_config.get('base_play_threshold', 68),
+        )
+        print(f"  Current weights: LOCK {cur_lock_hr:.1%} (n={cur_lock_n}) | PLAY {cur_play_hr:.1%} (n={cur_play_n})")
+
+    # -- Adoption decision -----------------------------------------------------
+    new_combined = 0.6 * new_lock_hr + 0.4 * new_play_hr
+    cur_combined = 0.6 * cur_lock_hr + 0.4 * cur_play_hr
+    improvement = new_combined - cur_combined
+
+    adopt = (
+        new_lock_hr >= cur_lock_hr and
+        improvement >= 0.005 and
+        new_lock_n >= 20
+    )
+
+    if not adopt:
+        reasons = []
+        if new_lock_hr < cur_lock_hr: reasons.append(f"LOCK regressed ({new_lock_hr:.1%} < {cur_lock_hr:.1%})")
+        if improvement < 0.005: reasons.append(f"improvement too small ({improvement:+.1%})")
+        if new_lock_n < 20: reasons.append(f"too few LOCKs ({new_lock_n})")
+        print(f"\n  REJECTED: {', '.join(reasons)}")
+        print("  Keeping current weights.")
+        sys.exit(0)
+
+    print(f"\n  ADOPTED: improvement {improvement:+.1%} (combined {cur_combined:.1%} -> {new_combined:.1%})")
+
+    if args.dry_run:
+        print("  --dry-run: not writing JSON.")
+        sys.exit(0)
+
+    # -- Write JSON ------------------------------------------------------------
+    version = "v11.1"
+    if current_config:
+        cur_v = current_config.get('version', 'v11.0')
+        try:
+            parts = cur_v.replace('v', '').split('.')
+            minor = int(parts[-1]) + 1
+            version = f"v{parts[0]}.{minor}"
+        except (ValueError, IndexError):
+            version = "v11.1"
+
+    dates = sorted(set(g['game_date'] for g in grades))
+    output = {
+        'version': version,
+        'last_retrained': datetime.now(timezone.utc).isoformat(),
+        'data_window': {
+            'start': dates[0] if dates else cutoff,
+            'end': dates[-1] if dates else cutoff,
+            'game_days': len(dates),
+            'graded_props': len(grades),
+        },
+        'validation_accuracy': {
+            'lock': round(float(new_lock_hr), 4),
+            'play': round(float(new_play_hr), 4),
+            'overall': round(float(new_combined), 4),
+        },
+        'previous_version': current_config.get('version') if current_config else None,
+        'weights': new_weights,
+        'lock_thresholds': new_lock_thresholds,
+        'play_thresholds': new_play_thresholds,
+        'base_lock_threshold': base_lock,
+        'base_play_threshold': base_play,
+        'over_bias': new_over_bias,
+        'previous_weights': {
+            'weights': current_config['weights'],
+            'lock_thresholds': current_config.get('lock_thresholds', {}),
+            'play_thresholds': current_config.get('play_thresholds', {}),
+            'over_bias': current_config.get('over_bias', {}),
+            'validation_accuracy': current_config.get('validation_accuracy', {}),
+        } if current_config else None,
+    }
+
+    with open(JSON_PATH, 'w') as f:
+        json.dump(output, f, indent=2)
+    print(f"\n  Written to {JSON_PATH} ({version})")
