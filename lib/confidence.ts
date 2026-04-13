@@ -192,109 +192,108 @@ export interface ScoredProp extends Prop {
 // prior reasoning-based weights to avoid overfitting (only 15–35 LOCK samples per stat).
 // Thresholds raised from calibration: real-data calibration showed scores <70 are ~50% hit rate.
 
-// Points: lineValue + restDays + blowout elevated; matchupEdge reduced (less predictive than assumed).
-// Points: hit rate + rest days dominate; rest was badly underweighted before.
+// Points: last20HitRate dominant after v11 rebalance; trend+restDays demoted (diagnostic: anti-correlated/no signal).
 const W_POINTS = {
   lineValue:      0.07,
   matchupEdge:    0.02,
-  last20HitRate:  0.21,
-  trend:          0.05,
+  last20HitRate:  0.24,
+  trend:          0.03,
   seasonCushion:  0.10,
   pace:           0.17,
   newsInjury:     0.13,
-  restDays:       0.12,
+  restDays:       0.01,
   blowout:        0.08,
-  homeAway:       0.08,
+  homeAway:       0.13,
   vsOpponent:     0.02,
 }
 
-// Rebounds: homeAway confirmed dominant (4th consecutive optimizer run). Threshold at 74.
+// Rebounds: homeAway confirmed dominant (5th consecutive run). trend+restDays demoted.
 const W_REBOUNDS = {
   lineValue:      0.02,
   matchupEdge:    0.03,
-  last20HitRate:  0.09,
-  trend:          0.03,
+  last20HitRate:  0.10,
+  trend:          0.01,
   seasonCushion:  0.04,
   pace:           0.08,
   newsInjury:     0.13,
-  restDays:       0.09,
+  restDays:       0.01,
   blowout:        0.04,
-  homeAway:       0.48,
+  homeAway:       0.52,
   vsOpponent:     0.02,
 }
 
-// Assists: seasonCushion dominates; vsOpponent confirmed strong; matchupEdge minimal.
+// Assists: seasonCushion dominates; vsOpponent confirmed strong. trend+restDays demoted.
 const W_ASSISTS = {
   lineValue:      0.05,
   matchupEdge:    0.04,
-  last20HitRate:  0.07,
-  trend:          0.04,
+  last20HitRate:  0.06,
+  trend:          0.02,
   seasonCushion:  0.26,
   pace:           0.13,
   newsInjury:     0.09,
-  restDays:       0.04,
+  restDays:       0.01,
   blowout:        0.06,
-  homeAway:       0.10,
+  homeAway:       0.12,
   vsOpponent:     0.16,
 }
 
-// PRA: seasonCushion + homeAway dominate composite totals.
+// PRA: seasonCushion + homeAway dominate composite totals. trend+restDays demoted.
 const W_PRA = {
   lineValue:      0.04,
   matchupEdge:    0.07,
-  last20HitRate:  0.05,
-  trend:          0.06,
+  last20HitRate:  0.02,
+  trend:          0.03,
   seasonCushion:  0.25,
   pace:           0.02,
   newsInjury:     0.06,
-  restDays:       0.03,
+  restDays:       0.01,
   blowout:        0.13,
-  homeAway:       0.28,
+  homeAway:       0.30,
   vsOpponent:     0.07,
 }
 
-// Blocks: seasonCushion + trend dominate; matchupEdge meaningful via positional DVP.
+// Blocks: seasonCushion dominant; matchupEdge meaningful via DVP. trend halved, restDays demoted.
 const W_BLOCKS = {
   lineValue:      0.02,
   matchupEdge:    0.13,
-  last20HitRate:  0.06,
-  trend:          0.15,
+  last20HitRate:  0.11,
+  trend:          0.07,
   seasonCushion:  0.25,
   pace:           0.06,
   newsInjury:     0.10,
-  restDays:       0.08,
+  restDays:       0.01,
   blowout:        0.03,
-  homeAway:       0.09,
+  homeAway:       0.15,
   vsOpponent:     0.07,
 }
 
-// Steals: seasonCushion dominant; vsOpponent strong; matchupEdge near-zero (DVP doesn't predict steals).
+// Steals: seasonCushion dominant; vsOpponent strong. trend+restDays demoted.
 const W_STEALS = {
   lineValue:      0.11,
   matchupEdge:    0.03,
-  last20HitRate:  0.12,
-  trend:          0.04,
+  last20HitRate:  0.13,
+  trend:          0.02,
   seasonCushion:  0.29,
   pace:           0.10,
   newsInjury:     0.07,
-  restDays:       0.07,
+  restDays:       0.01,
   blowout:        0.03,
-  homeAway:       0.01,
+  homeAway:       0.04,
   vsOpponent:     0.17,
 }
 
-// Three-pointers: matchupEdge is strongest signal (positional 3P DVP confirmed); homeAway + restDays elevated.
+// Three-pointers: matchupEdge strongest (DVP confirmed); homeAway elevated. trend+restDays demoted.
 const W_THREE_POINTERS = {
   lineValue:      0.07,
   matchupEdge:    0.22,
-  last20HitRate:  0.09,
-  trend:          0.06,
+  last20HitRate:  0.12,
+  trend:          0.03,
   seasonCushion:  0.09,
   pace:           0.04,
   newsInjury:     0.06,
-  restDays:       0.15,
+  restDays:       0.01,
   blowout:        0.07,
-  homeAway:       0.18,
+  homeAway:       0.25,
   vsOpponent:     0.04,
 }
 
