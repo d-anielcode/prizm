@@ -1226,8 +1226,8 @@ const PLAY_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
 }
 
 function getLabel(score: number, statType?: StatType): { label: ConfidenceLabel; tier: RiskTier } {
-  const lockThreshold = (statType && LOCK_THRESHOLD_BY_STAT[statType]) ?? 72  // v8.0: calibrated per-stat; base 72 unchanged
-  const playThreshold = (statType && PLAY_THRESHOLD_BY_STAT[statType]) ?? 66  // LOCK - 6
+  const lockThreshold = (statType && LOCK_THRESHOLD_BY_STAT[statType]) ?? 74  // v11: raised from 72 — calibration shows 70-75 scores hit 56.8% (overconfident)
+  const playThreshold = (statType && PLAY_THRESHOLD_BY_STAT[statType]) ?? 68  // v11: raised from 66 — LOCK - 6
   if (score >= lockThreshold) return { label: 'LOCK', tier: 'PRIME'    }
   if (score >= playThreshold) return { label: 'PLAY', tier: 'LOW_RISK' }
   if (score >= 50)            return { label: 'LEAN', tier: 'MED_RISK' }
