@@ -128,10 +128,10 @@ function formatPostedAt(iso: string): string {
 }
 
 function labelStyle(label: string | undefined) {
-  if (label === 'LOCK') return 'text-violet-400 bg-violet-400/10 border-violet-400/25'
-  if (label === 'PLAY') return 'text-emerald-400 bg-emerald-400/10 border-emerald-400/25'
-  if (label === 'LEAN') return 'text-yellow-400 bg-yellow-400/10 border-yellow-400/25'
-  return 'text-white/40 bg-white/5 border-white/10'
+  if (label === 'LOCK') return 'text-[#00D68F] bg-[#00D68F]/10 border-[#00D68F]/25'
+  if (label === 'PLAY') return 'text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/25'
+  if (label === 'LEAN') return 'text-[#3B82F6] bg-[#3B82F6]/10 border-[#3B82F6]/25'
+  return 'text-[var(--text-tertiary)] bg-[var(--bg-surface-2)] border-[var(--border-default)]'
 }
 
 function oddsStr(odds: number | undefined): string {
@@ -141,9 +141,9 @@ function oddsStr(odds: number | undefined): string {
 
 function resultBadge(result?: 'hit' | 'miss' | 'void' | null) {
   if (!result) return null
-  if (result === 'hit')  return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border text-emerald-400 bg-emerald-400/10 border-emerald-400/25">✓ HIT</span>
-  if (result === 'miss') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border text-red-400 bg-red-400/10 border-red-400/25">✗ MISS</span>
-  return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border text-white/30 bg-white/5 border-white/10">VOID</span>
+  if (result === 'hit')  return <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border text-[#00D68F] bg-[#00D68F]/10 border-[#00D68F]/25">HIT</span>
+  if (result === 'miss') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border text-[#FF4757] bg-[#FF4757]/10 border-[#FF4757]/25">MISS</span>
+  return <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border text-[var(--text-tertiary)] bg-[var(--bg-surface-2)] border-[var(--border-default)]">VOID</span>
 }
 
 export default async function FeedPage() {
@@ -188,99 +188,45 @@ export default async function FeedPage() {
   const filledCount = Math.min(streakHits + hasToday, TOTAL)
   const emptyCount  = TOTAL - filledCount
 
-  const bubbles: Array<'hit' | 'miss' | 'pending' | 'empty'> = []
-  for (let i = 0; i < Math.min(streakHits, TOTAL - hasToday); i++) bubbles.push('hit')
-  if (hasToday) bubbles.push(todayState)
-  for (let i = 0; i < emptyCount; i++) bubbles.push('empty')
+  const bars: Array<'hit' | 'miss' | 'pending' | 'empty'> = []
+  for (let i = 0; i < emptyCount; i++) bars.push('empty')
+  for (let i = 0; i < Math.min(streakHits, TOTAL - hasToday); i++) bars.push('hit')
+  if (hasToday) bars.push(todayState)
 
   return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
 
       {/* Header */}
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold text-white">Feed</h1>
-        <p className="text-white/40 text-sm">Daily streaks and curated parlays</p>
+        <h1 className="text-2xl font-bold text-[var(--text-primary)]">Feed</h1>
+        <p className="text-[var(--text-tertiary)] text-sm">Daily streaks and curated parlays</p>
       </div>
 
-      {/* Streak Tracker */}
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
-        <div className="h-px w-full bg-gradient-to-r from-transparent via-orange-400/40 to-transparent" />
-        <div className="p-5 flex flex-col gap-4">
-
-          {/* Streak header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-base font-black text-white">Daily Streak</p>
-            </div>
-            <div className="text-right">
-              <p className="text-3xl font-black text-orange-400">{currentStreak}</p>
-              <p className="text-[10px] text-white/30 uppercase tracking-widest">streak</p>
-            </div>
-          </div>
-
-          {/* 10 bubbles */}
-          <div className="flex items-center gap-1.5">
-            {bubbles.map((state, i) => (
+      {/* Streak Tracker — compact single-row bar */}
+      <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold text-[var(--text-secondary)]">Daily Streak</span>
+          <div className="flex items-center gap-1">
+            {bars.map((state, i) => (
               <div
                 key={i}
-                className={`flex-1 h-2.5 rounded-full transition-colors ${
-                  state === 'hit'     ? 'bg-emerald-400'
-                  : state === 'miss'  ? 'bg-red-500/60'
-                  : state === 'pending' ? 'bg-orange-400 animate-pulse'
-                  : 'bg-white/[0.08]'
+                className={`w-4 h-4 rounded-sm transition-colors ${
+                  state === 'hit'     ? 'bg-[#00D68F]'
+                  : state === 'miss'  ? 'bg-[#FF4757]'
+                  : state === 'pending' ? 'bg-[#FFB800]'
+                  : 'bg-[var(--bg-surface-2)] border border-[var(--border-default)]'
                 }`}
               />
             ))}
           </div>
-
-          {/* Today's picks */}
-          {todayPick ? (
-            <div className="flex flex-col gap-2">
-              <p className="text-[10px] text-white/25 uppercase tracking-widest font-semibold">Today&apos;s Pick</p>
-              <div className="flex flex-col gap-1.5">
-                {(todayPick.legs as FeedLeg[]).map((leg, i) => (
-                  <Link
-                    key={i}
-                    href={`/player/${encodeURIComponent(leg.player_name)}`}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12] transition-colors"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-white truncate">
-                        {leg.player_name}
-                        {leg.team && leg.team !== 'TBD' && <span className="text-[11px] text-white/25 font-normal ml-1.5">{leg.team}</span>}
-                      </p>
-                      <p className="text-xs text-white/40 mt-0.5">
-                        <span className={`font-bold ${leg.direction === 'over' ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {leg.direction.toUpperCase()}
-                        </span>
-                        {' '}{leg.line} {STAT_LABELS[leg.stat_type] ?? leg.stat_type}
-                        <span className="ml-2 text-[#FFB800]/50 font-semibold">{oddsStr(leg.odds)}</span>
-                      </p>
-                    </div>
-                    {leg.confidence_label && (
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${labelStyle(leg.confidence_label)}`}>
-                        {leg.confidence_score != null ? Math.round(leg.confidence_score) : ''} {leg.confidence_label}
-                      </span>
-                    )}
-                  </Link>
-                ))}
-              </div>
-              {todayPick.result && (
-                <div className="flex justify-center pt-1">
-                  {resultBadge(todayPick.result)}
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-xs text-white/25 text-center py-2">Today&apos;s pick generates after morning props refresh</p>
-          )}
         </div>
+        <span className="text-lg font-black text-[#00D68F] font-mono">{currentStreak}</span>
       </div>
 
       {parlays.length === 0 ? (
-        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-16 text-center flex flex-col gap-3">
-          <p className="text-white/40 text-sm font-semibold">No parlays posted yet</p>
-          <p className="text-white/20 text-xs max-w-xs mx-auto leading-relaxed">
+        <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl p-16 text-center flex flex-col gap-3">
+          <p className="text-[var(--text-secondary)] text-sm font-semibold">No parlays posted yet</p>
+          <p className="text-[var(--text-tertiary)] text-xs max-w-xs mx-auto leading-relaxed">
             Auto-curated parlays are generated daily after props are pulled. Check back soon.
           </p>
         </div>
@@ -289,21 +235,21 @@ export default async function FeedPage() {
 
           {/* Date header */}
           <div className="flex items-center gap-3">
-            <p className="text-xs text-white/30 uppercase tracking-widest font-semibold">{formatDate(date)}</p>
-            <div className="flex-1 h-px bg-white/[0.06]" />
+            <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-widest font-semibold">{formatDate(date)}</p>
+            <div className="flex-1 h-px bg-[var(--border-subtle)]" />
           </div>
 
           {/* Announcements for this date */}
           {(announcementsByDate.get(date) ?? []).map((ann) => (
-            <div key={ann.id} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+            <div key={ann.id} className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl overflow-hidden">
               <div className={`h-px w-full bg-gradient-to-r from-transparent ${
-                ann.type === 'pass2_update' ? 'via-amber-400/40' : 'via-blue-400/30'
+                ann.type === 'pass2_update' ? 'via-[#FFB800]/40' : 'via-[#3B82F6]/30'
               } to-transparent`} />
               <div className="p-4 sm:p-5 flex items-start gap-3">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                   ann.type === 'pass2_update'
-                    ? 'bg-amber-400/10 text-amber-400'
-                    : 'bg-blue-400/10 text-blue-400'
+                    ? 'bg-[#FFB800]/10 text-[#FFB800]'
+                    : 'bg-[#3B82F6]/10 text-[#3B82F6]'
                 }`}>
                   {ann.type === 'pass2_update' ? (
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -316,9 +262,9 @@ export default async function FeedPage() {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-white/25 uppercase tracking-widest font-semibold mb-1">Prizm Update</p>
-                  <p className="text-sm text-white/60 leading-relaxed">{ann.message}</p>
-                  <p className="text-[10px] text-white/15 mt-1.5">{formatPostedAt(ann.created_at)}</p>
+                  <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest font-semibold mb-1">Prizm Update</p>
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{ann.message}</p>
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5">{formatPostedAt(ann.created_at)}</p>
                 </div>
               </div>
             </div>
@@ -328,91 +274,93 @@ export default async function FeedPage() {
           {[...byDate.get(date)!].sort((a, b) => {
             const order = (t: string) => t === 'value' ? 0 : t === 'combo' ? 1 : t === 'premium' ? 2 : t === 'jackpot' ? 3 : 4
             return order(a.parlay_type) - order(b.parlay_type)
-          }).map((parlay) => (
-            <div key={parlay.id} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
-              <div className="h-px w-full bg-gradient-to-r from-transparent via-[#6C5CE7]/35 to-transparent" />
+          }).map((parlay) => {
+            const isPremiumTier = parlay.parlay_type === 'premium' || parlay.parlay_type === 'jackpot'
+            return (
+              <div
+                key={parlay.id}
+                className={`bg-[var(--bg-surface)] border rounded-xl overflow-hidden shadow-[var(--shadow-card)] ${
+                  isPremiumTier ? 'border-primary/30' : 'border-[var(--border-default)]'
+                }`}
+              >
+                {/* Pass 2 update banner */}
+                {parlay.pass === 2 && parlay.change_summary && (
+                  <div className="flex items-start gap-2.5 px-4 py-2.5 bg-[#FFB800]/[0.06] border-b border-[#FFB800]/15">
+                    <svg className="w-3.5 h-3.5 text-[#FFB800] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <p className="text-[11px] text-[#FFB800]/80 leading-snug">
+                      <span className="font-bold text-[#FFB800]">Updated at 11 AM ET</span>
+                      {' \u2014 '}{parlay.change_summary}
+                    </p>
+                  </div>
+                )}
 
-              {/* Pass 2 update banner */}
-              {parlay.pass === 2 && parlay.change_summary && (
-                <div className="flex items-start gap-2.5 px-4 py-2.5 bg-amber-500/[0.06] border-b border-amber-500/15">
-                  <svg className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  <p className="text-[11px] text-amber-300/80 leading-snug">
-                    <span className="font-bold text-amber-400">Updated at 11 AM ET</span>
-                    {' \u2014 '}{parlay.change_summary}
-                  </p>
-                </div>
-              )}
-
-              <div className="p-4 sm:p-5 flex flex-col gap-3">
-
-                {/* Parlay header */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-base font-black text-white">{parlay.title}</p>
-                      {resultBadge(parlay.result)}
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border
-                        ${parlay.parlay_type === 'sgp'     ? 'text-blue-400 bg-blue-400/10 border-blue-400/25'
-                        : parlay.parlay_type === 'value'   ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/25'
-                        : parlay.parlay_type === 'combo'   ? 'text-cyan-400 bg-cyan-400/10 border-cyan-400/25'
-                        : parlay.parlay_type === 'premium' ? 'text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/25'
-                        : parlay.parlay_type === 'jackpot' ? 'text-violet-400 bg-violet-400/10 border-violet-400/25'
-                        :                                    'text-white/40 bg-white/5 border-white/10'}`}>
-                        {parlay.parlay_type === 'sgp'     ? 'SGP'
-                          : parlay.parlay_type === 'value'   ? 'Safe Pick'
-                          : parlay.parlay_type === 'combo'   ? 'Combo'
-                          : parlay.parlay_type === 'premium' ? 'High Roller'
-                          : parlay.parlay_type === 'jackpot' ? 'Jackpot'
-                          : 'Multi'}
+                {/* Card header */}
+                <div className="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <p className="text-base font-black text-[var(--text-primary)]">{parlay.title}</p>
+                    {resultBadge(parlay.result)}
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border
+                      ${parlay.parlay_type === 'sgp'     ? 'text-[#3B82F6] bg-[#3B82F6]/10 border-[#3B82F6]/25'
+                      : parlay.parlay_type === 'value'   ? 'text-[#00D68F] bg-[#00D68F]/10 border-[#00D68F]/25'
+                      : parlay.parlay_type === 'combo'   ? 'text-[#3B82F6] bg-[#3B82F6]/10 border-[#3B82F6]/25'
+                      : parlay.parlay_type === 'premium' ? 'text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/25'
+                      : parlay.parlay_type === 'jackpot' ? 'text-[#A29BFE] bg-[#A29BFE]/10 border-[#A29BFE]/25'
+                      :                                    'text-[var(--text-tertiary)] bg-[var(--bg-surface-2)] border-[var(--border-default)]'}`}>
+                      {parlay.parlay_type === 'sgp'     ? 'SGP'
+                        : parlay.parlay_type === 'value'   ? 'Safe Pick'
+                        : parlay.parlay_type === 'combo'   ? 'Combo'
+                        : parlay.parlay_type === 'premium' ? 'High Roller'
+                        : parlay.parlay_type === 'jackpot' ? 'Jackpot'
+                        : 'Multi'}
+                    </span>
+                    {parlay.est_multiplier != null && (
+                      <span className="bg-primary/15 text-[#A29BFE] px-2 py-0.5 rounded-md text-xs font-semibold font-mono">
+                        ~{parlay.est_multiplier.toFixed(1)}×
                       </span>
-                    </div>
-                    {parlay.description && (
-                      <p className="text-sm text-white/45 mt-1 leading-snug">{parlay.description}</p>
                     )}
-                    <p className="text-[11px] text-white/20 mt-1.5">
+                  </div>
+                  <div className="shrink-0 text-right ml-3">
+                    {parlay.description && (
+                      <p className="text-[11px] text-[var(--text-tertiary)] leading-snug">{parlay.description}</p>
+                    )}
+                    <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
                       Posted {formatPostedAt(parlay.created_at)}
                     </p>
                   </div>
-
-                  {parlay.est_multiplier != null && (
-                    <div className="text-right shrink-0">
-                      <p className="text-[10px] text-white/30 uppercase tracking-widest">Est. Payout</p>
-                      <p className="text-2xl font-black text-[#FFB800]">~{parlay.est_multiplier.toFixed(1)}×</p>
-                    </div>
-                  )}
                 </div>
 
                 {/* Legs */}
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col">
                   {(parlay.legs as FeedLeg[]).map((leg, i) => (
                     <Link
                       key={`${leg.player_name}-${leg.stat_type}-${i}`}
                       href={`/player/${encodeURIComponent(leg.player_name)}`}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12] transition-colors"
+                      className="px-4 py-2.5 flex items-center justify-between border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--bg-surface-2)] transition-colors"
                     >
-                      <span className="text-xs font-black text-white/15 w-3 shrink-0">{i + 1}</span>
-
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-white truncate">
-                          {leg.player_name}
-                          {leg.team && leg.team !== 'TBD' && (
-                            <span className="text-[11px] text-white/25 font-normal ml-1.5">{leg.team}</span>
-                          )}
-                        </p>
-                        <p className="text-xs text-white/40 mt-0.5">
-                          <span className={`font-bold ${leg.direction === 'over' ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {leg.direction.toUpperCase()}
-                          </span>
-                          {' '}{leg.line} {STAT_LABELS[leg.stat_type] ?? leg.stat_type}
-                          <span className="ml-2 text-[#FFB800]/50 font-semibold">{oddsStr(leg.odds)}</span>
-                        </p>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-xs font-black text-[var(--text-tertiary)] w-3 shrink-0">{i + 1}</span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-[var(--text-primary)] truncate">
+                            {leg.player_name}
+                            {leg.team && leg.team !== 'TBD' && (
+                              <span className="text-[11px] text-[var(--text-tertiary)] font-normal ml-1.5">{leg.team}</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                            <span className={`font-bold ${leg.direction === 'over' ? 'text-[#00D68F]' : 'text-[#FF4757]'}`}>
+                              {leg.direction.toUpperCase()}
+                            </span>
+                            {' '}{leg.line} {STAT_LABELS[leg.stat_type] ?? leg.stat_type}
+                            <span className="ml-2 text-[#FFB800]/50 font-semibold">{oddsStr(leg.odds)}</span>
+                          </p>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
                         {leg.l10_hits != null && leg.l10_total != null && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-emerald-400 bg-emerald-400/10 border-emerald-400/20 whitespace-nowrap">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-[#00D68F] bg-[#00D68F]/10 border-[#00D68F]/20 whitespace-nowrap">
                             {leg.l10_hits}/{leg.l10_total} L{leg.l10_total}
                           </span>
                         )}
@@ -427,20 +375,20 @@ export default async function FeedPage() {
                 </div>
 
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ))}
 
       {/* How Prizm Feed Works — explainer */}
-      <details className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+      <details className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl overflow-hidden">
         <summary className="p-4 cursor-pointer select-none flex items-center justify-between">
-          <span className="text-sm font-bold text-white/50">How Prizm Feed Works</span>
-          <span className="text-[10px] text-white/20 uppercase tracking-wider">tap to expand</span>
+          <span className="text-sm font-bold text-[var(--text-secondary)]">How Prizm Feed Works</span>
+          <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider">tap to expand</span>
         </summary>
-        <div className="px-4 pb-4 text-xs text-white/40 leading-relaxed flex flex-col gap-3 border-t border-white/[0.05] pt-3">
+        <div className="px-4 pb-4 text-xs text-[var(--text-secondary)] leading-relaxed flex flex-col gap-3 border-t border-[var(--border-subtle)] pt-3">
           <div>
-            <p className="font-bold text-white/55 mb-0.5">5 AM ET &mdash; Morning Picks</p>
+            <p className="font-bold text-[var(--text-secondary)] mb-0.5">5 AM ET &mdash; Morning Picks</p>
             <p>
               Our model scores every available prop using game logs, defense matchups,
               and historical trends. The top picks become your daily Safe Pick, Combo,
@@ -448,7 +396,7 @@ export default async function FeedPage() {
             </p>
           </div>
           <div>
-            <p className="font-bold text-white/55 mb-0.5">11 AM ET &mdash; Midday Re-evaluation</p>
+            <p className="font-bold text-[var(--text-secondary)] mb-0.5">11 AM ET &mdash; Midday Re-evaluation</p>
             <p>
               We re-check all morning picks against updated injury reports and line movements.
               If a key player is ruled out or a line has shifted significantly, we generate
@@ -456,7 +404,7 @@ export default async function FeedPage() {
             </p>
           </div>
           <div>
-            <p className="font-bold text-white/55 mb-0.5">Performance Tracking</p>
+            <p className="font-bold text-[var(--text-secondary)] mb-0.5">Performance Tracking</p>
             <p>
               Only the final version of each parlay (updated if available, otherwise the
               morning pick) is graded for our performance stats. You can see the original
