@@ -1139,11 +1139,19 @@ export function scoreProps(
   // +2 pts for OVER, -2 pts for UNDER. Only applies when opponentOnB2B is confirmed.
   const opponentB2bAdj = opponentOnB2B ? (direction === 'over' ? 2 : -2) : 0
 
-  // Over bias correction: empirically, OVER props hit at ~43% vs UNDER at ~50%
-  // across 835 graded props (Mar 22-24 sample). Books price popular OVERs above
-  // fair value, capturing recency bias from the betting public. Apply -3pt
-  // correction to all OVER props to offset this systematic pricing edge.
-  const overBiasAdj = direction === 'over' ? -3 : 0
+  // Over bias correction — stat-specific (v11.0, diagnostic data from 71k graded props):
+  // Books price popular OVERs above fair value. Gap varies by stat:
+  //   steals +19%, blocks +12%, assists +7%, rebounds +7%, 3PM +4.5%, points +3.3%
+  const OVER_BIAS_BY_STAT: Record<StatType, number> = {
+    points:         -3,
+    rebounds:       -4,
+    assists:        -4,
+    steals:         -7,
+    blocks:         -6,
+    three_pointers: -3,
+    pra:            -4,
+  }
+  const overBiasAdj = direction === 'over' ? (OVER_BIAS_BY_STAT[stat_type] ?? -3) : 0
 
   // 3PM zone simulation adjustment: Monte Carlo sim with zone-specific defense
   // produces p(over) — compare to baseline 0.50 to determine sim edge.
