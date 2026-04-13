@@ -288,6 +288,60 @@ def recalibrate_over_bias(grades):
     return bias
 
 
+def check_rollback(config, recent_grades, logs_by_player, def_stats_map):
+    """
+    Pre-flight: if last week's retrained weights degraded LOCK accuracy by >5pp,
+    roll back to previous_weights.
+    Returns True if rollback was performed.
+    """
+    if not config or not config.get('previous_weights'):
+        return False
+
+    last_retrained = config.get('last_retrained', '')
+    try:
+        retrained_dt = datetime.fromisoformat(last_retrained.replace('Z', '+00:00'))
+        age_days = (datetime.now(timezone.utc) - retrained_dt).days
+        if age_days < 7:
+            print("  Rollback check: weights are < 7 days old, skipping.")
+            return False
+    except (ValueError, TypeError):
+        return False
+
+    baseline_lock = config.get('validation_accuracy', {}).get('lock', 0.0)
+    cases = build_cases(recent_grades, logs_by_player, def_stats_map)
+    if len(cases) < 50:
+        print(f"  Rollback check: only {len(cases)} recent cases, skipping.")
+        return False
+
+    cur_lock_hr, _, cur_lock_n, _ = score_cases(
+        cases, config['weights'],
+        config.get('lock_thresholds', {}),
+        config.get('play_thresholds', {}),
+        config.get('base_lock_threshold', 74),
+        config.get('base_play_threshold', 68),
+    )
+
+    drop = baseline_lock - cur_lock_hr
+    print(f"  Rollback check: baseline LOCK={baseline_lock:.1%}, actual={cur_lock_hr:.1%} (n={cur_lock_n}), drop={drop:+.1%}")
+
+    if drop > 0.05 and cur_lock_n >= 10:
+        print(f"  ROLLBACK: LOCK accuracy dropped {drop:.1%} (>5pp threshold)")
+        prev = config['previous_weights']
+        config['weights'] = prev['weights']
+        config['lock_thresholds'] = prev.get('lock_thresholds', {})
+        config['play_thresholds'] = prev.get('play_thresholds', {})
+        config['over_bias'] = prev.get('over_bias', {})
+        config['previous_weights'] = None
+        config['version'] = config.get('previous_version', config['version']) + '-rollback'
+        config['last_retrained'] = datetime.now(timezone.utc).isoformat()
+        with open(JSON_PATH, 'w') as f:
+            json.dump(config, f, indent=2)
+        print(f"  Rolled back to {config['version']}. Skipping retraining this week.")
+        return True
+
+    return False
+
+
 def parse_args():
     p = argparse.ArgumentParser(description='Prizm Auto-Retrain')
     p.add_argument('--days', type=int, default=60, help='Rolling window in days (default: 60)')
@@ -323,6 +377,20 @@ if __name__ == '__main__':
     print("  Loading defense stats...")
     def_rows = sb_get_all('team_defense_stats')
     def_stats_map = {r['team_abbreviation']: r for r in def_rows}
+
+    # -- Pre-flight rollback check ---------------------------------------------
+    current_config_precheck = None
+    try:
+        with open(JSON_PATH) as f:
+            current_config_precheck = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    if current_config_precheck:
+        recent_week = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d')
+        recent_grades = [g for g in grades if g['game_date'] >= recent_week]
+        if check_rollback(current_config_precheck, recent_grades, logs_by_player, def_stats_map):
+            sys.exit(0)
 
     # -- Build cases -----------------------------------------------------------
     print("\n[2/5] Building feature vectors...")
