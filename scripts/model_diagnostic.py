@@ -11,7 +11,7 @@ Usage:
     python scripts/model_diagnostic.py --start-date 2026-01-01
 """
 
-import os, sys, json, argparse
+import os, sys, json, argparse, re
 from datetime import datetime
 from collections import defaultdict
 
@@ -65,6 +65,219 @@ def sb_get_all(table, params=''):
 
 STAT_TYPES = ['points', 'rebounds', 'assists', 'steals', 'blocks', 'three_pointers']
 CONFIDENCE_TIERS = ['LOCK', 'PLAY', 'LEAN', 'FADE']
+
+
+def get_stat(log, stat_type):
+    return {
+        'points':         float(log.get('points', 0) or 0),
+        'rebounds':       float(log.get('rebounds', 0) or 0),
+        'assists':        float(log.get('assists', 0) or 0),
+        'steals':         float(log.get('steals', 0) or 0),
+        'blocks':         float(log.get('blocks', 0) or 0),
+        'three_pointers': float(log.get('fg3m', 0) or 0),
+        'pra':            float(log.get('pra', 0) or 0),
+    }.get(stat_type, 0.0)
+
+
+def extract_opponent(matchup):
+    parts = re.split(r'\s+vs\.\s+|\s+@\s+', matchup)
+    return parts[1].strip().upper() if len(parts) >= 2 else None
+
+
+def clamp(x, lo=0.05, hi=0.95):
+    return min(hi, max(lo, x))
+
+
+def factor_last_n_hitrate(prior, stat_type, line, direction, n):
+    sl = prior[:n]
+    if len(sl) < 3:
+        return None
+    hits = sum(1 for g in sl if (get_stat(g, stat_type) > line if direction == 'over' else get_stat(g, stat_type) < line))
+    return hits / len(sl)
+
+
+def factor_cushion(prior, stat_type, line, direction):
+    vals = [get_stat(g, stat_type) for g in prior]
+    vals = [v for v in vals if v >= 0]
+    if len(vals) < 5:
+        return 0.5
+    avg = sum(vals) / len(vals)
+    pct = (avg - line) / max(line, 1)
+    raw = clamp(pct / 0.60 + 0.50)
+    return raw if direction == 'over' else 1 - raw
+
+
+def factor_trend(prior, stat_type, direction):
+    l5  = [get_stat(g, stat_type) for g in prior[:5]]
+    l20 = [get_stat(g, stat_type) for g in prior[:20]]
+    if len(l5) < 3 or len(l20) < 8:
+        return 0.5
+    avg5  = sum(l5)  / len(l5)
+    avg20 = sum(l20) / len(l20)
+    if avg20 == 0:
+        return 0.5
+    trend_pct = (avg5 - avg20) / avg20
+    raw = clamp(trend_pct / 0.40 + 0.50)
+    return raw if direction == 'over' else 1 - raw
+
+
+def factor_matchup(def_stats_map, opp_abbr, stat_type, direction):
+    if not opp_abbr or opp_abbr not in def_stats_map:
+        return 0.5
+    rank_key = {
+        'points': 'pts_rank', 'rebounds': 'reb_rank', 'assists': 'ast_rank',
+        'steals': 'stl_rank', 'blocks': 'blk_rank',
+        'three_pointers': 'fg3m_rank', 'pra': 'pts_rank'
+    }.get(stat_type, 'pts_rank')
+    rank = def_stats_map[opp_abbr].get(rank_key, 15)
+    raw = (rank - 1) / 29
+    return raw if direction == 'over' else 1 - raw
+
+
+def factor_vs_opponent(prior, stat_type, line, direction, opp_abbr):
+    if not opp_abbr:
+        return 0.5
+    vs_logs = [g for g in prior if extract_opponent(g.get('matchup', '')) == opp_abbr]
+    n = len(vs_logs)
+    if n < 2:
+        return 0.5
+    hits = sum(1 for g in vs_logs if (get_stat(g, stat_type) > line if direction == 'over' else get_stat(g, stat_type) < line))
+    raw_rate = hits / n
+    weight = min(0.80, 0.15 + n * 0.13)
+    return raw_rate * weight + 0.5 * (1 - weight)
+
+
+def factor_home_away(prior, stat_type, line, direction, is_home):
+    filtered = [g for g in prior if g.get('is_home') == is_home]
+    if len(filtered) < 5:
+        return 0.5
+    hits = sum(1 for g in filtered if (get_stat(g, stat_type) > line if direction == 'over' else get_stat(g, stat_type) < line))
+    return hits / len(filtered)
+
+
+def factor_rest_days(prior_logs, test_game_date):
+    if not prior_logs:
+        return 0.5
+    try:
+        last = datetime.strptime(prior_logs[0]['game_date'], '%Y-%m-%d')
+        curr = datetime.strptime(test_game_date, '%Y-%m-%d')
+        rest = (curr - last).days - 1
+        if rest <= 0: return 0.25
+        if rest == 1: return 0.50
+        if rest == 2: return 0.60
+        return 0.55
+    except Exception:
+        return 0.5
+
+
+FACTOR_NAMES = [
+    'last10HitRate', 'matchupEdge', 'seasonCushion', 'vsOpponent',
+    'homeAway', 'trend', 'last20HitRate', 'restDays',
+]
+
+
+def factor_calibration(grades, logs_by_player, def_stats_map):
+    """
+    For each graded prop, recompute factor scores using game logs, then
+    measure how predictive each factor is (point-biserial correlation + AUC).
+    """
+    import numpy as np
+
+    cases = []
+    skipped = 0
+
+    for g in grades:
+        player = g['player_name']
+        stat = g['stat_type']
+        line = float(g['line'])
+        direction = g.get('direction', 'over')
+        game_date = g['game_date']
+        hit = 1 if g['hit'] else 0
+
+        if player not in logs_by_player:
+            skipped += 1
+            continue
+
+        all_logs = sorted(logs_by_player[player], key=lambda l: l['game_date'])
+        prior = list(reversed([l for l in all_logs if l['game_date'] < game_date]))
+
+        if len(prior) < 10:
+            skipped += 1
+            continue
+
+        target = next((l for l in all_logs if l['game_date'] == game_date), None)
+        if not target:
+            skipped += 1
+            continue
+        opp_abbr = extract_opponent(target.get('matchup', ''))
+        is_home = target.get('is_home', False)
+
+        features = [
+            factor_last_n_hitrate(prior, stat, line, direction, 10) or 0.5,
+            factor_matchup(def_stats_map, opp_abbr, stat, direction),
+            factor_cushion(prior, stat, line, direction),
+            factor_vs_opponent(prior, stat, line, direction, opp_abbr),
+            factor_home_away(prior, stat, line, direction, is_home),
+            factor_trend(prior, stat, direction),
+            factor_last_n_hitrate(prior, stat, line, direction, 20) or 0.5,
+            factor_rest_days(prior, game_date),
+        ]
+        cases.append({'features': features, 'label': hit})
+
+    if len(cases) < 30:
+        print("-- Module 2: Factor Calibration ----------------------------------------")
+        print(f"  Not enough matched cases ({len(cases)}) -- need 30+. Skipped {skipped}.")
+        return {'error': 'insufficient_data', 'matched': len(cases), 'skipped': skipped}
+
+    X = np.array([c['features'] for c in cases])
+    y = np.array([c['label'] for c in cases])
+
+    results = []
+    for i, name in enumerate(FACTOR_NAMES):
+        col = X[:, i]
+        # Point-biserial correlation
+        try:
+            from scipy.stats import pointbiserialr
+            corr, pval = pointbiserialr(y, col)
+        except ImportError:
+            corr, pval = 0.0, 1.0
+
+        # AUC
+        try:
+            from sklearn.metrics import roc_auc_score
+            auc = roc_auc_score(y, col)
+        except (ValueError, ImportError):
+            auc = 0.5
+
+        # Simple threshold accuracy
+        preds = (col > 0.5).astype(int)
+        acc = (preds == y).mean()
+
+        results.append({
+            'factor': name,
+            'correlation': round(float(corr), 4),
+            'p_value': round(float(pval), 6),
+            'auc': round(float(auc), 4),
+            'threshold_accuracy': round(float(acc), 4),
+            'anti_correlated': bool(corr < -0.01),
+        })
+
+    results.sort(key=lambda r: -r['auc'])
+
+    print("-- Module 2: Factor Calibration ----------------------------------------")
+    print(f"  {len(cases)} matched props (skipped {skipped} -- no logs or < 10 prior games)\n")
+    print(f"  {'Factor':<18} {'AUC':>6} {'Corr':>7} {'p-val':>9} {'Acc':>6} {'Flag':>6}")
+    print(f"  {'-'*58}")
+    for r in results:
+        flag = '!! NEG' if r['anti_correlated'] else ''
+        print(f"  {r['factor']:<18} {r['auc']:>5.3f} {r['correlation']:>+6.3f} {r['p_value']:>9.6f} {r['threshold_accuracy']:>5.1%} {flag}")
+    print()
+
+    return {
+        'matched_props': len(cases),
+        'skipped': skipped,
+        'factors': results,
+    }
 
 
 def accuracy_matrix(grades):
@@ -346,6 +559,21 @@ def main():
     dates = sorted(set(g['game_date'] for g in grades))
     print(f"  {len(grades):,} graded props across {len(dates)} game days ({dates[0]} -> {dates[-1]})")
 
+    # Load game logs for factor recomputation
+    print("  Loading game logs...")
+    raw_logs = sb_get_all('player_game_logs', 'order=game_date.desc')
+    logs_by_player = defaultdict(list)
+    for log in raw_logs:
+        if log.get('player_name') and log.get('game_date'):
+            logs_by_player[log['player_name']].append(log)
+    print(f"  {len(raw_logs):,} game log rows for {len(logs_by_player)} players")
+
+    # Load team defense stats
+    print("  Loading team defense stats...")
+    def_rows = sb_get_all('team_defense_stats')
+    def_stats_map = {row['team_abbreviation']: row for row in def_rows}
+    print(f"  {len(def_stats_map)} teams loaded")
+
     print("\n[2/2] Running diagnostic modules...\n")
 
     report = {
@@ -359,11 +587,11 @@ def main():
     }
 
     report['accuracy_matrix'] = accuracy_matrix(grades)
+    report['factor_calibration'] = factor_calibration(grades, logs_by_player, def_stats_map)
     report['over_under_asymmetry'] = over_under_asymmetry(grades)
     report['calibration_curve'] = calibration_curve(grades)
     report['high_confidence_misses'] = high_confidence_misses(grades)
     report['temporal'] = temporal_analysis(grades)
-    # report['factor_calibration'] = factor_calibration(grades, logs_by_player, def_stats_map)
     # report['line_movement'] = line_movement_analysis(grades)
 
     # ── Save report ──────────────────────────────────────────────────────────
