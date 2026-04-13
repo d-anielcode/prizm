@@ -3,10 +3,10 @@ import type { ConfidenceLabel } from '@/types'
 import { ConfidenceTooltip } from '@/components/ConfidenceTooltip'
 
 const styles: Record<ConfidenceLabel, string> = {
-  LOCK: 'bg-violet-500/12  text-violet-400  border-violet-500/25 shadow-[0_0_10px_rgba(139,92,246,0.2)]',
-  PLAY: 'bg-emerald-500/12 text-emerald-400 border-emerald-500/25 shadow-[0_0_10px_rgba(16,185,129,0.15)]',
-  LEAN: 'bg-[#e8a820]/10  text-[#f0c060]   border-[#e8a820]/25',
-  FADE: 'bg-red-500/10    text-red-400      border-red-500/20',
+  LOCK: 'bg-[#00D68F]/15 text-[#00D68F] border-[#00D68F]/25 shadow-[0_0_12px_rgba(0,214,143,0.2)]',
+  PLAY: 'bg-[#FFB800]/15 text-[#FFB800] border-[#FFB800]/25',
+  LEAN: 'bg-[#3B82F6]/10 text-[#3B82F6] border-[#3B82F6]/20',
+  FADE: 'bg-[#FF4757]/10 text-[#FF4757]/70 border-[#FF4757]/15',
 }
 
 export function ConfidenceBadge({
@@ -22,7 +22,7 @@ export function ConfidenceBadge({
     <span className="inline-flex items-center gap-1.5">
       <span
         className={cn(
-          'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-xs font-semibold tabular-nums',
+          'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md border text-xs font-semibold tabular-nums font-mono',
           styles[label],
         )}
       >
