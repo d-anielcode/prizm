@@ -29,7 +29,7 @@ except FileNotFoundError:
 
 SUPABASE_URL = (os.environ.get('NEXT_PUBLIC_SUPABASE_URL') or env.get('NEXT_PUBLIC_SUPABASE_URL', '')).strip('"').strip("'")
 SUPABASE_KEY = (os.environ.get('SUPABASE_SERVICE_KEY') or env.get('SUPABASE_SERVICE_KEY', '')).strip('"').strip("'")
-VERCEL_URL   = (os.environ.get('VERCEL_APP_URL') or env.get('VERCEL_APP_URL', '')).strip('"').strip("'")
+VERCEL_URL   = (os.environ.get('VERCEL_APP_URL') or env.get('VERCEL_APP_URL') or env.get('NEXT_PUBLIC_SITE_URL', '')).strip('"').strip("'")
 CRON_SECRET  = (os.environ.get('CRON_SECRET') or env.get('CRON_SECRET', '')).strip('"').strip("'")
 
 if not SUPABASE_URL or not SUPABASE_KEY:

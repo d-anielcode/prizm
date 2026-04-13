@@ -52,6 +52,7 @@ def to_decimal(odds):
 STAKE = 5.0
 MARKETS = {'points', 'rebounds', 'assists', 'three_pointers', 'blocks', 'steals'}
 VOLATILE = {'blocks', 'steals'}
+MAX_FAVORITE_ODDS = -150  # DFS platforms don't offer lines heavier than -150
 
 def pick_parlay(pool, used_keys, n_legs, min_mins_fn=None, date=None):
     """Pick n legs from pool, avoiding used_keys. Returns (legs, new_keys) or None."""
@@ -244,7 +245,16 @@ def main():
         results[m] = {'spent': 0, 'won': 0, 'days': 0, 'hits': [0,0,0], 'total': [0,0,0]}
 
     for date in dates:
-        pool = sorted(by_date[date], key=lambda p: p['confidence_score'], reverse=True)
+        # Filter out heavy favorites (odds < -150) — not available on DFS platforms
+        all_props = by_date[date]
+        filtered = []
+        for p in all_props:
+            odds_key = f"{p['player_name']}|{p['stat_type']}|{p['game_date']}"
+            odds = hist_map.get(odds_key)
+            if odds is not None and odds < MAX_FAVORITE_ODDS:
+                continue  # skip heavy favorites
+            filtered.append(p)
+        pool = sorted(filtered, key=lambda p: p['confidence_score'], reverse=True)
 
         # Precompute top-1 and top-2 keys for hybrid modes
         # These are the highest confidence picks that pass all filters

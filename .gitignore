@@ -28,3 +28,14 @@ yarn-error.log*
 .vercel
 .env*.local
 diagnostic_report.json
+
+# Backtest output files
+backtest_out.txt
+parlay_backtest_out.txt
+pit_output.csv
+
+# Python cache
+scripts/__pycache__/
+
+# Local Claude settings
+.claude/settings.local.json
