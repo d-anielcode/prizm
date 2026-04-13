@@ -522,6 +522,82 @@ def temporal_analysis(grades):
     }
 
 
+def line_movement_analysis(grades):
+    """
+    Check if line movement correlates with outcomes.
+    Uses historical_prop_lines to detect line changes.
+    """
+    # Load historical prop lines
+    print("  Loading historical_prop_lines...")
+    hist_lines = sb_get_all('historical_prop_lines', 'order=game_date.desc')
+
+    if not hist_lines:
+        print("-- Module 6: Line Movement Analysis ------------------------------------")
+        print("  No historical_prop_lines data found. Skipping.\n")
+        return {'error': 'no_data'}
+
+    # Index lines by (player, stat, game_date) -> list of line records
+    lines_index = defaultdict(list)
+    for h in hist_lines:
+        key = (h.get('player_name', ''), h.get('stat_type', ''), h.get('game_date', ''))
+        lines_index[key].append(h)
+
+    # For each graded prop, check if we have line history with movement
+    moved_props = []
+    for g in grades:
+        key = (g['player_name'], g['stat_type'], g['game_date'])
+        lines = lines_index.get(key, [])
+        if len(lines) < 2:
+            continue
+
+        # Sort by line value to detect range of movement
+        lines_sorted = sorted(lines, key=lambda l: float(l.get('line', 0)))
+        first_line = float(lines_sorted[0].get('line', 0))
+        last_line = float(lines_sorted[-1].get('line', 0))
+        move = last_line - first_line
+
+        if abs(move) < 0.5:
+            continue
+
+        direction = g.get('direction', 'over')
+        # Line moved up = harder for over, easier for under
+        move_helps = (move < 0 and direction == 'over') or (move > 0 and direction == 'under')
+
+        moved_props.append({
+            'hit': g['hit'],
+            'move': move,
+            'move_helps': move_helps,
+            'stat': g['stat_type'],
+            'direction': direction,
+        })
+
+    if not moved_props:
+        print("-- Module 6: Line Movement Analysis ------------------------------------")
+        print("  Not enough props with line movement (>=0.5) to analyze.\n")
+        return {'error': 'insufficient_movement_data', 'total_lines': len(hist_lines)}
+
+    # Compare accuracy: line moved in favorable vs unfavorable direction
+    favorable = [p for p in moved_props if p['move_helps']]
+    unfavorable = [p for p in moved_props if not p['move_helps']]
+
+    fav_hr = sum(1 for p in favorable if p['hit']) / len(favorable) if favorable else 0
+    unfav_hr = sum(1 for p in unfavorable if p['hit']) / len(unfavorable) if unfavorable else 0
+
+    print("-- Module 6: Line Movement Analysis ------------------------------------")
+    print(f"  Props with line movement >=0.5: {len(moved_props)}")
+    print(f"  Line moved favorably:   {fav_hr:.1%} hit rate ({len(favorable)} props)")
+    print(f"  Line moved unfavorably: {unfav_hr:.1%} hit rate ({len(unfavorable)} props)")
+    print(f"  Delta: {fav_hr - unfav_hr:>+.1%}")
+    print()
+
+    return {
+        'total_with_movement': len(moved_props),
+        'favorable': {'hit_rate': round(fav_hr, 4), 'n': len(favorable)},
+        'unfavorable': {'hit_rate': round(unfav_hr, 4), 'n': len(unfavorable)},
+        'delta': round(fav_hr - unfav_hr, 4),
+    }
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Prizm Model Diagnostic Pipeline')
     parser.add_argument('--stat', choices=STAT_TYPES, help='Analyze a single stat type')
@@ -592,7 +668,7 @@ def main():
     report['calibration_curve'] = calibration_curve(grades)
     report['high_confidence_misses'] = high_confidence_misses(grades)
     report['temporal'] = temporal_analysis(grades)
-    # report['line_movement'] = line_movement_analysis(grades)
+    report['line_movement'] = line_movement_analysis(grades)
 
     # ── Save report ──────────────────────────────────────────────────────────
     out_path = os.path.join(os.path.dirname(__file__), '..', 'diagnostic_report.json')
