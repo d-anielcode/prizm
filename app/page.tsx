@@ -1,10 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import type { Prop } from '@/types'
-import Image from 'next/image'
-import Link from 'next/link'
 import ResultsHistory from '@/components/ResultsHistory'
 import { ConfidenceExplainer } from '@/components/ConfidenceExplainer'
-import { TodaysPicks } from '@/components/TodaysPicks'
+import { HomeContent } from '@/components/HomeContent'
 
 export const revalidate = 0
 
@@ -24,13 +22,6 @@ const TEAM_ABBR: Record<string, string> = {
   'LA Clippers': 'lac', 'LA Lakers': 'lal', 'Golden State': 'gs',
   'New Orleans': 'no', 'New York': 'ny', 'San Antonio': 'sa',
   'Oklahoma City': 'okc', 'Portland': 'por',
-}
-
-function teamLogoUrl(name: string | undefined | null): string | null {
-  if (!name) return null
-  const abbr = TEAM_ABBR[name]
-  if (!abbr) return null
-  return `https://a.espncdn.com/i/teamlogos/nba/500/${abbr}.png`
 }
 
 function teamAbbr(name: string | undefined | null): string {
@@ -238,146 +229,28 @@ function getGameDay(games: GameInfo[]): string {
   return earliest.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + "'s"
 }
 
-function TeamSide({
-  name,
-  align,
-}: {
-  name: string | null
-  align: 'left' | 'right'
-}) {
-  const url = teamLogoUrl(name)
-  const abbr = teamAbbr(name)
-  const isRight = align === 'right'
-
-  return (
-    <div className={`flex items-center gap-3 flex-1 min-w-0 ${isRight ? 'justify-end flex-row-reverse' : ''}`}>
-      {url ? (
-        <Image src={url} alt={name ?? 'Team'} width={40} height={40} unoptimized className="object-contain shrink-0" />
-      ) : (
-        <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/40 text-xs font-bold shrink-0">
-          {abbr}
-        </div>
-      )}
-      <div className={`min-w-0 ${isRight ? 'text-right' : ''}`}>
-        <div className="text-base font-black text-white tracking-tight leading-none">{abbr}</div>
-        <div className="text-[11px] text-white/30 mt-0.5 truncate">{name ?? ''}</div>
-      </div>
-    </div>
-  )
-}
-
 export default async function HomePage() {
   const [{ games, allProps, stale }, results] = await Promise.all([getData(), getResults()])
   const gameDay = getGameDay(games)
 
-  const lock = allProps.filter((p) => p.confidence_label === 'LOCK').length
-  const play = allProps.filter((p) => p.confidence_label === 'PLAY').length
-  const lean = allProps.filter((p) => p.confidence_label === 'LEAN').length
-  const fade = allProps.filter((p) => p.confidence_label === 'FADE').length
+  const propSummaries = allProps.map((p) => ({
+    player_name: p.player_name,
+    stat_type: p.stat_type,
+    line: p.line,
+    direction: p.direction as 'over' | 'under',
+    confidence_score: p.confidence_score ?? null,
+    confidence_label: p.confidence_label ?? null,
+    game_id: p.game_id,
+    team: p.team ?? null,
+  }))
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 flex flex-col gap-10">
-
-      {/* ── Page header ── */}
-      <div className="flex flex-col gap-3">
-        {stale && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-            Showing last cached slate — today&apos;s lines not yet available. Updates automatically by 8 AM ET.
-          </div>
-        )}
-        <div className="flex items-baseline gap-3 flex-wrap">
-          <h1 className="text-4xl font-black text-white tracking-tight">{gameDay} Slate</h1>
-          <span className="text-white/30 text-sm">{games.length} games</span>
-        </div>
-
-        {/* Confidence summary — 2×2 grid on mobile, single row on desktop */}
-        <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:flex sm:items-center sm:gap-6">
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-violet-400">{lock}</span>
-            <span className="text-xs text-white/30 uppercase tracking-wider">Lock</span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-emerald-400">{play}</span>
-            <span className="text-xs text-white/30 uppercase tracking-wider">Play</span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-[#3B82F6]">{lean}</span>
-            <span className="text-xs text-white/30 uppercase tracking-wider">Lean</span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-red-400">{fade}</span>
-            <span className="text-xs text-white/30 uppercase tracking-wider">Fade</span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-white">{allProps.length}</span>
-            <span className="text-xs text-white/30 uppercase tracking-wider">Total</span>
-          </div>
-        </div>
-
+    <>
+      <HomeContent games={games} allProps={propSummaries} stale={stale} gameDay={gameDay} />
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-10 flex flex-col gap-8">
         <ConfidenceExplainer />
+        {results.length > 0 && <ResultsHistory results={results} />}
       </div>
-
-      {/* ── Game cards ── */}
-      {games.length === 0 ? (
-        <div className="py-20 text-center text-white/30">
-          No upcoming games found. Run the seeder to populate props.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {games.map((game) => (
-            <Link
-              key={game.game_id}
-              href={`/game/${encodeURIComponent(game.game_id)}`}
-              className="group relative flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] hover:border-[#6C5CE7]/30 hover:bg-white/[0.05] transition-all duration-250 overflow-hidden"
-            >
-              {/* Purple accent top line */}
-              <div className="h-px w-full bg-gradient-to-r from-transparent via-[#6C5CE7]/45 to-transparent" />
-
-              {/* Matchup row */}
-              <div className="flex items-center gap-3 px-5 py-5">
-                <TeamSide name={game.away_team} align="left" />
-
-                {/* Center: VS + time */}
-                <div className="flex flex-col items-center gap-0.5 shrink-0 px-1">
-                  <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">vs</span>
-                  {game.commence_time && (
-                    <span className="text-[11px] text-white/40 whitespace-nowrap">
-                      {formatGameTime(game.commence_time)}
-                    </span>
-                  )}
-                </div>
-
-                <TeamSide name={game.home_team} align="right" />
-              </div>
-
-              {/* Footer */}
-              <div className="flex items-center justify-between px-5 py-3 border-t border-white/[0.05]">
-                <span className="text-xs text-white/25">
-                  {game.commence_time
-                    ? new Date(game.commence_time).toLocaleDateString('en-US', {
-                        month: 'short', day: 'numeric', timeZone: 'America/New_York',
-                      })
-                    : ''}
-                </span>
-                <span className="flex items-center gap-1 text-xs font-semibold text-white/35 group-hover:text-primary transition-colors duration-200">
-                  {game.prop_count} props
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                  </svg>
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-
-      {/* ── Today's Picks ── */}
-      <TodaysPicks />
-
-      {/* ── Model Performance / Results History ── */}
-      {results.length > 0 && <ResultsHistory results={results} />}
-
-    </div>
+    </>
   )
 }
