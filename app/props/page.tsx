@@ -86,30 +86,30 @@ export default async function PropsPage({
   const fade = props.filter((p) => p.confidence_label === 'FADE').length
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-6">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">All Props</h1>
-        <p className="text-white/40 text-sm mt-1">
+        <h1 className="text-2xl font-bold text-foreground">All Props</h1>
+        <p className="text-[var(--text-secondary)] text-sm mt-1">
           {props.length} props scored
         </p>
       </div>
 
       <div className="grid grid-cols-4 sm:flex gap-3">
-        <div className="px-3 sm:px-4 py-2 rounded-lg bg-violet-500/10 border border-violet-500/20 text-sm text-center sm:text-left">
-          <span className="text-violet-400 font-semibold">{lock}</span>
-          <span className="text-white/40 ml-1 sm:ml-1.5 text-xs sm:text-sm">Lock</span>
+        <div className="px-3 sm:px-4 py-2 rounded-lg bg-[#00D68F]/10 border border-[#00D68F]/20 text-sm text-center sm:text-left">
+          <span className="text-[#00D68F] font-semibold">{lock}</span>
+          <span className="text-[var(--text-secondary)] ml-1 sm:ml-1.5 text-xs sm:text-sm">Lock</span>
         </div>
-        <div className="px-3 sm:px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-sm text-center sm:text-left">
-          <span className="text-emerald-400 font-semibold">{play}</span>
-          <span className="text-white/40 ml-1 sm:ml-1.5 text-xs sm:text-sm">Play</span>
+        <div className="px-3 sm:px-4 py-2 rounded-lg bg-[#FFB800]/10 border border-[#FFB800]/20 text-sm text-center sm:text-left">
+          <span className="text-[#FFB800] font-semibold">{play}</span>
+          <span className="text-[var(--text-secondary)] ml-1 sm:ml-1.5 text-xs sm:text-sm">Play</span>
         </div>
-        <div className="px-3 sm:px-4 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-sm text-center sm:text-left">
-          <span className="text-yellow-400 font-semibold">{lean}</span>
-          <span className="text-white/40 ml-1 sm:ml-1.5 text-xs sm:text-sm">Lean</span>
+        <div className="px-3 sm:px-4 py-2 rounded-lg bg-[#3B82F6]/10 border border-[#3B82F6]/20 text-sm text-center sm:text-left">
+          <span className="text-[#3B82F6] font-semibold">{lean}</span>
+          <span className="text-[var(--text-secondary)] ml-1 sm:ml-1.5 text-xs sm:text-sm">Lean</span>
         </div>
-        <div className="px-3 sm:px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-center sm:text-left">
-          <span className="text-red-400 font-semibold">{fade}</span>
-          <span className="text-white/40 ml-1 sm:ml-1.5 text-xs sm:text-sm">Fade</span>
+        <div className="px-3 sm:px-4 py-2 rounded-lg bg-[#FF4757]/10 border border-[#FF4757]/20 text-sm text-center sm:text-left">
+          <span className="text-[#FF4757] font-semibold">{fade}</span>
+          <span className="text-[var(--text-secondary)] ml-1 sm:ml-1.5 text-xs sm:text-sm">Fade</span>
         </div>
       </div>
 

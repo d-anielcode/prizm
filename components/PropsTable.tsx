@@ -20,10 +20,10 @@ const STAT_LABELS: Record<StatType, string> = {
 const STAT_ORDER: StatType[] = ['points', 'rebounds', 'assists', 'three_pointers', 'steals', 'blocks', 'pra']
 
 const LABEL_COLORS: Record<ConfidenceLabel, { active: string; inactive: string }> = {
-  LOCK: { active: 'bg-[#00D68F]/20 text-[#00D68F] border-[#00D68F]/30', inactive: '' },
-  PLAY: { active: 'bg-[#FFB800]/20 text-[#FFB800] border-[#FFB800]/30', inactive: '' },
-  LEAN: { active: 'bg-[#3B82F6]/20 text-[#3B82F6] border-[#3B82F6]/30', inactive: '' },
-  FADE: { active: 'bg-red-500/20 text-red-400 border-red-500/30', inactive: '' },
+  LOCK: { active: 'bg-[#00D68F]/20 text-[#00D68F] border-[#00D68F]/30', inactive: 'bg-[var(--bg-surface-2)] text-[var(--text-secondary)] border-[var(--border-default)]' },
+  PLAY: { active: 'bg-[#FFB800]/20 text-[#FFB800] border-[#FFB800]/30', inactive: 'bg-[var(--bg-surface-2)] text-[var(--text-secondary)] border-[var(--border-default)]' },
+  LEAN: { active: 'bg-[#3B82F6]/20 text-[#3B82F6] border-[#3B82F6]/30', inactive: 'bg-[var(--bg-surface-2)] text-[var(--text-secondary)] border-[var(--border-default)]' },
+  FADE: { active: 'bg-[#FF4757]/20 text-[#FF4757] border-[#FF4757]/30', inactive: 'bg-[var(--bg-surface-2)] text-[var(--text-secondary)] border-[var(--border-default)]' },
 }
 
 // ── Shared small components ──────────────────────────────────────────────────
@@ -31,7 +31,7 @@ const LABEL_COLORS: Record<ConfidenceLabel, { active: string; inactive: string }
 function TrendArrow({ score, prev }: { score: number | undefined | null; prev: number | undefined | null }) {
   if (score == null || prev == null) return null
   const delta = score - prev
-  if (delta >= 2)  return <span className="text-emerald-400 text-xs font-bold leading-none" title={`+${delta.toFixed(0)} vs yesterday`}>↑</span>
+  if (delta >= 2)  return <span className="text-[#00D68F] text-xs font-bold leading-none" title={`+${delta.toFixed(0)} vs yesterday`}>↑</span>
   if (delta <= -2) return <span className="text-red-400 text-xs font-bold leading-none" title={`${delta.toFixed(0)} vs yesterday`}>↓</span>
   return null
 }
@@ -43,7 +43,7 @@ function SharpMoneyBadge({ opening, current, direction }: { opening: number | nu
   const confirming = direction === 'over' ? delta > 0 : delta < 0
   return (
     <span
-      className={`text-[9px] font-black px-1 py-0.5 rounded ${confirming ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/15 text-red-400'}`}
+      className={`text-[9px] font-black px-1 py-0.5 rounded ${confirming ? 'bg-[#FFB800]/20 text-[#FFB800]' : 'bg-[#FF4757]/15 text-[#FF4757]'}`}
       title={confirming ? 'Sharp money confirming this pick (line moved with direction)' : 'Sharp money against this pick (line moved opposite direction)'}
     >
       {confirming ? 'STEAM' : 'COUNTER'}
@@ -59,7 +59,7 @@ function LineMovement({ opening, current }: { opening: number | null | undefined
   const up = delta > 0
   return (
     <span
-      className={`text-[9px] font-bold ml-1 ${up ? 'text-orange-400' : 'text-emerald-400'}`}
+      className={`text-[9px] font-bold ml-1 ${up ? 'text-[#FFB800]' : 'text-[#00D68F]'}`}
       title={`Line moved from ${opening} → ${current}`}
     >
       {up ? '↑' : '↓'}{moved % 1 === 0 ? moved.toFixed(0) : moved.toFixed(1)}
@@ -78,34 +78,34 @@ function fmtOdds(odds: number): string {
 function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; mainDir: 'over' | 'under' }) {
   const prob    = alt.odds != null ? impliedProb(alt.odds) : null
   const probPct = prob != null ? Math.round(prob * 100) : null
-  const probColor = probPct == null ? 'text-white/30'
-    : probPct >= 65 ? 'text-emerald-400'
+  const probColor = probPct == null ? 'text-[var(--text-tertiary)]'
+    : probPct >= 65 ? 'text-[#00D68F]'
     : probPct >= 50 ? 'text-[#FFB800]'
-    : 'text-red-400'
+    : 'text-[#FF4757]'
   const safer   = alt.direction === mainDir && (mainDir === 'over' ? alt.line < mainLine : alt.line > mainLine)
   const riskier = alt.direction === mainDir && (mainDir === 'over' ? alt.line > mainLine : alt.line < mainLine)
-  const confColor = alt.confidence_label === 'LOCK' ? 'text-violet-400'
-    : alt.confidence_label === 'PLAY' ? 'text-emerald-400'
+  const confColor = alt.confidence_label === 'LOCK' ? 'text-[#00D68F]'
+    : alt.confidence_label === 'PLAY' ? 'text-[#FFB800]'
     : alt.confidence_label === 'LEAN' ? 'text-[#3B82F6]'
-    : alt.confidence_label === 'FADE' ? 'text-red-400'
-    : 'text-white/30'
+    : alt.confidence_label === 'FADE' ? 'text-[#FF4757]'
+    : 'text-[var(--text-tertiary)]'
 
   return (
-    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.07] text-xs">
-      <span className="font-mono text-white/80 font-medium">{alt.line}</span>
+    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-[var(--bg-surface-2)] border border-[var(--border-default)] text-xs">
+      <span className="font-mono text-[var(--text-primary)] font-medium">{alt.line}</span>
       <span className={`font-semibold text-[10px] ${alt.direction === 'over' ? 'text-blue-400' : 'text-orange-400'}`}>
         {alt.direction.toUpperCase()}
       </span>
-      {safer   && <span className="text-[9px] text-emerald-400/60">safer</span>}
-      {riskier && <span className="text-[9px] text-red-400/60">riskier</span>}
+      {safer   && <span className="text-[9px] text-[#00D68F]/60">safer</span>}
+      {riskier && <span className="text-[9px] text-[#FF4757]/60">riskier</span>}
       {alt.confidence_score != null && (
         <span className={`text-[10px] font-semibold ${confColor}`}>
           {Math.round(alt.confidence_score)}
-          {alt.confidence_label && <span className="font-normal text-white/30 ml-0.5">{alt.confidence_label[0]}</span>}
+          {alt.confidence_label && <span className="font-normal text-[var(--text-tertiary)] ml-0.5">{alt.confidence_label[0]}</span>}
         </span>
       )}
       {alt.odds != null && (
-        <span className={`font-mono ${alt.odds > 0 ? 'text-emerald-400/80' : 'text-white/45'}`}>
+        <span className={`font-mono ${alt.odds > 0 ? 'text-[#00D68F]/80' : 'text-[var(--text-secondary)]'}`}>
           {fmtOdds(alt.odds)}
         </span>
       )}
@@ -118,9 +118,9 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
 
 // ── Filter pill components ───────────────────────────────────────────────────
 
-const PILL_BASE = 'px-3 py-1 rounded-full text-xs font-semibold border transition-colors cursor-pointer select-none'
-const PILL_INACTIVE = 'bg-white/[0.03] text-white/40 border-white/[0.08] hover:border-white/15 hover:text-white/60'
-const PILL_ACTIVE = 'bg-[#6C5CE7]/15 text-primary border-[#6C5CE7]/30'
+const PILL_BASE = 'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer'
+const PILL_INACTIVE = 'bg-[var(--bg-surface-2)] border-[var(--border-default)] text-[var(--text-secondary)] hover:border-primary/30'
+const PILL_ACTIVE = 'bg-primary/15 border-primary/30 text-[#A29BFE]'
 
 function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -135,7 +135,7 @@ function ConfidencePill({ label, active, onClick }: { label: ConfidenceLabel; ac
   return (
     <button
       onClick={onClick}
-      className={`${PILL_BASE} ${active ? colors.active : PILL_INACTIVE}`}
+      className={`${PILL_BASE} ${active ? colors.active : colors.inactive}`}
     >
       {label}
     </button>
@@ -190,7 +190,7 @@ export function PropsTable({
       {/* ── Search bar ── */}
       <div className="relative">
         <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)] pointer-events-none"
           fill="none" stroke="currentColor" viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -201,7 +201,7 @@ export function PropsTable({
           placeholder="Search player..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 transition-colors"
+          className="bg-[var(--bg-surface-2)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-[var(--text-tertiary)] focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 w-full pl-9"
         />
       </div>
 
@@ -210,7 +210,7 @@ export function PropsTable({
 
         {/* Direction */}
         <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] text-white/25 uppercase tracking-wider font-semibold">Direction</span>
+          <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider font-semibold">Direction</span>
           <div className="flex flex-wrap gap-1.5">
             <Pill active={directionFilter === 'all'} onClick={() => setDirectionFilter('all')}>Over + Under</Pill>
             <Pill active={directionFilter === 'over'} onClick={() => setDirectionFilter('over')}>Over</Pill>
@@ -220,7 +220,7 @@ export function PropsTable({
 
         {/* Stat type */}
         <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] text-white/25 uppercase tracking-wider font-semibold">Stat Type</span>
+          <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider font-semibold">Stat Type</span>
           <div className="flex flex-wrap gap-1.5">
             <Pill active={statFilter === 'all'} onClick={() => setStatFilter('all')}>All</Pill>
             {STAT_ORDER.map((s) => (
@@ -231,7 +231,7 @@ export function PropsTable({
 
         {/* Confidence */}
         <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] text-white/25 uppercase tracking-wider font-semibold">Confidence</span>
+          <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider font-semibold">Confidence</span>
           <div className="flex flex-wrap gap-1.5">
             <Pill active={labelFilter === 'all'} onClick={() => setLabelFilter('all')}>All</Pill>
             {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as ConfidenceLabel[]).map((l) => (
@@ -243,7 +243,7 @@ export function PropsTable({
         {/* Games */}
         {games.length > 1 && (
           <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] text-white/25 uppercase tracking-wider font-semibold">Game</span>
+            <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider font-semibold">Game</span>
             <div className="flex flex-wrap gap-1.5">
               <Pill active={gameFilter === 'all'} onClick={() => setGameFilter('all')}>All Games</Pill>
               {games.map((g) => (
@@ -255,21 +255,24 @@ export function PropsTable({
 
         {/* Prop count */}
         <div className="flex items-center justify-end">
-          <span className="text-sm text-white/40">{filtered.length} props</span>
+          <span className="text-sm text-[var(--text-secondary)]">{filtered.length} props</span>
         </div>
       </div>
+
+      {/* Divider */}
+      <div className="border-t border-[var(--border-subtle)] my-2" />
 
       {/* ── Props list ── */}
 
       {/* Mobile cards */}
-      <div className="sm:hidden rounded-xl border border-white/10 overflow-hidden divide-y divide-white/[0.06]">
+      <div className="sm:hidden rounded-xl border border-[var(--border-default)] overflow-hidden divide-y divide-[var(--border-subtle)]">
         {filtered.length === 0 ? (
-          <div className="py-16 text-center text-white/30">No props match your filters.</div>
+          <div className="py-16 text-center text-[var(--text-secondary)]">No props match your filters.</div>
         ) : filtered.map((prop, i) => (
-          <div key={`${prop.id}-${prop.stat_type}-${prop.line}-${i}`} className="px-4 py-3 bg-white/[0.02]">
+          <div key={`${prop.id}-${prop.stat_type}-${prop.line}-${i}`} className={`min-h-[44px] px-4 py-3 hover:bg-[var(--bg-surface-2)] border-b border-[var(--border-subtle)] transition-colors ${i % 2 === 0 ? '' : 'bg-[var(--bg-surface)]/50'}`}>
             <div className="flex items-center justify-between gap-2 mb-1">
               <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
-                className="font-medium text-white text-sm leading-tight hover:text-primary transition-colors">
+                className="font-semibold text-sm text-foreground leading-tight hover:text-primary transition-colors">
                 {prop.player_name}
               </Link>
               <div className="flex items-center gap-1.5">
@@ -277,13 +280,13 @@ export function PropsTable({
                 {prop.confidence_label && prop.confidence_score != null ? (
                   <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
                 ) : (
-                  <span className="text-white/30 text-xs">—</span>
+                  <span className="text-[var(--text-secondary)] text-xs">—</span>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3 text-xs text-white/50">
-              <span className="font-semibold text-white/70">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</span>
-              <span className="flex items-center font-mono text-white">
+            <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)]">
+              <span className="font-semibold text-[var(--text-secondary)]">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</span>
+              <span className="flex items-center font-mono text-xs text-[var(--text-secondary)]">
                 {prop.line}
                 <LineMovement opening={prop.opening_line} current={prop.line} />
               </span>
@@ -301,10 +304,10 @@ export function PropsTable({
       </div>
 
       {/* Desktop table */}
-      <div className="hidden sm:block overflow-x-auto rounded-xl border border-white/10">
+      <div className="hidden sm:block overflow-x-auto rounded-xl border border-[var(--border-default)]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-white/10 bg-white/5 text-white/50 text-xs uppercase tracking-wider">
+            <tr className="border-b border-[var(--border-default)] bg-[var(--bg-surface-2)] text-[var(--text-secondary)] text-xs uppercase tracking-wider">
               <th className="px-4 py-3 text-left">Player</th>
               <th className="px-4 py-3 text-left">Stat</th>
               <th className="px-4 py-3 text-right">Line</th>
@@ -322,28 +325,28 @@ export function PropsTable({
               return (
                 <React.Fragment key={rowKey}>
                   <tr
-                    className={`border-t border-white/5 transition-colors ${hasAlts ? 'cursor-pointer hover:bg-white/5' : 'hover:bg-white/5'}`}
+                    className={`min-h-[44px] border-b border-[var(--border-subtle)] transition-colors ${i % 2 === 0 ? '' : 'bg-[var(--bg-surface)]/50'} ${hasAlts ? 'cursor-pointer hover:bg-[var(--bg-surface-2)]' : 'hover:bg-[var(--bg-surface-2)]'}`}
                     onClick={hasAlts ? () => setExpandedId(expandedId === rowKey ? null : rowKey) : undefined}
                   >
-                    <td className="px-4 py-3 font-medium text-white">
+                    <td className="px-4 py-3 font-semibold text-sm text-foreground">
                       <Link
                         href={`/player/${encodeURIComponent(prop.player_name)}`}
-                        className="hover:text-blue-400 transition-colors"
+                        className="hover:text-primary transition-colors"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {prop.player_name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-white/60">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</td>
+                    <td className="px-4 py-3 text-xs text-[var(--text-secondary)] font-mono">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
-                        <span className="flex items-center font-mono text-white">
+                        <span className="flex items-center font-mono text-xs text-[var(--text-secondary)]">
                           {prop.line}
                           <LineMovement opening={prop.opening_line} current={prop.line} />
                         </span>
                         {hasAlts && (
                           <svg
-                            className={`w-3.5 h-3.5 text-white/30 transition-transform duration-300 ${expandedId === rowKey ? 'rotate-180' : ''}`}
+                            className={`w-3.5 h-3.5 text-[var(--text-tertiary)] transition-transform duration-300 ${expandedId === rowKey ? 'rotate-180' : ''}`}
                             fill="none" stroke="currentColor" viewBox="0 0 24 24"
                           >
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
@@ -351,7 +354,7 @@ export function PropsTable({
                         )}
                       </div>
                       {hasAlts && (
-                        <div className="text-[10px] text-white/25 text-right mt-0.5">
+                        <div className="text-[10px] text-[var(--text-tertiary)] text-right mt-0.5">
                           {prop.altLines!.length} alt{prop.altLines!.length !== 1 ? 's' : ''}
                         </div>
                       )}
@@ -370,7 +373,7 @@ export function PropsTable({
                         {prop.confidence_label && prop.confidence_score != null ? (
                           <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
                         ) : (
-                          <span className="text-white/30">—</span>
+                          <span className="text-[var(--text-secondary)]">—</span>
                         )}
                       </div>
                     </td>
@@ -387,7 +390,7 @@ export function PropsTable({
                           className="overflow-hidden transition-all duration-300 ease-in-out"
                           style={{ maxHeight: isOpen ? `${prop.altLines!.length * 60 + 32}px` : '0px' }}
                         >
-                          <div className="px-4 py-3 bg-white/[0.015] border-t border-white/[0.04] flex flex-wrap gap-2">
+                          <div className="px-4 py-3 bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] flex flex-wrap gap-2">
                             {prop.altLines!.map((alt, j) => (
                               <AltLineChip key={j} alt={alt} mainLine={prop.line} mainDir={prop.direction} />
                             ))}
@@ -402,7 +405,7 @@ export function PropsTable({
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <div className="py-16 text-center text-white/30">No props match your filters.</div>
+          <div className="py-16 text-center text-[var(--text-secondary)]">No props match your filters.</div>
         )}
       </div>
     </div>
