@@ -1,0 +1,40 @@
+{
+  "version": "v11.0",
+  "last_retrained": "2026-04-12T00:00:00Z",
+  "data_window": {
+    "start": "2025-12-01",
+    "end": "2026-04-10",
+    "game_days": 119,
+    "graded_props": 71074
+  },
+  "validation_accuracy": {
+    "lock": 0.587,
+    "play": 0.584,
+    "overall": 0.516
+  },
+  "previous_version": null,
+  "weights": {
+    "points":         { "lineValue": 0.07, "matchupEdge": 0.02, "last20HitRate": 0.24, "trend": 0.03, "seasonCushion": 0.10, "pace": 0.17, "newsInjury": 0.13, "restDays": 0.01, "blowout": 0.08, "homeAway": 0.13, "vsOpponent": 0.02 },
+    "rebounds":       { "lineValue": 0.02, "matchupEdge": 0.03, "last20HitRate": 0.10, "trend": 0.01, "seasonCushion": 0.04, "pace": 0.08, "newsInjury": 0.13, "restDays": 0.01, "blowout": 0.04, "homeAway": 0.52, "vsOpponent": 0.02 },
+    "assists":        { "lineValue": 0.05, "matchupEdge": 0.04, "last20HitRate": 0.06, "trend": 0.02, "seasonCushion": 0.26, "pace": 0.13, "newsInjury": 0.09, "restDays": 0.01, "blowout": 0.06, "homeAway": 0.12, "vsOpponent": 0.16 },
+    "pra":            { "lineValue": 0.04, "matchupEdge": 0.07, "last20HitRate": 0.02, "trend": 0.03, "seasonCushion": 0.25, "pace": 0.02, "newsInjury": 0.06, "restDays": 0.01, "blowout": 0.13, "homeAway": 0.30, "vsOpponent": 0.07 },
+    "blocks":         { "lineValue": 0.02, "matchupEdge": 0.13, "last20HitRate": 0.11, "trend": 0.07, "seasonCushion": 0.25, "pace": 0.06, "newsInjury": 0.10, "restDays": 0.01, "blowout": 0.03, "homeAway": 0.15, "vsOpponent": 0.07 },
+    "steals":         { "lineValue": 0.11, "matchupEdge": 0.03, "last20HitRate": 0.13, "trend": 0.02, "seasonCushion": 0.29, "pace": 0.10, "newsInjury": 0.07, "restDays": 0.01, "blowout": 0.03, "homeAway": 0.04, "vsOpponent": 0.17 },
+    "three_pointers": { "lineValue": 0.07, "matchupEdge": 0.22, "last20HitRate": 0.12, "trend": 0.03, "seasonCushion": 0.09, "pace": 0.04, "newsInjury": 0.06, "restDays": 0.01, "blowout": 0.07, "homeAway": 0.25, "vsOpponent": 0.04 }
+  },
+  "lock_thresholds": {
+    "points": 74, "rebounds": 74, "assists": 78, "pra": 78,
+    "steals": 78, "blocks": 78, "three_pointers": 76
+  },
+  "play_thresholds": {
+    "points": 70, "rebounds": 72, "assists": 72, "pra": 76,
+    "steals": 72, "blocks": 74, "three_pointers": 70
+  },
+  "base_lock_threshold": 74,
+  "base_play_threshold": 68,
+  "over_bias": {
+    "points": -3, "rebounds": -4, "assists": -4,
+    "steals": -7, "blocks": -6, "three_pointers": -3, "pra": -4
+  },
+  "previous_weights": null
+}
