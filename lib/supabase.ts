@@ -38,6 +38,35 @@ export const supabase = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } }
 )
 
+/**
+ * safeQuery — unwrap a Supabase query, throwing on error instead of silently
+ * returning null data.  Usage:
+ *
+ *   const rows = await safeQuery(
+ *     supabase.from('props').select('*').eq('active', true),
+ *     'load active props'
+ *   )
+ *
+ * Returns `data` (typed as T) on success.  On error, logs the context string
+ * and throws so the caller's try/catch can handle it uniformly.
+ */
+export async function safeQuery<T = Record<string, unknown>[]>(
+  query: PromiseLike<{ data: T | null; error: { message: string; code?: string } | null }>,
+  context: string,
+): Promise<T> {
+  const { data, error } = await query
+  if (error) {
+    // Let callers catch table-not-exists (42P01) gracefully if they want
+    if (error.code === '42P01') {
+      logger.warn(`safeQuery [${context}]: table does not exist — returning empty`, { code: error.code })
+      return [] as unknown as T
+    }
+    logger.error(`safeQuery [${context}]: ${error.message}`, { code: error.code })
+    throw new Error(`Supabase query failed (${context}): ${error.message}`)
+  }
+  return (data ?? []) as T
+}
+
 // Cache TTL: 1 hour in milliseconds — matches odds-api.io rate limit window
 export const CACHE_TTL_MS = 1 * 60 * 60 * 1000
 

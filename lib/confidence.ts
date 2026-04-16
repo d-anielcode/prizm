@@ -197,6 +197,7 @@ export interface ScoringContext {
   homePace?:          number | null              // home team pace (possessions/48)
   awayPace?:          number | null              // away team pace (possessions/48)
   simThreePm?:        SimThreePm | null          // Monte Carlo 3PM simulation result
+  overHitRates?:      Map<string, number> | null // trailing 30-day over hit rate per stat type (for calibration gate)
 }
 
 export interface ScoredProp extends Prop {
@@ -371,23 +372,26 @@ function dateCutoff(commenceTime: string | undefined, daysBack: number): string 
 // and tonight. Applied to all log-derived factor deviations from 0.50, so a player
 // returning from a long absence gets compressed toward neutral confidence.
 //
-//   ≤7 days (playing regularly): 1.00 — no decay
-//   8–14 days (missed ~1 week):  0.88 — mild decay
-//   15–21 days (missed 2 weeks): 0.72 — moderate decay
-//   22–45 days (missed 3+ wks):  0.55 — significant decay
-//   46–90 days (out 6+ weeks):   0.35 — major decay
-//   >90 days  (out 3+ months):   0.15 — near-neutral (e.g., Tatum returning from year out)
+//   Data-driven freshness decay (T8 research, April 2026):
+//   Days 1-7:  hit rate ~0.478 (flat) → full weight
+//   Days 8-14: hit rate ~0.43  (~5% drop) → mild decay
+//   Days 15+:  hit rate ~0.37  (noisy, drops further) → stronger decay
+//   Previous step function had a 12% cliff at day 8 — data only supports ~5%.
 function dataFreshness(logs: GameLog[], commenceTime: string | undefined): number {
   if (!logs.length || !commenceTime) return 0.70
   const lastGame = new Date(logs[0].game_date)
   const tonight  = new Date(commenceTime)
   const gapDays  = (tonight.getTime() - lastGame.getTime()) / 86400000
 
+  // Negative gap = last game is after commence time (data lag / timezone edge).
+  // Treat as fresh — the player played very recently.
+  if (gapDays <= 0) return 1.00
+
   if (gapDays > 90) return 0.15
-  if (gapDays > 45) return 0.35
-  if (gapDays > 21) return 0.55
-  if (gapDays > 14) return 0.72
-  if (gapDays > 7)  return 0.88
+  if (gapDays > 45) return 0.30
+  if (gapDays > 21) return 0.50
+  if (gapDays > 14) return 0.65
+  if (gapDays > 7)  return 0.93  // was 0.88 — T8 data shows only ~5% drop, not 12%
   return 1.00
 }
 
@@ -630,7 +634,8 @@ function matchupScore(
   }
 
   const raw = (finalRank - 1) / 29
-  return dir === 'over' ? raw : 1 - raw
+  // Clamp: L15/DVP blending can push finalRank outside [1,30] if source data is invalid
+  return dir === 'over' ? clamp(raw) : clamp(1 - raw)
 }
 
 // ── Factor 3: Season average cushion ─────────────────────────────────────────
@@ -1074,7 +1079,7 @@ export function scoreProps(
   // Additive-only: never penalizes; cannot push a pick below its current score.
   // Requires both lineValue ≥ 0.58 (generous line) AND hit rate ≥ 0.55 (hot).
   let starBonus = 0
-  if (hasLogs && playerTier === 'star' && fLineValue >= 0.58 && f7 >= 0.55) {
+  if (hasLogs && direction === 'over' && playerTier === 'star' && fLineValue >= 0.58 && f7 >= 0.55) {
     starBonus = 3
   }
 
@@ -1184,15 +1189,25 @@ export function scoreProps(
   // +2 pts for OVER, -2 pts for UNDER. Only applies when opponentOnB2B is confirmed.
   const opponentB2bAdj = opponentOnB2B ? (direction === 'over' ? 2 : -2) : 0
 
-  // Over bias correction — stat-specific (auto-retrained from prop_grades data):
+  // Over bias correction — stat-specific (auto-retrained from prop_grades data).
+  // Calibration gate: only apply the penalty if trailing 30-day over hit rate
+  // for this stat exceeds 55%. If the model isn't over-predicting overs, the
+  // penalty would destroy calibrated edge.
   const _obConfig = loadWeightConfig()
   const OVER_BIAS_DEFAULTS: Record<StatType, number> = {
     points: -3, rebounds: -4, assists: -4,
     steals: -7, blocks: -6, three_pointers: -3, pra: -4,
   }
-  const overBiasAdj = direction === 'over'
-    ? (_obConfig?.over_bias?.[stat_type] ?? OVER_BIAS_DEFAULTS[stat_type] ?? -3)
-    : 0
+  const OVER_BIAS_GATE = 0.55  // only penalize if model's over hit rate > 55%
+  let overBiasAdj = 0
+  if (direction === 'over') {
+    const trailingOverRate = ctx.overHitRates?.get(stat_type)
+    // Apply penalty only when we have calibration data showing over-prediction,
+    // or when no calibration data exists (conservative default)
+    if (trailingOverRate == null || trailingOverRate > OVER_BIAS_GATE) {
+      overBiasAdj = _obConfig?.over_bias?.[stat_type] ?? OVER_BIAS_DEFAULTS[stat_type] ?? -3
+    }
+  }
 
   // 3PM zone simulation adjustment: Monte Carlo sim with zone-specific defense
   // produces p(over) — compare to baseline 0.50 to determine sim edge.

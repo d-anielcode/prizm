@@ -1,5 +1,5 @@
 // /api/feed/generate/parlay
-export const maxDuration = 60
+export const maxDuration = 120  // bumped from 60: now awaits streak generation inline
 //
 // Auto-generates three tiers of curated parlays per day:
 //
@@ -31,7 +31,7 @@ export const maxDuration = 60
 
 import { NextResponse }  from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { supabase }     from '@/lib/supabase'
+import { supabase, safeQuery } from '@/lib/supabase'
 import { requireCronAuth, internalAuthHeaders } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 import { detectChanges, type ChangeReport } from '@/lib/change-detection'
@@ -42,17 +42,25 @@ const adminClient = createClient(
   { auth: { persistSession: false } },
 )
 
-const VALUE_LEGS       = 2    // 2-leg "Safe Pick"  — 40.8% hit rate, +47.8% ROI (safe stats + 24min)
-const VALUE_MIN_MINS   = 24   // safe pick: 24+ min filter (boosts hit rate from 33.9% → 40.8%)
-const COMBO_LEGS       = 3    // 3-leg "Combo"      — best single-tier ROI (+189.1%), 17-20% hit rate
-const PREMIUM_LEGS     = 4    // 4-leg "High Roller" — 16% hit rate, strong ROI (24+ mins)
-const PREMIUM_COUNT    = 1    // 1 premium parlay per day (was 3; reduced to avoid dilution)
-const PREMIUM_MIN_MINS = 24   // premium: exclude players averaging < 24 min/game
-const JACKPOT_LEGS     = 5    // 5-leg "Jackpot"    — 8.3% hit rate, biggest payouts (24+ mins)
-const JACKPOT_MIN_MINS = 24   // jackpot: same 24+ min filter for quality
+// T6 research (April 2026) — actual observed hit rates from 90-day sample:
+//   VALUE (2-leg):   21.4% on 14 parlays (individual legs ~57%)
+//   COMBO (3-leg):   20.0% on 5 parlays  (small sample)
+//   PREMIUM (4-leg): 13.8% on 29 parlays (leg correlation drags this down)
+//   JACKPOT (5-leg):  8.3% on 12 parlays (5-leg compound is inherently speculative)
+//   STREAK (1-leg):  50.0% on 14 picks   (best standalone accuracy)
+const VALUE_LEGS       = 2
+const VALUE_MIN_MINS   = 24
+const COMBO_LEGS       = 3
+const PREMIUM_LEGS     = 4
+const PREMIUM_COUNT    = 1
+const PREMIUM_MIN_MINS = 24
+const JACKPOT_LEGS     = 5
+const JACKPOT_MIN_MINS = 24
 // Sportsbooks apply extra vig on parlays — displayed multiplier is discounted ~15%
 // to give a realistic estimate rather than the raw mathematical product.
-const PARLAY_VIG_FACTOR = 0.85
+// Per-leg vig factor: ~7% juice per leg (0.93^N compounds correctly)
+// 2-leg: 0.865, 3-leg: 0.804, 4-leg: 0.748, 5-leg: 0.696
+const PARLAY_VIG_PER_LEG = 0.93
 const ALLOWED_MARKETS  = new Set(['points', 'rebounds', 'three_pointers', 'assists', 'blocks', 'steals'])
 // Volatile stats only qualify at LOCK — PLAY hit rate too low (blocks 46.7%, steals 55.3%)
 const VOLATILE_STATS   = new Set(['blocks', 'steals'])
@@ -227,8 +235,8 @@ function buildResult(
   tier:        'value' | 'combo' | 'premium' | 'jackpot',
 ): ParlayResult {
   const parlayDecimal = legs.reduce((acc, l) => acc * toDecimal(l.odds), 1)
-  // Apply sportsbook parlay vig discount for a conservative displayed estimate
-  const multiplier    = Math.round(parlayDecimal * PARLAY_VIG_FACTOR * 10) / 10
+  // Apply compounding per-leg vig for a realistic displayed estimate
+  const multiplier    = Math.round(parlayDecimal * Math.pow(PARLAY_VIG_PER_LEG, legs.length) * 10) / 10
   const legStrs = legs.map((l) => {
     const stat   = STAT_LABELS[l.stat_type] ?? l.stat_type
     const l10str = l.l10_total > 0 ? ` (${l.l10_hits}/${l.l10_total} L${l.l10_total})` : ''
@@ -279,16 +287,19 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
 
   // 2. Fetch game logs for l10 hit rates + team resolution
   const playerNames = [...new Set(props.map((p) => p.player_name))]
-  const { data: logsRaw } = await supabase
-    .from('player_game_logs')
-    .select('player_name, game_date, matchup, is_home, points, rebounds, assists, fg3m, blocks, steals, minutes')
-    .in('player_name', playerNames)
-    .order('game_date', { ascending: false })
-    .limit(playerNames.length * 15)
+  const logsRaw = await safeQuery(
+    supabase
+      .from('player_game_logs')
+      .select('player_name, game_date, matchup, is_home, points, rebounds, assists, fg3m, blocks, steals, minutes')
+      .in('player_name', playerNames)
+      .order('game_date', { ascending: false })
+      .limit(playerNames.length * 15),
+    'parlay: load game logs for pool'
+  )
 
   const logsByPlayer = new Map<string, Record<string, unknown>[]>()
   const teamByPlayer = new Map<string, string>()
-  for (const log of logsRaw ?? []) {
+  for (const log of logsRaw) {
     const name = log.player_name as string
     if (!logsByPlayer.has(name)) logsByPlayer.set(name, [])
     logsByPlayer.get(name)!.push(log as Record<string, unknown>)
@@ -345,19 +356,22 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     const minGradeDate = new Date(Date.now() - 30 * 86400000)
       .toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
-    const { data: gradeRows } = await supabase
-      .from('prop_grades')
-      .select('stat_type, confidence_label, result')
-      .gte('game_date', minGradeDate)
-      .in('result', ['hit', 'miss'])
-      .in('confidence_label', ['LOCK'])
+    const gradeRows = await safeQuery(
+      supabase
+        .from('prop_grades')
+        .select('stat_type, confidence_label, hit')
+        .gte('game_date', minGradeDate)
+        .not('hit', 'is', null)
+        .in('confidence_label', ['LOCK']),
+      'parlay: load grade rows for hot stat'
+    )
 
-    if (gradeRows && gradeRows.length >= HOT_MIN_SAMPLES) {
+    if (gradeRows.length >= HOT_MIN_SAMPLES) {
       // Tally LOCK hit rate per stat
       const tallyMap = new Map<string, { hits: number; total: number }>()
       for (const row of gradeRows) {
         if (!tallyMap.has(row.stat_type)) tallyMap.set(row.stat_type, { hits: 0, total: 0 })
-        tallyMap.get(row.stat_type)!.hits  += row.result === 'hit' ? 1 : 0
+        tallyMap.get(row.stat_type)!.hits  += (row as Record<string, unknown>).hit === true ? 1 : 0
         tallyMap.get(row.stat_type)!.total += 1
       }
       const hotStats = new Set<string>()
@@ -395,18 +409,25 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     results.push({ ...buildResult(comboPick.legs, 0, gameDate, 'combo'), tier: 'combo' })
   }
 
-  // 5. Build PREMIUM parlays (4-leg, 24+ avg mins filter, independent pool)
+  // 5. Build PREMIUM parlays (4-leg, 24+ avg mins filter, LOCK-first pool)
+  //    T6 research: 4-leg parlays underperform due to leg correlation.
+  //    Sorting LOCKs first ensures the greedy picker selects higher-confidence legs.
+  const lockFirstPool = [...pool].sort((a, b) => {
+    const aLock = a.confidence_label === 'LOCK' ? 0 : 1
+    const bLock = b.confidence_label === 'LOCK' ? 0 : 1
+    return aLock - bLock || b.confidence_score - a.confidence_score
+  })
   const premiumUsed = new Set<string>()
   for (let i = 0; i < PREMIUM_COUNT; i++) {
-    const pick = pickParlay(pool, premiumUsed, PREMIUM_LEGS, PREMIUM_MIN_MINS)
+    const pick = pickParlay(lockFirstPool, premiumUsed, PREMIUM_LEGS, PREMIUM_MIN_MINS)
     if (!pick) break
     results.push({ ...buildResult(pick.legs, i, gameDate, 'premium'), tier: 'premium' })
     for (const key of pick.used) premiumUsed.add(key)
   }
 
-  // 6. Build JACKPOT parlay (5-leg, 24+ avg mins filter, independent pool)
+  // 6. Build JACKPOT parlay (5-leg, 24+ avg mins filter, LOCK-first pool)
   const jackpotUsed = new Set<string>()
-  const jackpotPick = pickParlay(pool, jackpotUsed, JACKPOT_LEGS, JACKPOT_MIN_MINS)
+  const jackpotPick = pickParlay(lockFirstPool, jackpotUsed, JACKPOT_LEGS, JACKPOT_MIN_MINS)
   if (jackpotPick) {
     results.push({ ...buildResult(jackpotPick.legs, 0, gameDate, 'jackpot'), tier: 'jackpot' })
   }
@@ -438,16 +459,19 @@ async function handlePass2(gameDate: string) {
   }
 
   // 2. Load current re-enriched props (already updated by 11 AM enrich step)
-  const { data: currentProps } = await supabase
-    .from('props')
-    .select('player_name, stat_type, line, direction, confidence_label, confidence_score, odds, game_id, home_team, away_team, commence_time')
-    .in('confidence_label', ['LOCK', 'PLAY', 'LEAN', 'FADE'])
+  const currentProps = await safeQuery(
+    supabase
+      .from('props')
+      .select('player_name, stat_type, line, direction, confidence_label, confidence_score, odds, game_id, home_team, away_team, commence_time')
+      .in('confidence_label', ['LOCK', 'PLAY', 'LEAN', 'FADE']),
+    'pass2: load re-enriched props'
+  )
 
   const middayPropMap = new Map<string, {
     player_name: string; stat_type: string; line: number; direction: string;
     confidence_label: string | null; confidence_score: number | null;
   }>()
-  for (const p of currentProps ?? []) {
+  for (const p of currentProps) {
     if (!p.commence_time || toEasternDate(p.commence_time) !== gameDate) continue
     const key = `${p.player_name}|${p.stat_type}`
     // Keep highest score per player|stat (same dedup as morning)
@@ -461,12 +485,15 @@ async function handlePass2(gameDate: string) {
   // We detect injuries by checking if a player's midday prop disappeared or
   // if their confidence reason mentions OUT/DOUBTFUL
   const injuryMap = new Map<string, { player_name: string; status: 'out' | 'doubtful' | 'questionable' | 'active' }>()
-  const { data: allProps } = await supabase
-    .from('props')
-    .select('player_name, confidence_reason')
-    .not('confidence_reason', 'is', null)
+  const allProps = await safeQuery(
+    supabase
+      .from('props')
+      .select('player_name, confidence_reason')
+      .not('confidence_reason', 'is', null),
+    'pass2: load injury reasons'
+  )
 
-  for (const p of allProps ?? []) {
+  for (const p of allProps) {
     if (!p.confidence_reason) continue
     const outMatch = (p.confidence_reason as string).match(/listed as (OUT|DOUBTFUL|QUESTIONABLE)/)
     if (outMatch) {
@@ -584,19 +611,25 @@ async function handlePass2(gameDate: string) {
   // 6. Insert Pass 2 announcement if changes were made
   if (updated > 0) {
     const summaries = needsUpdate.filter((r) => r.summary).map((r) => r.summary)
-    await adminClient.from('feed_announcements').insert({
+    const { error: p2AnnErr } = await adminClient.from('feed_announcements').insert({
       game_date: gameDate,
       message: summaries.join('. ') || `${updated} parlay(s) updated after midday injury and line checks.`,
       type: 'pass2_update',
     })
+    if (p2AnnErr) logger.error('parlay pass2: insert announcement failed', { error: p2AnnErr.message })
   }
 
   // 7. Also fire streak re-evaluation
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL
     ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
-  fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}&pass=2`, {
-    headers: internalAuthHeaders(),
-  }).catch((e) => logger.error('[generate/parlay] streak pass2 fire-and-forget error', { err: String(e) }))
+  try {
+    const streakRes = await fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}&pass=2`, {
+      headers: internalAuthHeaders(),
+    })
+    if (!streakRes.ok) logger.warn('[generate/parlay] streak pass2 returned non-OK', { status: streakRes.status })
+  } catch (e) {
+    logger.error('[generate/parlay] streak pass2 failed', { err: String(e) })
+  }
 
   return NextResponse.json({
     message: `Pass 2: Updated ${updated} parlay(s) for ${gameDate}`,
@@ -637,13 +670,16 @@ export async function POST(req: Request) {
 
   // ?stats=true — return pool breakdown without saving anything
   if (stats) {
-    const { data: propsRaw } = await supabase
-      .from('props')
-      .select('player_name, team, stat_type, line, direction, odds, confidence_label, confidence_score, game_id, home_team, away_team, commence_time')
-      .in('confidence_label', ['LOCK', 'PLAY'])
-      .order('confidence_score', { ascending: false })
+    const propsRaw = await safeQuery(
+      supabase
+        .from('props')
+        .select('player_name, team, stat_type, line, direction, odds, confidence_label, confidence_score, game_id, home_team, away_team, commence_time')
+        .in('confidence_label', ['LOCK', 'PLAY'])
+        .order('confidence_score', { ascending: false }),
+      'stats: load LOCK/PLAY props'
+    )
 
-    const eligible = (propsRaw ?? []).filter((p) =>
+    const eligible = propsRaw.filter((p) =>
       p.commence_time &&
       toEasternDate(p.commence_time) === gameDate &&
       ALLOWED_MARKETS.has(p.stat_type) &&
@@ -653,16 +689,19 @@ export async function POST(req: Request) {
     )
 
     const playerNames = [...new Set(eligible.map((p) => p.player_name))]
-    const { data: logsRaw } = await supabase
-      .from('player_game_logs')
-      .select('player_name, game_date, minutes')
-      .in('player_name', playerNames)
-      .order('game_date', { ascending: false })
-      .limit(playerNames.length * 25)
+    const logsRawStats = await safeQuery(
+      supabase
+        .from('player_game_logs')
+        .select('player_name, game_date, minutes')
+        .in('player_name', playerNames)
+        .order('game_date', { ascending: false })
+        .limit(playerNames.length * 25),
+      'stats: load game logs for avg mins'
+    )
 
     const avgMinsMap = new Map<string, number | null>()
     const logsByPlayer = new Map<string, number[]>()
-    for (const log of logsRaw ?? []) {
+    for (const log of logsRawStats) {
       if (!logsByPlayer.has(log.player_name)) logsByPlayer.set(log.player_name, [])
       if (Number(log.minutes ?? 0) >= 5) logsByPlayer.get(log.player_name)!.push(Number(log.minutes))
     }
@@ -720,12 +759,13 @@ export async function POST(req: Request) {
 
   try {
     // Safety guard: abort if today's props haven't been enriched yet (enrich failed or hasn't run).
-    const { count: scoredCount } = await adminClient
+    const { count: scoredCount, error: countErr } = await adminClient
       .from('props')
       .select('id', { count: 'exact', head: true })
       .in('confidence_label', ['LOCK', 'PLAY'])
       .gte('commence_time', `${gameDate}T00:00:00.000Z`)
       .lt('commence_time', `${gameDate}T23:59:59.999Z`)
+    if (countErr) logger.error('parlay: scored count query failed', { error: countErr.message })
     if ((scoredCount ?? 0) < 5) {
       console.warn(`[generate/parlay] aborted — only ${scoredCount ?? 0} scored props for ${gameDate}, enrichment may not have run yet`)
       return NextResponse.json({
@@ -736,18 +776,21 @@ export async function POST(req: Request) {
     }
 
     // Always delete existing auto-generated parlays for the date and regenerate fresh.
-    const { data: existing } = await adminClient
+    const { data: existing, error: existErr } = await adminClient
       .from('curated_parlays')
       .select('id')
       .eq('game_date', gameDate)
       .in('parlay_type', ['value', 'combo', 'premium', 'jackpot'])
       .eq('active', true)
+    if (existErr) logger.error('parlay: load existing parlays failed', { error: existErr.message })
     if (existing && existing.length > 0) {
-      await adminClient.from('curated_parlays').delete().in('id', existing.map((r) => r.id))
+      const { error: delErr } = await adminClient.from('curated_parlays').delete().in('id', existing.map((r) => r.id))
+      if (delErr) logger.error('parlay: delete existing parlays failed', { error: delErr.message })
     }
 
     // Also clear existing announcements for the date
-    await adminClient.from('feed_announcements').delete().eq('game_date', gameDate)
+    const { error: annDelErr } = await adminClient.from('feed_announcements').delete().eq('game_date', gameDate)
+    if (annDelErr) logger.error('parlay: delete announcements failed', { error: annDelErr.message })
 
     const results = await generateCuratedParlays(gameDate)
 
@@ -815,15 +858,21 @@ export async function POST(req: Request) {
     }
 
     if (announcements.length > 0) {
-      await adminClient.from('feed_announcements').insert(announcements)
+      const { error: annErr } = await adminClient.from('feed_announcements').insert(announcements)
+      if (annErr) logger.error('parlay: insert announcements failed', { error: annErr.message })
     }
 
-    // Fire-and-forget streak generation alongside parlays (same cron, no extra slot needed)
+    // Await streak generation so it completes before we return
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL
       ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
-    fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}`, {
-      headers: internalAuthHeaders(),
-    }).catch((e) => logger.error('[generate/parlay] streak fire-and-forget error', { err: String(e) }))
+    try {
+      const streakRes = await fetch(`${baseUrl}/api/feed/generate/streak?date=${gameDate}`, {
+        headers: internalAuthHeaders(),
+      })
+      if (!streakRes.ok) logger.warn('[generate/parlay] streak returned non-OK', { status: streakRes.status })
+    } catch (e) {
+      logger.error('[generate/parlay] streak generation failed', { err: String(e) })
+    }
 
     return NextResponse.json({
       message: `Generated and saved ${rows.length} curated parlay(s) for ${gameDate}`,

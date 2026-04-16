@@ -106,10 +106,23 @@ export async function fetchAllPropsForEvents(events: NBAEvent[]): Promise<Prop[]
     const ids = batch.map((e) => e.id).join(',')
 
     const url = `${BASE_URL}/odds/multi?apiKey=${API_KEY}&eventIds=${ids}&bookmakers=${BOOKMAKERS}`
-    const res = await fetch(url, { cache: 'no-store' })
+    let res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) {
-      console.error(`[odds-api.io] /odds/multi failed: ${res.status} ${await res.text()}`)
-      continue
+      const body = await res.text()
+      console.error(`[odds-api.io] /odds/multi failed: ${res.status} ${body}`)
+      if (res.status === 429) {
+        // Rate limited — wait 60s then retry this batch once
+        console.warn(`[odds-api.io] rate limited — waiting 60s before retry`)
+        await new Promise((r) => setTimeout(r, 60_000))
+        res = await fetch(url, { cache: 'no-store' })
+        if (!res.ok) {
+          console.error(`[odds-api.io] retry also failed: ${res.status} — skipping batch (${batch.length} games lost)`)
+          continue
+        }
+        // retry succeeded — fall through to normal parsing
+      } else {
+        continue
+      }
     }
 
     const data = await res.json() as IOEventWithOdds[] | { data?: IOEventWithOdds[] }

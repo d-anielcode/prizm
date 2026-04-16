@@ -24,7 +24,7 @@ export interface GameLogRow {
 
 export async function fetchGameLogsFromESPN(
   targetDate: string,
-): Promise<{ rows: GameLogRow[]; games: number; total: number }> {
+): Promise<{ rows: GameLogRow[]; games: number; total: number; boxScoreFailures?: number }> {
   const espnDate = targetDate.replace(/-/g, '') // YYYYMMDD
 
   // 1. Get completed games from ESPN scoreboard
@@ -45,6 +45,7 @@ export async function fetchGameLogsFromESPN(
 
   const allRows: GameLogRow[] = []
   const now = new Date().toISOString()
+  let boxScoreFailures = 0
 
   for (const event of completed) {
     const eventId = event.id as string
@@ -66,6 +67,7 @@ export async function fetchGameLogsFromESPN(
     )
     if (!boxRes.ok) {
       console.warn(`[espn-gamelogs] box score ${boxRes.status} for event ${eventId} — skipping`)
+      boxScoreFailures++
       continue
     }
 
@@ -135,7 +137,10 @@ export async function fetchGameLogsFromESPN(
     }
   }
 
-  return { rows: allRows, games: completed.length, total: events.length }
+  if (boxScoreFailures > 0) {
+    console.warn(`[espn-gamelogs] ${boxScoreFailures}/${completed.length} box scores failed — grading may be incomplete`)
+  }
+  return { rows: allRows, games: completed.length, total: events.length, boxScoreFailures }
 }
 
 /** Generate all calendar dates between start (inclusive) and end (inclusive) */

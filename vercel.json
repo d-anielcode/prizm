@@ -1,16 +1,24 @@
 {
   "crons": [
-    {
-      "path": "/api/props/snapshot",
-      "schedule": "0 23 * * *"
-    },
-    {
-      "path": "/api/player-bias?action=analyze",
-      "schedule": "0 5 * * 0"
-    },
-    {
-      "path": "/api/opponent-leaks?action=analyze",
-      "schedule": "30 5 * * 0"
-    }
+    { "path": "/api/gamelogs?days=3",                        "schedule": "10 4 * * *" },
+    { "path": "/api/feed/grade",                              "schedule": "15 4 * * *" },
+    { "path": "/api/seasonstats",                             "schedule": "20 4 * * *" },
+    { "path": "/api/results",                                 "schedule": "25 4 * * *" },
+    { "path": "/api/props?refresh=true",                      "schedule": "35 4 * * *" },
+    { "path": "/api/grade",                                   "schedule": "40 4 * * *" },
+    { "path": "/api/enrich",                                  "schedule": "50 4 * * *" },
+    { "path": "/api/feed/generate/parlay",                    "schedule": "5 5 * * *" },
+    { "path": "/api/props?refresh=true",                      "schedule": "0 12 * * *" },
+    { "path": "/api/enrich",                                  "schedule": "15 12 * * *" },
+    { "path": "/api/feed/generate/parlay",                    "schedule": "30 12 * * *" },
+    { "path": "/api/gamelogs?days=3",                         "schedule": "55 13 * * *" },
+    { "path": "/api/props?refresh=true",                      "schedule": "20 14 * * *" },
+    { "path": "/api/enrich",                                  "schedule": "35 14 * * *" },
+    { "path": "/api/feed/generate/parlay?force=true",         "schedule": "50 14 * * *" },
+    { "path": "/api/props?refresh=true",                      "schedule": "0 19 * * *" },
+    { "path": "/api/enrich",                                  "schedule": "15 19 * * *" },
+    { "path": "/api/props/snapshot",                          "schedule": "0 23 * * *" },
+    { "path": "/api/player-bias?action=analyze",              "schedule": "0 5 * * 0" },
+    { "path": "/api/opponent-leaks?action=analyze",           "schedule": "30 5 * * 0" }
   ]
 }

@@ -8,7 +8,7 @@
 // is unreachable, those factors simply default to 0.50 (neutral).
 
 import { NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { supabase, safeQuery } from '@/lib/supabase'
 import { TEAM_ABBR } from '@/lib/team-abbr'
 import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
@@ -185,10 +185,46 @@ function deriveMatchupContext(
   return { isHome: null, opponentAbbr: null, playerTeamAbbr }
 }
 
+// ── Enrichment mutex ─────────────────────────────────────────────────────────
+// Prevents concurrent enrichment runs via a Supabase row lock.
+// Lock expires after 5 minutes (self-healing if process crashes).
+const LOCK_TTL_MS = 5 * 60 * 1000
+
+async function acquireEnrichLock(): Promise<boolean> {
+  const cutoff = new Date(Date.now() - LOCK_TTL_MS).toISOString()
+  // Atomically claim the lock: only succeeds if currently unlocked or expired
+  const { data, error } = await supabase
+    .from('system_locks')
+    .update({ locked_at: new Date().toISOString(), locked_by: 'enrich-route' })
+    .eq('lock_name', 'enrich')
+    .or(`locked_at.is.null,locked_at.lt.${cutoff}`)
+    .select('lock_name')
+  if (error) {
+    // Table might not exist yet — proceed without lock (graceful degradation)
+    logger.warn('[/api/enrich] lock table query failed, proceeding without lock', { error: error.message })
+    return true
+  }
+  return (data?.length ?? 0) > 0
+}
+
+async function releaseEnrichLock(): Promise<void> {
+  await supabase
+    .from('system_locks')
+    .update({ locked_at: null, locked_by: null })
+    .eq('lock_name', 'enrich')
+}
+
 // ── Main enrichment logic ─────────────────────────────────────────────────────
 async function runEnrichment(force = false) {
   const keyUsed = process.env.SUPABASE_SERVICE_KEY ? 'service_role' : 'anon'
   console.log('[/api/enrich] key:', keyUsed, force ? '(force)' : '')
+
+  // Acquire mutex — bail if another enrichment is already running
+  const gotLock = await acquireEnrichLock()
+  if (!gotLock) {
+    logger.warn('[/api/enrich] skipped — another enrichment is already running')
+    return { message: 'Enrichment already in progress', skipped: true }
+  }
 
   // Snapshot current scores before wiping — used for trend arrows
   const prevScoreMap = new Map<string, number>()
@@ -237,6 +273,7 @@ async function runEnrichment(force = false) {
     from += PAGE
   }
   if (!props || props.length === 0) {
+    await releaseEnrichLock()
     return { message: 'No props to enrich', enriched: 0, total: 0 }
   }
 
@@ -284,11 +321,14 @@ async function runEnrichment(force = false) {
     let from = 0
     const PAGE = 1000  // Supabase caps at 1000 rows/response; PAGE=2000 caused early exit
     while (true) {
-      const { data: page } = await supabase
-        .from('historical_prop_lines')
-        .select('player_name, stat_type, direction, line, game_date')
-        .in('player_name', uniqueNames)
-        .range(from, from + PAGE - 1)
+      const page = await safeQuery(
+        supabase
+          .from('historical_prop_lines')
+          .select('player_name, stat_type, direction, line, game_date')
+          .in('player_name', uniqueNames)
+          .range(from, from + PAGE - 1),
+        'load paged hist lines'
+      )
       if (!page || page.length === 0) break
       rows.push(...page)
       if (page.length < PAGE) break
@@ -300,46 +340,92 @@ async function runEnrichment(force = false) {
   async function loadMorningOdds(): Promise<Map<string, number | null>> {
     const map = new Map<string, number | null>()
     if (gameDates.length === 0) return map
-    const { data: rows } = await supabase
-      .from('prop_history')
-      .select('player_name, stat_type, direction, odds, game_date')
-      .in('game_date', gameDates)
-    for (const row of rows ?? []) {
+    // Paginate — prop_history can exceed 1000 rows per game date (main + alt snapshots)
+    const allRows: Record<string, unknown>[] = []
+    let from = 0
+    const PAGE = 1000
+    while (true) {
+      const page = await safeQuery(
+        supabase
+          .from('prop_history')
+          .select('player_name, stat_type, direction, odds, game_date')
+          .in('game_date', gameDates)
+          .range(from, from + PAGE - 1),
+        'load morning odds (paged)'
+      )
+      if (!page || page.length === 0) break
+      allRows.push(...page)
+      if (page.length < PAGE) break
+      from += PAGE
+    }
+    for (const row of allRows) {
       const key = `${row.player_name}|${row.stat_type}|${row.direction}|${row.game_date}`
       if (!map.has(key)) map.set(key, toImpliedProb(row.odds as number | null))
     }
     return map
   }
 
+  // Compute trailing 30-day over hit rate per stat type for calibration gate
+  const minGradeDate = new Date(Date.now() - 30 * 86400000)
+    .toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
+  // Wrap non-essential queries so a single failure (e.g., missing table, Supabase blip)
+  // doesn't kill the entire enrichment.  Game logs are critical and allowed to throw.
+  const soft = async <T>(p: Promise<T>, fallback: T, label: string): Promise<T> => {
+    try { return await p } catch (e) {
+      logger.warn(`[/api/enrich] ${label} failed, using fallback`, { err: String(e) })
+      return fallback
+    }
+  }
+
   const [
     allLogRows,
     histRows,
-    { data: defRows },
-    { data: dvpRows },
-    { data: seasonRows },
-    { data: biasRows },
-    { data: leakRows },
-    { data: positionRows },
+    defRows,
+    dvpRows,
+    seasonRows,
+    biasRows,
+    leakRows,
+    positionRows,
     openingOddsMap,
     spreadMap,
     injuryMap,
     yesterdayTeams,
-    { data: simRows },
+    simRows,
+    calibrationRows,
   ] = await Promise.all([
-    loadPagedGameLogs(),
-    loadPagedHistLines(),
-    supabase.from('team_defense_stats').select('*'),
-    supabase.from('team_defense_vs_position').select('*'),
-    supabase.from('player_season_stats').select('*'),
-    supabase.from('player_line_bias').select('player_name, stat_type, hit_rate, median_ratio, sample_count'),
-    supabase.from('opponent_stat_leaks').select('opponent_team, stat_type, over_hit_rate, median_ratio, sample_count'),
-    supabase.from('player_positions').select('player_name, position_group'),
-    loadMorningOdds(),
-    fetchEspnSpreads(),
-    fetchEspnInjuries(),
-    fetchYesterdayTeams(),
-    supabase.from('sim_3pm').select('player_name, opponent, p_over, p_under, sim_mean, sim_std').eq('game_date', new Date().toISOString().slice(0, 10)),
+    loadPagedGameLogs(),                                                                          // critical — allowed to throw
+    soft(loadPagedHistLines(), [], 'hist lines'),
+    soft(safeQuery(supabase.from('team_defense_stats').select('*'), 'load team_defense_stats'), [], 'defense stats'),
+    soft(safeQuery(supabase.from('team_defense_vs_position').select('*'), 'load team_defense_vs_position'), [], 'dvp stats'),
+    soft(safeQuery(supabase.from('player_season_stats').select('*'), 'load player_season_stats'), [], 'season stats'),
+    soft(safeQuery(supabase.from('player_line_bias').select('player_name, stat_type, hit_rate, median_ratio, sample_count'), 'load player_line_bias'), [], 'player bias'),
+    soft(safeQuery(supabase.from('opponent_stat_leaks').select('opponent_team, stat_type, over_hit_rate, median_ratio, sample_count'), 'load opponent_stat_leaks'), [], 'opponent leaks'),
+    soft(safeQuery(supabase.from('player_positions').select('player_name, position_group'), 'load player_positions'), [], 'player positions'),
+    soft(loadMorningOdds(), new Map(), 'morning odds'),
+    fetchEspnSpreads(),                                                                           // already has internal try/catch
+    fetchEspnInjuries(),                                                                          // already has internal try/catch
+    fetchYesterdayTeams(),                                                                        // already has internal try/catch
+    soft(safeQuery(supabase.from('sim_3pm').select('player_name, opponent, p_over, p_under, sim_mean, sim_std').eq('game_date', new Date().toISOString().slice(0, 10)), 'load sim_3pm'), [], 'sim 3pm'),
+    soft(safeQuery(supabase.from('prop_grades').select('stat_type, direction, hit').gte('game_date', minGradeDate).not('hit', 'is', null), 'load calibration grades'), [], 'calibration grades'),
   ])
+
+  // ── Build over-hit-rate calibration map (for over-bias gate) ──────────────
+  const overHitRates = new Map<string, number>()
+  {
+    const tally = new Map<string, { hits: number; total: number }>()
+    for (const row of calibrationRows) {
+      if ((row as Record<string, unknown>).direction !== 'over') continue
+      const st = (row as Record<string, unknown>).stat_type as string
+      if (!tally.has(st)) tally.set(st, { hits: 0, total: 0 })
+      const t = tally.get(st)!
+      t.total++
+      if ((row as Record<string, unknown>).hit === true) t.hits++
+    }
+    for (const [st, { hits, total }] of tally) {
+      if (total >= 20) overHitRates.set(st, hits / total)  // need ≥20 samples
+    }
+  }
 
   // ── Build in-memory maps from raw rows ────────────────────────────────────
   const logsMap = new Map<string, GameLog[]>()
@@ -554,6 +640,7 @@ async function runEnrichment(force = false) {
       simThreePm:     prop.stat_type === 'three_pointers' && opponentAbbr
                         ? (simMap.get(`${prop.player_name}|${opponentAbbr}`) ?? null)
                         : null,
+      overHitRates,
     }
 
     return scoreProps(prop, logs, null, ctx)
@@ -747,10 +834,15 @@ async function runEnrichment(force = false) {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
       ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
-    fetch(`${baseUrl}/api/feed/generate/parlay?date=${parlayGameDate}`, { method: 'POST' }).catch(() => {})
-  } catch { /* fire-and-forget */ }
+    const parlayRes = await fetch(`${baseUrl}/api/feed/generate/parlay?date=${parlayGameDate}`, { method: 'POST' })
+    if (!parlayRes.ok) logger.warn('[/api/enrich] parlay generation returned non-OK', { status: parlayRes.status })
+  } catch (e) {
+    logger.error('[/api/enrich] parlay generation failed', { err: String(e) })
+  }
 
   const injuredCount = [...injuryMap.values()].filter((i) => i.status !== 'active').length
+
+  await releaseEnrichLock()
 
   return {
     message: `Enriched ${enriched} props + ${enrichedAlts} alt lines`,
@@ -777,6 +869,7 @@ export async function GET(req: Request) {
     const result = await runEnrichment(force)
     return NextResponse.json(result)
   } catch (error) {
+    await releaseEnrichLock()
     const message = error instanceof Error ? error.message : 'Unknown error'
     logger.error('[/api/enrich] Error', { err: message })
     return NextResponse.json({ error: 'Enrichment failed', details: message }, { status: 500 })
@@ -792,6 +885,7 @@ export async function POST(req: Request) {
     const result = await runEnrichment(force)
     return NextResponse.json(result)
   } catch (error) {
+    await releaseEnrichLock()
     const message = error instanceof Error ? error.message : 'Unknown error'
     logger.error('[/api/enrich] Error', { err: message })
     return NextResponse.json({ error: 'Enrichment failed', details: message }, { status: 500 })

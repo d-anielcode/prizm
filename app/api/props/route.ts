@@ -3,12 +3,12 @@
 // Tip-off times are stored per-prop as commence_time (ISO string).
 
 import { NextResponse } from 'next/server'
-import { supabase, isCacheStale } from '@/lib/supabase'
+import { supabase, isCacheStale, safeQuery } from '@/lib/supabase'
 import { fetchTodaysNBAEvents, fetchAllPropsForEvents } from '@/lib/odds-api'
 import { requireCronAuth, internalAuthHeaders } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 
-export const maxDuration = 120
+export const maxDuration = 300  // awaits gamelogs + enrich sequentially
 import { deduplicatePropsWithAlts } from '@/lib/dedup'
 import type { Prop } from '@/types'
 
@@ -61,11 +61,11 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
     const now = new Date().toISOString()
 
     // Snapshot existing main props to prop_history BEFORE deleting (for results grading)
-    const { data: existing } = await supabase
-      .from('props')
-      .select('*')
-      .not('confidence_label', 'is', null)
-    if (existing && existing.length > 0) {
+    const existing = await safeQuery(
+      supabase.from('props').select('*').not('confidence_label', 'is', null),
+      'snapshot existing enriched props'
+    )
+    if (existing.length > 0) {
       const fallbackDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
       const historyRows = existing.map((p: Record<string, unknown>) => {
         const gameDate = p.commence_time
@@ -82,27 +82,31 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
     }
 
     // Snapshot opening lines before delete — carry forward so movement is visible
-    const { data: prevLines } = await supabase
-      .from('props')
-      .select('player_name, stat_type, direction, line, opening_line')
+    const prevLines = await safeQuery(
+      supabase.from('props').select('player_name, stat_type, direction, line, opening_line'),
+      'load prev opening lines'
+    )
     const openingLineMap = new Map<string, number>()
-    for (const row of prevLines ?? []) {
+    for (const row of prevLines) {
       const key = `${row.player_name}|${row.stat_type}|${row.direction}`
       // COALESCE(opening_line, line) — keep original opening line if it exists
       openingLineMap.set(key, Number((row as Record<string, unknown>).opening_line ?? row.line))
     }
 
-    // Clear and insert main props
+    // Upsert + sweep: insert new props first, then delete stale rows.
+    // This avoids the empty-table window that the old delete-then-insert pattern had.
     const BATCH = 500
-    await supabase.from('props').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     const propsWithOpening = mainProps.map((p) => {
       const key = `${p.player_name}|${p.stat_type}|${p.direction}`
-      return { ...p, opening_line: openingLineMap.get(key) ?? p.line }
+      return { ...p, opening_line: openingLineMap.get(key) ?? p.line, cached_at: now }
     })
     for (let i = 0; i < propsWithOpening.length; i += BATCH) {
-      const { error } = await supabase.from('props').insert(propsWithOpening.slice(i, i + BATCH))
-      if (error) console.error(`[/api/props] props insert error:`, error.message)
+      const { error } = await supabase.from('props').upsert(propsWithOpening.slice(i, i + BATCH), { onConflict: 'player_name,stat_type,line,direction,sportsbook' })
+      if (error) console.error(`[/api/props] props upsert error:`, error.message)
     }
+    // Sweep stale props from previous generation
+    const { error: sweepErr } = await supabase.from('props').delete().lt('cached_at', now)
+    if (sweepErr) logger.warn('[/api/props] sweep old props failed', { error: sweepErr.message })
 
     // Generate synthetic alt lines: ±1 increment from each main line
     const STEP: Record<string, number> = {
@@ -127,11 +131,13 @@ async function fetchAndCacheFreshProps(): Promise<Prop[]> {
           cached_at:     now,
         }))
     })
-    await supabase.from('prop_alts').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     for (let i = 0; i < allAltRows.length; i += BATCH) {
-      const { error } = await supabase.from('prop_alts').insert(allAltRows.slice(i, i + BATCH))
-      if (error) console.error(`[/api/props] prop_alts insert error:`, error.message)
+      const { error } = await supabase.from('prop_alts').upsert(allAltRows.slice(i, i + BATCH), { onConflict: 'player_name,stat_type,line,direction' })
+      if (error) console.error(`[/api/props] prop_alts upsert error:`, error.message)
     }
+    // Sweep stale alt lines from previous generation
+    const { error: altSweepErr } = await supabase.from('prop_alts').delete().lt('cached_at', now)
+    if (altSweepErr) logger.warn('[/api/props] sweep old alt lines failed', { error: altSweepErr.message })
 
     console.log(`[/api/props] Refreshed — ${mainProps.length} main props + ${allAltRows.length} alt lines for ${events.length} games`)
   } else {
@@ -191,16 +197,22 @@ export async function GET(req: Request) {
       })
     }
 
-    // Fire-and-forget: refresh gamelogs then immediately enrich so fresh scores
-    // are available without waiting for the next cron slot.
+    // Sequentially refresh gamelogs → enrich so enrichment sees the full props
+    // table and fresh game logs.  Response is slower but race-free.
     const baseUrl = new URL(req.url).origin
     const authHeaders = internalAuthHeaders()
-    fetch(`${baseUrl}/api/gamelogs?days=7`, { headers: authHeaders }).catch((e) =>
-      console.error('[/api/props] gamelogs fire-and-forget failed:', e)
-    )
-    fetch(`${baseUrl}/api/enrich?force=true`, { headers: authHeaders }).catch((e) =>
-      console.error('[/api/props] enrich fire-and-forget failed:', e)
-    )
+    try {
+      const glRes = await fetch(`${baseUrl}/api/gamelogs?days=7`, { headers: authHeaders })
+      if (!glRes.ok) logger.warn('[/api/props] gamelogs returned non-OK', { status: glRes.status })
+    } catch (e) {
+      logger.error('[/api/props] gamelogs fetch failed', { err: String(e) })
+    }
+    try {
+      const enRes = await fetch(`${baseUrl}/api/enrich?force=true`, { headers: authHeaders })
+      if (!enRes.ok) logger.warn('[/api/props] enrich returned non-OK', { status: enRes.status })
+    } catch (e) {
+      logger.error('[/api/props] enrich fetch failed', { err: String(e) })
+    }
 
     return NextResponse.json({
       props: freshProps,
