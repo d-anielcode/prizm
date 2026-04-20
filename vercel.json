@@ -3,7 +3,7 @@
     { "path": "/api/gamelogs?days=3",                        "schedule": "10 4 * * *" },
     { "path": "/api/feed/grade",                              "schedule": "15 4 * * *" },
     { "path": "/api/seasonstats",                             "schedule": "20 4 * * *" },
-    { "path": "/api/results",                                 "schedule": "25 4 * * *" },
+    { "path": "/api/results?force=true",                      "schedule": "25 4 * * *" },
     { "path": "/api/props?refresh=true",                      "schedule": "35 4 * * *" },
     { "path": "/api/grade",                                   "schedule": "40 4 * * *" },
     { "path": "/api/enrich",                                  "schedule": "50 4 * * *" },
