@@ -39,3 +39,7 @@ scripts/__pycache__/
 
 # Local Claude settings
 .claude/settings.local.json
+
+# graphify outputs (generated, not source)
+graphify-out/
+.graphify_*

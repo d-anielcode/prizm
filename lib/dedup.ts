@@ -62,7 +62,9 @@ export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
   const result: PropWithAlts[] = []
   for (const [, group] of groups) {
     if (group.length === 0) continue
-    const direction = group[0].direction as 'over' | 'under'
+    // Explicit normalization — any non-'under' falls back to 'over' rather than
+    // a silent unchecked cast. Defensive for malformed upstream data.
+    const direction: 'over' | 'under' = group[0].direction === 'under' ? 'under' : 'over'
 
     group.sort((a, b) => {
       const aJuice = isReasonableJuice(a.odds)
@@ -75,8 +77,10 @@ export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
         return isBetterLine(direction, a.line, b.line) ? -1 : 1
       }
 
+      // Both null-odds props produce Infinity − Infinity = NaN. Treat that as
+      // "tied on juice distance" and fall through to the confidence tiebreak.
       const dist = distTo110(a.odds) - distTo110(b.odds)
-      if (dist !== 0) return dist
+      if (Number.isFinite(dist) && dist !== 0) return dist
 
       return (b.confidence_score ?? 0) - (a.confidence_score ?? 0)
     })

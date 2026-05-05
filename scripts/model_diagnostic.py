@@ -747,7 +747,7 @@ def logreg_ceiling(grades, logs_by_player, def_stats_map):
         gap = logreg_auc - weighted_auc
         marker = '!! GAP' if gap > 0.02 else ''
         print(f"  Current weighted-score AUC: {weighted_auc:.4f} (n={len(weighted_pairs):,})")
-        print(f"  Gap (logreg − weighted):    {gap:+.4f} {marker}")
+        print(f"  Gap (logreg - weighted):    {gap:+.4f} {marker}")
         if gap > 0.02:
             print(f"  Recommendation: hand-weights are leaving alpha on the table.")
             print(f"                  Re-run auto_retrain or try a non-linear model.")
