@@ -184,6 +184,15 @@ def build_cases(grades, logs_by_player, def_stats_map):
 
 def score_cases(cases, weights_map, lock_thresholds, play_thresholds, b_lock, b_play):
     """Score cases with given weights and compute LOCK/PLAY accuracy."""
+    locks, plays = score_cases_arrays(cases, weights_map, lock_thresholds, play_thresholds, b_lock, b_play)
+    lock_hr = sum(locks) / len(locks) if locks else 0.0
+    play_hr = sum(plays) / len(plays) if plays else 0.0
+    return lock_hr, play_hr, len(locks), len(plays)
+
+
+def score_cases_arrays(cases, weights_map, lock_thresholds, play_thresholds, b_lock, b_play):
+    """Same scoring as score_cases but returns the raw 0/1 label arrays so
+    callers can compute bootstrap CIs without re-running scoring."""
     locks, plays = [], []
     for c in cases:
         stat = c['stat']
@@ -198,9 +207,23 @@ def score_cases(cases, weights_map, lock_thresholds, play_thresholds, b_lock, b_
             locks.append(c['label'])
         elif score >= pt:
             plays.append(c['label'])
-    lock_hr = sum(locks) / len(locks) if locks else 0.0
-    play_hr = sum(plays) / len(plays) if plays else 0.0
-    return lock_hr, play_hr, len(locks), len(plays)
+    return locks, plays
+
+
+def bootstrap_ci(labels, n_boot=2000, lo=0.05, hi=0.95, seed=42):
+    """Percentile bootstrap CI for the mean of a 0/1 array.
+
+    Returns (point_estimate, lower, upper). When labels is empty, returns (0,0,0).
+    The seed is fixed so retrain runs are deterministic — week-over-week comparisons
+    aren't muddied by bootstrap noise.
+    """
+    if not labels:
+        return 0.0, 0.0, 0.0
+    arr = np.asarray(labels, dtype=float)
+    rng = np.random.default_rng(seed)
+    n = len(arr)
+    boots = rng.choice(arr, size=(n_boot, n), replace=True).mean(axis=1)
+    return float(arr.mean()), float(np.quantile(boots, lo)), float(np.quantile(boots, hi))
 
 
 def optimize_weights(cases, stat, n_iter=10000):
@@ -458,10 +481,13 @@ if __name__ == '__main__':
     # -- Validation ------------------------------------------------------------
     print("\n[5/5] Validating against held-out set...")
 
-    new_lock_hr, new_play_hr, new_lock_n, new_play_n = score_cases(
+    new_locks, new_plays = score_cases_arrays(
         val_cases, new_weights, new_lock_thresholds, new_play_thresholds, base_lock, base_play
     )
-    print(f"  New weights:     LOCK {new_lock_hr:.1%} (n={new_lock_n}) | PLAY {new_play_hr:.1%} (n={new_play_n})")
+    new_lock_hr, new_lock_lo, new_lock_hi = bootstrap_ci(new_locks)
+    new_play_hr, new_play_lo, new_play_hi = bootstrap_ci(new_plays)
+    print(f"  New weights:     LOCK {new_lock_hr:.1%} [{new_lock_lo:.1%}, {new_lock_hi:.1%}] (n={len(new_locks)})"
+          f" | PLAY {new_play_hr:.1%} [{new_play_lo:.1%}, {new_play_hi:.1%}] (n={len(new_plays)})")
 
     current_config = None
     try:
@@ -470,38 +496,58 @@ if __name__ == '__main__':
     except (FileNotFoundError, json.JSONDecodeError):
         pass
 
-    cur_lock_hr, cur_play_hr = 0.0, 0.0
+    cur_lock_hr = 0.0
+    cur_play_hr = 0.0
+    cur_lock_n = 0
+    cur_play_n = 0
     if current_config and current_config.get('weights'):
-        cur_lock_hr, cur_play_hr, cur_lock_n, cur_play_n = score_cases(
+        cur_locks, cur_plays = score_cases_arrays(
             val_cases, current_config['weights'],
             current_config.get('lock_thresholds', {}),
             current_config.get('play_thresholds', {}),
             current_config.get('base_lock_threshold', 74),
             current_config.get('base_play_threshold', 68),
         )
+        cur_lock_hr, _, _ = bootstrap_ci(cur_locks)
+        cur_play_hr, _, _ = bootstrap_ci(cur_plays)
+        cur_lock_n, cur_play_n = len(cur_locks), len(cur_plays)
         print(f"  Current weights: LOCK {cur_lock_hr:.1%} (n={cur_lock_n}) | PLAY {cur_play_hr:.1%} (n={cur_play_n})")
 
-    # -- Adoption decision -----------------------------------------------------
+    # -- Adoption decision (gated on bootstrap lower-CI, not point estimate) ---
+    # Old gate just compared point estimates, which on small LOCK samples
+    # (n=14 type tiers) is dominated by sampling noise. Now require:
+    #   1. Lower 5% bootstrap CI of new LOCK >= current LOCK point estimate
+    #      (i.e. we are 95% confident new is at least as good as current).
+    #   2. Combined point-estimate improvement >= 0.5%.
+    #   3. At least 20 LOCK predictions in val.
     new_combined = 0.6 * new_lock_hr + 0.4 * new_play_hr
     cur_combined = 0.6 * cur_lock_hr + 0.4 * cur_play_hr
     improvement = new_combined - cur_combined
 
+    ci_passes = new_lock_lo >= cur_lock_hr  # lower bound of new beats point estimate of current
+
     adopt = (
-        new_lock_hr >= cur_lock_hr and
+        ci_passes and
         improvement >= 0.005 and
-        new_lock_n >= 20
+        len(new_locks) >= 20
     )
 
     if not adopt:
         reasons = []
-        if new_lock_hr < cur_lock_hr: reasons.append(f"LOCK regressed ({new_lock_hr:.1%} < {cur_lock_hr:.1%})")
-        if improvement < 0.005: reasons.append(f"improvement too small ({improvement:+.1%})")
-        if new_lock_n < 20: reasons.append(f"too few LOCKs ({new_lock_n})")
+        if not ci_passes:
+            reasons.append(f"LOCK lower-CI {new_lock_lo:.1%} < current point {cur_lock_hr:.1%}")
+        if improvement < 0.005:
+            reasons.append(f"improvement too small ({improvement:+.1%})")
+        if len(new_locks) < 20:
+            reasons.append(f"too few LOCKs ({len(new_locks)})")
         print(f"\n  REJECTED: {', '.join(reasons)}")
         print("  Keeping current weights.")
         sys.exit(0)
 
     print(f"\n  ADOPTED: improvement {improvement:+.1%} (combined {cur_combined:.1%} -> {new_combined:.1%})")
+    print(f"  LOCK lower-CI {new_lock_lo:.1%} clears current point estimate {cur_lock_hr:.1%}.")
+    new_lock_n = len(new_locks)
+    new_play_n = len(new_plays)
 
     if args.dry_run:
         print("  --dry-run: not writing JSON.")
@@ -532,6 +578,10 @@ if __name__ == '__main__':
             'lock': round(float(new_lock_hr), 4),
             'play': round(float(new_play_hr), 4),
             'overall': round(float(new_combined), 4),
+            'lock_ci_90': [round(float(new_lock_lo), 4), round(float(new_lock_hi), 4)],
+            'play_ci_90': [round(float(new_play_lo), 4), round(float(new_play_hi), 4)],
+            'lock_n': int(new_lock_n),
+            'play_n': int(new_play_n),
         },
         'previous_version': current_config.get('version') if current_config else None,
         'weights': new_weights,

@@ -522,79 +522,251 @@ def temporal_analysis(grades):
     }
 
 
-def line_movement_analysis(grades):
+def line_dispersion_analysis(grades):
     """
-    Check if line movement correlates with outcomes.
-    Uses historical_prop_lines to detect line changes.
+    Module 6 — Cross-book line dispersion vs hit rate.
+
+    historical_prop_lines is keyed (game_date, player, stat, direction, sportsbook),
+    so multiple rows per (player, stat, date) only appear when different sportsbooks
+    posted different lines. There is no chronological snapshot data — this measures
+    cross-book disagreement, NOT temporal line movement.
+
+    Question: when sportsbooks disagree on a line (high dispersion), do props hit
+    at a different rate than when books agree? Larger dispersion implies the market
+    is uncertain — could be edge, could be noise.
+
+    NOTE: previous implementation (pre-2026-05) called this "line_movement" and
+    sorted by line value, making `move = last - first` always >= 0 — the
+    "favorable" bucket was structurally always n=0. Renamed and re-defined here.
     """
-    # Load historical prop lines
     print("  Loading historical_prop_lines...")
     hist_lines = sb_get_all('historical_prop_lines', 'order=game_date.desc')
 
     if not hist_lines:
-        print("-- Module 6: Line Movement Analysis ------------------------------------")
+        print("-- Module 6: Line Dispersion Analysis ----------------------------------")
         print("  No historical_prop_lines data found. Skipping.\n")
         return {'error': 'no_data'}
 
-    # Index lines by (player, stat, game_date) -> list of line records
+    # Index by (player, stat, game_date, direction) — only books posting the same
+    # side of the same prop are comparable. Different directions get their own group.
     lines_index = defaultdict(list)
     for h in hist_lines:
-        key = (h.get('player_name', ''), h.get('stat_type', ''), h.get('game_date', ''))
-        lines_index[key].append(h)
+        key = (
+            h.get('player_name', ''),
+            h.get('stat_type', ''),
+            h.get('game_date', ''),
+            h.get('direction', 'over'),
+        )
+        try:
+            line = float(h.get('line', 0))
+        except (TypeError, ValueError):
+            continue
+        lines_index[key].append(line)
 
-    # For each graded prop, check if we have line history with movement
-    moved_props = []
+    # For each graded prop, find the dispersion across books for the matching side.
+    by_dispersion = []
     for g in grades:
-        key = (g['player_name'], g['stat_type'], g['game_date'])
+        key = (g['player_name'], g['stat_type'], g['game_date'], g.get('direction', 'over'))
         lines = lines_index.get(key, [])
         if len(lines) < 2:
             continue
-
-        # Sort by line value to detect range of movement
-        lines_sorted = sorted(lines, key=lambda l: float(l.get('line', 0)))
-        first_line = float(lines_sorted[0].get('line', 0))
-        last_line = float(lines_sorted[-1].get('line', 0))
-        move = last_line - first_line
-
-        if abs(move) < 0.5:
+        dispersion = max(lines) - min(lines)
+        try:
+            graded_line = float(g.get('line', 0))
+        except (TypeError, ValueError):
             continue
-
-        direction = g.get('direction', 'over')
-        # Line moved up = harder for over, easier for under
-        move_helps = (move < 0 and direction == 'over') or (move > 0 and direction == 'under')
-
-        moved_props.append({
+        # Did we score against the best (most favorable) line, or a worse one?
+        if g.get('direction', 'over') == 'over':
+            best_line = min(lines)            # lower line = easier OVER
+            line_disadvantage = graded_line - best_line
+        else:
+            best_line = max(lines)            # higher line = easier UNDER
+            line_disadvantage = best_line - graded_line
+        by_dispersion.append({
             'hit': g['hit'],
-            'move': move,
-            'move_helps': move_helps,
+            'dispersion': dispersion,
+            'line_disadvantage': line_disadvantage,
             'stat': g['stat_type'],
-            'direction': direction,
         })
 
-    if not moved_props:
-        print("-- Module 6: Line Movement Analysis ------------------------------------")
-        print("  Not enough props with line movement (>=0.5) to analyze.\n")
-        return {'error': 'insufficient_movement_data', 'total_lines': len(hist_lines)}
+    if not by_dispersion:
+        print("-- Module 6: Line Dispersion Analysis ----------------------------------")
+        print("  No graded props have multi-book line data. Skipping.\n")
+        return {'error': 'insufficient_data', 'total_lines': len(hist_lines)}
 
-    # Compare accuracy: line moved in favorable vs unfavorable direction
-    favorable = [p for p in moved_props if p['move_helps']]
-    unfavorable = [p for p in moved_props if not p['move_helps']]
+    # Bucketize by dispersion magnitude.
+    buckets = [
+        ('agree (0)',         lambda d: d == 0),
+        ('narrow (0-0.5]',    lambda d: 0 < d <= 0.5),
+        ('moderate (0.5-1]',  lambda d: 0.5 < d <= 1.0),
+        ('wide (>1)',         lambda d: d > 1.0),
+    ]
+    bucket_results = []
+    for label, pred in buckets:
+        sub = [p for p in by_dispersion if pred(p['dispersion'])]
+        if not sub:
+            bucket_results.append({'bucket': label, 'n': 0, 'hit_rate': None})
+            continue
+        hr = sum(1 for p in sub if p['hit']) / len(sub)
+        bucket_results.append({'bucket': label, 'n': len(sub), 'hit_rate': round(hr, 4)})
 
-    fav_hr = sum(1 for p in favorable if p['hit']) / len(favorable) if favorable else 0
-    unfav_hr = sum(1 for p in unfavorable if p['hit']) / len(unfavorable) if unfavorable else 0
+    # Did we score against an inferior line? (Did we miss a better number elsewhere?)
+    got_best = [p for p in by_dispersion if p['line_disadvantage'] <= 0.001]
+    got_worse = [p for p in by_dispersion if p['line_disadvantage'] > 0.001]
+    best_hr = sum(1 for p in got_best if p['hit']) / len(got_best) if got_best else None
+    worse_hr = sum(1 for p in got_worse if p['hit']) / len(got_worse) if got_worse else None
 
-    print("-- Module 6: Line Movement Analysis ------------------------------------")
-    print(f"  Props with line movement >=0.5: {len(moved_props)}")
-    print(f"  Line moved favorably:   {fav_hr:.1%} hit rate ({len(favorable)} props)")
-    print(f"  Line moved unfavorably: {unfav_hr:.1%} hit rate ({len(unfavorable)} props)")
-    print(f"  Delta: {fav_hr - unfav_hr:>+.1%}")
+    print("-- Module 6: Line Dispersion Analysis ----------------------------------")
+    print(f"  Props with multi-book line data: {len(by_dispersion):,}\n")
+    print(f"  {'Bucket':<22} {'N':>8} {'Hit Rate':>10}")
+    print(f"  {'-'*42}")
+    for r in bucket_results:
+        n_str = f"{r['n']:>8}"
+        hr_str = f"{r['hit_rate']:>9.1%}" if r['hit_rate'] is not None else "        ---"
+        print(f"  {r['bucket']:<22} {n_str} {hr_str}")
+    print()
+    if best_hr is not None and worse_hr is not None:
+        delta = best_hr - worse_hr
+        print(f"  Scored against best line:  {best_hr:.1%} ({len(got_best):,})")
+        print(f"  Scored against worse line: {worse_hr:.1%} ({len(got_worse):,})")
+        print(f"  Delta:                     {delta:>+.1%}")
     print()
 
     return {
-        'total_with_movement': len(moved_props),
-        'favorable': {'hit_rate': round(fav_hr, 4), 'n': len(favorable)},
-        'unfavorable': {'hit_rate': round(unfav_hr, 4), 'n': len(unfavorable)},
-        'delta': round(fav_hr - unfav_hr, 4),
+        'total_with_multibook_data': len(by_dispersion),
+        'by_dispersion_bucket': bucket_results,
+        'got_best_line':  {'hit_rate': round(best_hr, 4)  if best_hr  is not None else None, 'n': len(got_best)},
+        'got_worse_line': {'hit_rate': round(worse_hr, 4) if worse_hr is not None else None, 'n': len(got_worse)},
+    }
+
+
+def logreg_ceiling(grades, logs_by_player, def_stats_map):
+    """
+    Module 8 — Ceiling check via LogisticRegression.
+
+    Builds the same factor vectors used in Module 2, fits a logistic regression
+    with chronological train/val split, and reports val AUC. This is a ceiling
+    estimate for what a *linear* combination of the current factors can achieve.
+
+    If logreg AUC > current weighted-score AUC by >0.02, hand-tuning is leaving
+    measurable alpha on the table and an automated retune (or a non-linear model)
+    is worth investing in.
+    """
+    print("-- Module 8: LogReg Ceiling Check --------------------------------------")
+    try:
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import roc_auc_score
+    except ImportError:
+        print("  scikit-learn not installed — skip. (pip install scikit-learn numpy)\n")
+        return {'error': 'sklearn_not_installed'}
+
+    # Sort grades chronologically so the val set is genuinely held out.
+    grades_sorted = sorted(grades, key=lambda g: g.get('game_date', ''))
+
+    cases = []
+    for g in grades_sorted:
+        player = g['player_name']
+        stat = g['stat_type']
+        try:
+            line = float(g['line'])
+        except (TypeError, ValueError):
+            continue
+        direction = g.get('direction', 'over')
+        game_date = g['game_date']
+        if g.get('hit') is None:
+            continue
+        hit = 1 if g['hit'] else 0
+
+        if player not in logs_by_player:
+            continue
+        all_logs = sorted(logs_by_player[player], key=lambda l: l['game_date'])
+        prior = list(reversed([l for l in all_logs if l['game_date'] < game_date]))
+        if len(prior) < 10:
+            continue
+        target = next((l for l in all_logs if l['game_date'] == game_date), None)
+        if not target:
+            continue
+        opp_abbr = extract_opponent(target.get('matchup', ''))
+        is_home = target.get('is_home', False)
+
+        features = [
+            factor_last_n_hitrate(prior, stat, line, direction, 10) or 0.5,
+            factor_matchup(def_stats_map, opp_abbr, stat, direction),
+            factor_cushion(prior, stat, line, direction),
+            factor_vs_opponent(prior, stat, line, direction, opp_abbr),
+            factor_home_away(prior, stat, line, direction, is_home),
+            factor_trend(prior, stat, direction),
+            factor_last_n_hitrate(prior, stat, line, direction, 20) or 0.5,
+            factor_rest_days(prior, game_date),
+        ]
+        weighted_score = g.get('confidence_score')
+        try:
+            weighted_score = float(weighted_score) if weighted_score is not None else None
+        except (TypeError, ValueError):
+            weighted_score = None
+        cases.append({'features': features, 'label': hit, 'weighted_score': weighted_score})
+
+    if len(cases) < 200:
+        print(f"  Only {len(cases)} matched cases — need 200+ for a meaningful split. Skipping.\n")
+        return {'error': 'insufficient_data', 'matched': len(cases)}
+
+    # Chronological 75/25 split (cases were built from grades_sorted).
+    split = int(len(cases) * 0.75)
+    train, val = cases[:split], cases[split:]
+    X_train = np.array([c['features'] for c in train])
+    y_train = np.array([c['label']    for c in train])
+    X_val   = np.array([c['features'] for c in val])
+    y_val   = np.array([c['label']    for c in val])
+
+    if len(set(y_train.tolist())) < 2 or len(set(y_val.tolist())) < 2:
+        print("  Train or val split lacks both classes — skipping.\n")
+        return {'error': 'degenerate_split'}
+
+    # Standardize features (already in 0–1) — fit logreg.
+    clf = LogisticRegression(max_iter=2000, C=1.0)
+    clf.fit(X_train, y_train)
+    val_proba  = clf.predict_proba(X_val)[:, 1]
+    logreg_auc = float(roc_auc_score(y_val, val_proba))
+
+    # Compare against the current confidence_score from prop_grades on the same val set.
+    weighted_pairs = [(c['weighted_score'], c['label']) for c in val if c['weighted_score'] is not None]
+    if len(weighted_pairs) >= 30 and len(set(p[1] for p in weighted_pairs)) == 2:
+        ws = np.array([p[0] for p in weighted_pairs])
+        ys = np.array([p[1] for p in weighted_pairs])
+        weighted_auc = float(roc_auc_score(ys, ws))
+    else:
+        weighted_auc = None
+
+    coefs = dict(zip(FACTOR_NAMES, [round(float(c), 4) for c in clf.coef_[0]]))
+    intercept = round(float(clf.intercept_[0]), 4)
+
+    print(f"  Train cases: {len(train):,} | Val cases: {len(val):,}")
+    print(f"  LogReg val AUC:           {logreg_auc:.4f}")
+    if weighted_auc is not None:
+        gap = logreg_auc - weighted_auc
+        marker = '!! GAP' if gap > 0.02 else ''
+        print(f"  Current weighted-score AUC: {weighted_auc:.4f} (n={len(weighted_pairs):,})")
+        print(f"  Gap (logreg − weighted):    {gap:+.4f} {marker}")
+        if gap > 0.02:
+            print(f"  Recommendation: hand-weights are leaving alpha on the table.")
+            print(f"                  Re-run auto_retrain or try a non-linear model.")
+    else:
+        print(f"  No comparable weighted-score AUC available (val too small or single-class).")
+    print(f"  LogReg coefficients (val-fit):")
+    for f, c in sorted(coefs.items(), key=lambda kv: -abs(kv[1])):
+        print(f"    {f:<18} {c:>+7.4f}")
+    print()
+
+    return {
+        'matched_cases': len(cases),
+        'train_n': len(train),
+        'val_n':   len(val),
+        'logreg_auc':           round(logreg_auc, 4),
+        'weighted_score_auc':   round(weighted_auc, 4) if weighted_auc is not None else None,
+        'gap':                  round(logreg_auc - weighted_auc, 4) if weighted_auc is not None else None,
+        'logreg_intercept': intercept,
+        'logreg_coefs':     coefs,
     }
 
 
@@ -738,7 +910,8 @@ def main():
     report['calibration_curve'] = calibration_curve(grades)
     report['high_confidence_misses'] = high_confidence_misses(grades)
     report['temporal'] = temporal_analysis(grades)
-    report['line_movement'] = line_movement_analysis(grades)
+    report['line_dispersion'] = line_dispersion_analysis(grades)
+    report['logreg_ceiling']  = logreg_ceiling(grades, logs_by_player, def_stats_map)
 
     print_summary(report)
 
