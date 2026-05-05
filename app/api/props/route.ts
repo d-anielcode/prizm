@@ -5,10 +5,12 @@
 import { NextResponse } from 'next/server'
 import { supabase, isCacheStale, safeQuery } from '@/lib/supabase'
 import { fetchTodaysNBAEvents, fetchAllPropsForEvents } from '@/lib/odds-api'
-import { requireCronAuth, internalAuthHeaders } from '@/lib/api-auth'
+import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 
-export const maxDuration = 300  // awaits gamelogs + enrich sequentially
+// Cron orchestrates the full pipeline: /api/props → /api/grade → /api/enrich.
+// This route is purely the "fetch + cache + snapshot" step, so 60s is plenty.
+export const maxDuration = 60
 import { deduplicatePropsWithAlts } from '@/lib/dedup'
 import type { Prop } from '@/types'
 
@@ -197,23 +199,9 @@ export async function GET(req: Request) {
       })
     }
 
-    // Sequentially refresh gamelogs → enrich so enrichment sees the full props
-    // table and fresh game logs.  Response is slower but race-free.
-    const baseUrl = new URL(req.url).origin
-    const authHeaders = internalAuthHeaders()
-    try {
-      const glRes = await fetch(`${baseUrl}/api/gamelogs?days=7`, { headers: authHeaders })
-      if (!glRes.ok) logger.warn('[/api/props] gamelogs returned non-OK', { status: glRes.status })
-    } catch (e) {
-      logger.error('[/api/props] gamelogs fetch failed', { err: String(e) })
-    }
-    try {
-      const enRes = await fetch(`${baseUrl}/api/enrich?force=true`, { headers: authHeaders })
-      if (!enRes.ok) logger.warn('[/api/props] enrich returned non-OK', { status: enRes.status })
-    } catch (e) {
-      logger.error('[/api/props] enrich fetch failed', { err: String(e) })
-    }
-
+    // Note: gamelogs and enrich are scheduled separately in vercel.json so we
+    // don't fan out from here. Manual refreshes that need a re-score should hit
+    // /api/enrich?force=true directly after this returns.
     return NextResponse.json({
       props: freshProps,
       cached: false,

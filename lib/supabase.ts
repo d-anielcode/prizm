@@ -67,6 +67,57 @@ export async function safeQuery<T = Record<string, unknown>[]>(
   return (data ?? []) as T
 }
 
+/**
+ * paginatedSelect — drains a Supabase query past the 1000-row PostgREST cap.
+ *
+ * Supabase silently truncates `.select()` at 1000 rows. Every call site that
+ * needs a full-table scan has to loop with `.range(from, from + PAGE - 1)` and
+ * stop when a page returns less than the page size. This helper centralizes
+ * that loop so we can't accidentally use the wrong page size again (the
+ * historical PAGE=2000 bug that silently dropped half the rows).
+ *
+ * Pass a builder that takes (from, to) and returns the supabase query — the
+ * builder is invoked once per page so each call gets a fresh range.
+ *
+ *   const rows = await paginatedSelect<MyRow>(
+ *     (from, to) => supabase.from('player_game_logs')
+ *       .select('player_name, game_date, points')
+ *       .gte('game_date', cutoff)
+ *       .order('game_date', { ascending: false })
+ *       .range(from, to),
+ *     { context: 'load logs since cutoff' }
+ *   )
+ */
+export async function paginatedSelect<T = Record<string, unknown>>(
+  buildQuery: (from: number, to: number) => PromiseLike<{
+    data: T[] | null
+    error: { message: string; code?: string } | null
+  }>,
+  opts: { pageSize?: number; maxPages?: number; context?: string } = {},
+): Promise<T[]> {
+  const pageSize = opts.pageSize ?? 1000
+  const maxPages = opts.maxPages ?? 100  // 100k row safety cap by default
+  const context  = opts.context  ?? 'paginatedSelect'
+
+  const out: T[] = []
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * pageSize
+    const to   = from + pageSize - 1
+    const { data, error } = await buildQuery(from, to)
+    if (error) {
+      logger.error(`paginatedSelect [${context}]: ${error.message}`, { code: error.code })
+      throw new Error(`Supabase query failed (${context}): ${error.message}`)
+    }
+    if (!data || data.length === 0) break
+    out.push(...data)
+    if (data.length < pageSize) break
+    if (page === maxPages - 1) {
+      logger.warn(`paginatedSelect [${context}]: hit maxPages=${maxPages} cap — results may be truncated`)
+    }
+  }
+  return out
+}
+
 // Cache TTL: 1 hour in milliseconds — matches odds-api.io rate limit window
 export const CACHE_TTL_MS = 1 * 60 * 60 * 1000
 

@@ -7,6 +7,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireCronAuth } from '@/lib/api-auth'
 import type { GameLogRow } from '@/lib/espn-gamelogs'
 
 function getDb() {
@@ -37,6 +38,9 @@ async function searchEspnPlayer(name: string): Promise<{ id: string; displayName
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url = new URL(req.url)
   const playerName = url.searchParams.get('name')
   let espnId = url.searchParams.get('espnId')

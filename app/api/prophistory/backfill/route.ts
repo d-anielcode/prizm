@@ -12,12 +12,16 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 import { fetchHistoricalEventIds, fetchHistoricalEventProps, type HistoricalPropLine } from '@/lib/the-odds-api'
 import { dateRange } from '@/lib/espn-gamelogs'
 
 export const maxDuration = 60
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url    = new URL(req.url)
   const defaultStart = new Date(Date.now() - 45 * 86400000)
     .toLocaleDateString('en-CA', { timeZone: 'America/New_York' })

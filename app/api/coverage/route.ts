@@ -10,11 +10,15 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 import { getEspnVariants } from '@/lib/player-aliases'
 
 export const maxDuration = 60
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url    = new URL(req.url)
   const target = url.searchParams.get('target') ?? '2025-12-01'
 

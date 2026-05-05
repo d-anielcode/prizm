@@ -9,6 +9,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireCronAuth } from '@/lib/api-auth'
 
 export const maxDuration = 60
 
@@ -42,6 +43,9 @@ function toSeg(t: Tally): Segment {
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const db = getServiceClient()
   const { searchParams } = new URL(req.url)
   const days    = Math.min(Number(searchParams.get('days') ?? 30), 365)

@@ -16,6 +16,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase }     from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 import { TEAM_ABBR }    from '@/lib/team-abbr'
 import type { StatType } from '@/types'
 
@@ -87,6 +88,9 @@ interface SimParlay {
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url   = new URL(req.url)
   const days  = Math.min(90, Math.max(1, parseInt(url.searchParams.get('days') ?? '45')))
   const debug = url.searchParams.get('debug') === '1'
@@ -127,7 +131,7 @@ export async function GET(req: Request) {
   // Paginate to bypass Supabase's 1000-row PostgREST limit
   const logsRaw: Record<string, unknown>[] = []
   let page = 0
-  const PAGE_SIZE = 1000
+  const PAGE = 1000
   while (true) {
     const { data, error } = await supabase
       .from('player_game_logs')
@@ -135,11 +139,11 @@ export async function GET(req: Request) {
       .in('player_name', playerNames)
       .gte('game_date', logSinceStr)
       .order('game_date', { ascending: false })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+      .range(page * PAGE, (page + 1) * PAGE - 1)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!data || data.length === 0) break
     logsRaw.push(...(data as Record<string, unknown>[]))
-    if (data.length < PAGE_SIZE) break
+    if (data.length < PAGE) break
     page++
     if (page > 9) break  // safety cap at 10k rows
   }

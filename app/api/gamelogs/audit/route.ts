@@ -7,10 +7,14 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 
 export const maxDuration = 60
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url  = new URL(req.url)
   const days = parseInt(url.searchParams.get('days') ?? '14')
 

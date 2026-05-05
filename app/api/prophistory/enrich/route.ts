@@ -1,7 +1,8 @@
 // /api/prophistory/enrich
 //
 // Enriches historical prop lines from `historical_prop_lines` with the current
-// confidence model (v6.1) and saves the scored props to `prop_history`.
+// confidence model (see lib/confidence.ts — v11.0 at the time of last touch)
+// and saves the scored props to `prop_history`.
 //
 // Uses strictly prior game logs (no lookahead bias) — same guarantee as the backtest.
 // IDs are deterministic SHA-256 hashes of (player|stat|direction|game_date) so
@@ -18,6 +19,7 @@
 import { NextResponse }  from 'next/server'
 import { createHash }    from 'crypto'
 import { supabase }      from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 import { scoreProps, type PlayerLineBias, type OpponentStatLeak, type ScoringContext } from '@/lib/confidence'
 import type { Prop, StatType } from '@/types'
 
@@ -64,6 +66,9 @@ interface GameLogRow {
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url        = new URL(req.url)
   const dateParam  = url.searchParams.get('date')
   const startParam = url.searchParams.get('start')
@@ -79,16 +84,14 @@ export async function GET(req: Request) {
       let from = 0
       const PAGE = 1000
       while (true) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let q: any = supabase
+        let q = supabase
           .from('historical_prop_lines')
           .select('player_name, stat_type, direction, line, game_date, commence_time, odds, home_team, away_team, sportsbook')
           .order('game_date', { ascending: true })
-          .range(from, from + PAGE - 1)
         if (dateParam)  q = q.eq('game_date', dateParam)
         if (startParam) q = q.gte('game_date', startParam)
         if (endParam)   q = q.lte('game_date', endParam)
-        const { data: page, error } = await q
+        const { data: page, error } = await q.range(from, from + PAGE - 1)
         if (error) throw new Error(`historical_prop_lines read: ${error.message}`)
         if (!page || page.length === 0) break
         for (const row of page) propRows.push(row as HistPropRow)
@@ -102,16 +105,14 @@ export async function GET(req: Request) {
       let from = 0
       const PAGE = 1000
       while (true) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let q: any = supabase
+        let q = supabase
           .from('synthetic_prop_lines')
           .select('player_name, stat_type, direction, line, game_date, commence_time, home_team, away_team')
           .order('game_date', { ascending: true })
-          .range(from, from + PAGE - 1)
         if (dateParam)  q = q.eq('game_date', dateParam)
         if (startParam) q = q.gte('game_date', startParam)
         if (endParam)   q = q.lte('game_date', endParam)
-        const { data: page, error } = await q
+        const { data: page, error } = await q.range(from, from + PAGE - 1)
         if (error) { console.warn(`[prophistory/enrich] synthetic read: ${error.message}`); break }
         if (!page || page.length === 0) break
         for (const row of page) {

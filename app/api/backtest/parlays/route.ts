@@ -21,6 +21,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 
 export const maxDuration = 120
 
@@ -127,7 +128,10 @@ interface StrategyResult {
   perDate:         DayResult[]
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
   // ── 1. Load prop_grades (confidence + hit result) ─────────────────────────

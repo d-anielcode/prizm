@@ -1,7 +1,8 @@
 // /api/prophistory/reenrich
 //
-// Re-scores existing prop_history rows with the current confidence model (v6.2)
-// and writes updated labels back to prop_history, then auto-grades to prop_grades.
+// Re-scores existing prop_history rows with the current confidence model
+// (see lib/confidence.ts — v11.0 at the time of last touch) and writes updated
+// labels back to prop_history, then auto-grades to prop_grades.
 //
 // No API credits needed — reads entirely from prop_history + player_game_logs.
 //
@@ -11,6 +12,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireCronAuth } from '@/lib/api-auth'
 import { scoreProps, type GameLog, type PlayerLineBias, type OpponentStatLeak, type ScoringContext } from '@/lib/confidence'
 import type { Prop, StatType } from '@/types'
 
@@ -40,6 +42,9 @@ function getStatValue(log: GameLog, statType: StatType): number | null {
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   try {
     const db  = getServiceClient()
     const url = new URL(req.url)

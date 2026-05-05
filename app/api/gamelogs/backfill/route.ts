@@ -19,6 +19,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireCronAuth } from '@/lib/api-auth'
 import { fetchGameLogsFromESPN, dateRange } from '@/lib/espn-gamelogs'
 
 function getDb() {
@@ -38,6 +39,9 @@ function yesterday(): string {
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const db = getDb()
   const url = new URL(req.url)
   const start   = url.searchParams.get('start') ?? NBA_SEASON_START

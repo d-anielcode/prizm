@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireCronAuth } from '@/lib/api-auth'
 import { ESPN_TO_ODDS } from '@/lib/player-aliases'
 
 function getDb() {
@@ -28,6 +29,9 @@ function getDb() {
 export const maxDuration = 60
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url   = new URL(req.url)
   const apply = url.searchParams.get('apply') === '1'
   const db    = getDb()

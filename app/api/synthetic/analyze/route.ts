@@ -13,6 +13,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 
 export const maxDuration = 60
 
@@ -30,7 +31,10 @@ const STAT_COLUMN: Record<string, string> = {
   three_pointers: 'fg3m',
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   // ── 1. Sample historical_prop_lines (one line per player/stat/date) ──────────
   // We only need one direction since line is the same for over and under
   const propSample: Array<{

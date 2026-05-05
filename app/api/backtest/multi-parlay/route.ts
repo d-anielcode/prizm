@@ -17,6 +17,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 
 export const maxDuration = 120
 
@@ -222,6 +223,9 @@ const REAL_START = '2026-02-04'   // first date with real sportsbook prop lines
 const SYNTH_END  = '2026-02-03'   // last date with synthetic-only prop lines
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url          = new URL(req.url)
   const configFilter = url.searchParams.get('config')              // e.g. "3p_4l_pts_reb_3pm_LOCK_PLAY"
   const partial      = url.searchParams.get('partial') === 'true'  // play partial days

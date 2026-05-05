@@ -17,6 +17,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 import { scoreProps, type PlayerLineBias, type OpponentStatLeak, type ScoringContext } from '@/lib/confidence'
 import type { Prop, StatType } from '@/types'
 
@@ -64,6 +65,9 @@ interface TierStats {
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url  = new URL(req.url)
   const mode = (url.searchParams.get('mode') ?? 'combined') as 'real' | 'synthetic' | 'combined'
 

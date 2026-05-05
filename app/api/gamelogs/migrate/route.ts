@@ -9,6 +9,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireCronAuth } from '@/lib/api-auth'
 import { ESPN_TO_ODDS } from '@/lib/player-aliases'
 
 export const maxDuration = 60
@@ -31,7 +32,10 @@ const REVERSE_RENAMES: [string, string][] = [
   ['Jaime Jaquez Jr', 'Jaime Jaquez Jr.'], // stripped period incorrectly
 ]
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const db = getDb()
 
   // Build a deduplicated list of (espnName → oddsName) pairs where they differ

@@ -14,6 +14,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 import { dateRange } from '@/lib/espn-gamelogs'
 
 export const maxDuration = 60
@@ -81,6 +82,9 @@ function roundHalf(v: number): number {
 }
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url   = new URL(req.url)
   const start = url.searchParams.get('start') ?? '2025-12-01'
   const end   = url.searchParams.get('end')   ?? '2026-02-03'

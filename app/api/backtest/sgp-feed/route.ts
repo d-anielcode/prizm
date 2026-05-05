@@ -18,6 +18,7 @@
 
 import { NextResponse }   from 'next/server'
 import { supabase }       from '@/lib/supabase'
+import { requireCronAuth } from '@/lib/api-auth'
 import { TEAM_ABBR }      from '@/lib/team-abbr'
 import { scoreProps, type PlayerLineBias, type OpponentStatLeak, type ScoringContext } from '@/lib/confidence'
 import type { Prop, StatType } from '@/types'
@@ -144,6 +145,9 @@ interface DayResult {
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const url  = new URL(req.url)
   const days = Math.min(90, Math.max(1, parseInt(url.searchParams.get('days') ?? '45', 10)))
 

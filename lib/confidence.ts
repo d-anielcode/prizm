@@ -229,10 +229,10 @@ export interface ScoredProp extends Prop {
 //   restDays ↑↑     — rest-adjusted performance is a surprisingly strong predictor
 //   matchupEdge ↑   — defensive matchup still meaningful for scoring
 //   blowout ↑       — garbage time kills points props (blowout risk is real)
-// Weights v7.0 — PIT (point-in-time) backtest optimized, 40-day real props, no look-ahead bias.
-// Method: 5k Dirichlet random search per stat on unbiased factors, blended 50/50 with
-// prior reasoning-based weights to avoid overfitting (only 15–35 LOCK samples per stat).
-// Thresholds raised from calibration: real-data calibration showed scores <70 are ~50% hit rate.
+// Weights v11.0 — Diagnostic-driven retune over 71k graded props.
+// Predecessor: v7.0 PIT (point-in-time) Dirichlet search, blended 50/50 with prior reasoning weights.
+// v11 changes: trend halved (anti-correlated AUC 0.490), restDays dropped to 0.01 (p=0.279),
+// freed weight redistributed to last20HitRate (60%) + homeAway (40%). All sets sum to 1.00.
 
 // Points: last20HitRate dominant after v11 rebalance; trend+restDays demoted (diagnostic: anti-correlated/no signal).
 const W_POINTS = {
@@ -1250,19 +1250,16 @@ export function scoreProps(
 }
 
 // ── Label thresholds ──────────────────────────────────────────────────────────
-// v6.0 tiers (NBA betting-themed, 4 levels):
-//   LOCK  (≥68): elite picks — strongest log-based signal
-//   PLAY  (60–67): high confidence
-//   LEAN  (50–59): moderate signal
+// Tiers (NBA betting-themed, 4 levels) — current as of v11.0:
+//   LOCK  (≥74): elite picks — strongest log-based signal (base threshold v6→v7→v11: 68→72→74)
+//   PLAY  (≥68): high confidence (base v11: 66→68)
+//   LEAN  (50–67): moderate signal
 //   FADE  (<50):  model leans against
 //
-// Stat-specific LOCK thresholds — v7.0, derived from PIT calibration:
-//   Real-data calibration shows scores 65-69 hit at ~49% (coin flip).
-//   Scores 70-74 hit at 68%, 75-79 at 63%, 80+ at 64%+.
-//   Base LOCK raised from 68 → 72 across all stats.
-//   Rebounds/steals raised further — PIT backtest showed 30-35% hit rate at prior thresholds.
-//
-// PLAY thresholds: LOCK - 6 (tighter band to keep PLAY meaningful).
+// Stat-specific LOCK thresholds — last touched in v11 from diagnostic-pipeline LOCK hit rates.
+// History: v7 PIT calibration raised base LOCK 68→72 (scores 65-69 hit ~49% = coin flip).
+// v11 raised assists/blocks/3PM further after diagnostic showed sub-55% LOCK rates at v7 levels.
+// PLAY thresholds: LOCK − 4 to − 6 (tighter band keeps PLAY meaningful).
 const LOCK_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
   assists:        78,  // v11: raised from 74 — 50.0% on 14 LOCKs was unacceptable
   pra:            78,  // v10: 72.7% — keep at 78
