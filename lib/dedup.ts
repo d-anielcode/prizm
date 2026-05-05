@@ -1,16 +1,40 @@
-// Shared prop deduplication logic — groups alt lines by player+stat+direction
+// Shared prop deduplication logic — collapses multi-book quotes for the same
+// (player, stat, direction) into one main prop with the rest as alt lines.
+//
+// Selection rule (post-2026-05): pick the BEST LINE FOR THE DIRECTION at
+// reasonable juice as the main, not the canonical/most-common line. Lower
+// line = easier OVER hit; higher line = easier UNDER hit. The diagnostic
+// pipeline (Module 6, model_diagnostic.py) showed that scoring against the
+// best available line vs a worse-line book is worth ~12 percentage points
+// of hit rate on the 19% of multi-book props where the lines disagree.
+//
+// Trade-off: OVER and UNDER for the same (player, stat) may now display at
+// DIFFERENT lines (e.g. OVER 24.5 / UNDER 25.5) because each side's "best"
+// is different. That's intentional — it reflects honest line-shopping.
 
 import type { Prop, PropWithAlts, AltLine } from '@/types'
 
-/**
- * Groups props by player+stat+direction.
- * Within each group, the "main" line is determined by the canonical line —
- * the line that appears in BOTH over AND under at closest to -110 odds.
- * This ensures OVER and UNDER always share the same main line (e.g. both at 9.5,
- * not OVER 9.5 / UNDER 4.5 which are alt lines at different values).
- */
+/** Reasonable book juice — outside this band the line is alt-priced and unreliable. */
+function isReasonableJuice(odds: number | null | undefined): boolean {
+  if (odds == null) return false
+  const abs = Math.abs(odds)
+  return abs >= 100 && abs <= 150
+}
+
+/** distance from -110 (the standard juice) — used as a tiebreaker. */
+function distTo110(odds: number | null | undefined): number {
+  if (odds == null) return Infinity
+  return Math.abs(Math.abs(odds) - 110)
+}
+
+/** A is "more favorable" than B for the given direction. */
+function isBetterLine(direction: 'over' | 'under', a: number, b: number): boolean {
+  return direction === 'over' ? a < b : a > b
+}
+
 export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
-  // Step 1: dedupe exact duplicates (same player|stat|line|direction|sportsbook)
+  // Step 1: drop exact duplicates (same player|stat|line|direction|sportsbook).
+  // When duplicates exist, keep the higher-confidence one.
   const exactSeen = new Map<string, Prop>()
   for (const prop of props) {
     const key = `${prop.player_name}|${prop.stat_type}|${prop.line}|${prop.direction}|${prop.sportsbook}`
@@ -20,60 +44,8 @@ export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
     }
   }
 
-  // Step 2: find canonical line per player+stat.
-  // The canonical line is what the sportsbook uses for the "main" prop —
-  // the same line appears in both OVER and UNDER at ~-110 juice.
-  const byPlayerStat = new Map<string, { over: Prop[]; under: Prop[] }>()
-  for (const prop of exactSeen.values()) {
-    const key = `${prop.player_name}|${prop.stat_type}`
-    if (!byPlayerStat.has(key)) byPlayerStat.set(key, { over: [], under: [] })
-    byPlayerStat.get(key)![prop.direction as 'over' | 'under'].push(prop)
-  }
-
-  // distTo110 for group sort tiebreakers — null treated as -110 (unknown odds ≈ fair line)
-  function distTo110(odds: number | undefined) {
-    return Math.abs(Math.abs(odds ?? -110) - 110)
-  }
-
-  // distTo110 for canonical detection — null treated as Infinity so N/A lines never win
-  function distTo110Real(odds: number | undefined | null): number {
-    if (odds == null) return Infinity
-    return Math.abs(Math.abs(odds) - 110)
-  }
-
-  const canonicalLine = new Map<string, number>() // "player|stat" → canonical line value
-  for (const [key, { over, under }] of byPlayerStat) {
-    if (over.length === 0) continue
-
-    if (under.length > 0) {
-      // Prefer a line that appears in BOTH directions — that's the sportsbook main line
-      const overLineSet = new Set(over.map((p) => p.line))
-      const sharedLines = under.filter((p) => overLineSet.has(p.line)).map((p) => p.line)
-
-      if (sharedLines.length > 0) {
-        // Among shared lines, pick the one where the over is closest to -110.
-        // Use distTo110Real so that N/A entries (null odds) never beat real odds.
-        const best = sharedLines.sort((a, b) => {
-          const oA = over.find((p) => p.line === a)
-          const oB = over.find((p) => p.line === b)
-          return distTo110Real(oA?.odds) - distTo110Real(oB?.odds)
-        })[0]
-        canonicalLine.set(key, best)
-        continue
-      }
-    }
-
-    // No shared lines (or no under props) — fall back to over line closest to -110.
-    // Skip null-odds (N/A) lines; only fall back to them if no real odds exist.
-    const mainOver = [...over].sort((a, b) => distTo110Real(a.odds) - distTo110Real(b.odds))[0]
-    canonicalLine.set(key, mainOver.line)
-  }
-
-  // Step 3: group by player+stat+direction, pick main = canonical line.
-  // For UNDER props the API often omits the standard line and only returns low
-  // alt lines with missing odds. If no exact match exists for the canonical line,
-  // fall back to the UNDER line numerically closest to the canonical value so
-  // OVER 9.5 / UNDER 9.5 (or 8.5) are shown rather than OVER 9.5 / UNDER 4.5.
+  // Step 2: group by (player, stat, direction). Each group will become one
+  // PropWithAlts: the best-line entry as main, the rest as altLines.
   const groups = new Map<string, Prop[]>()
   for (const prop of exactSeen.values()) {
     const key = `${prop.player_name}|${prop.stat_type}|${prop.direction}`
@@ -81,31 +53,37 @@ export function deduplicatePropsWithAlts(props: Prop[]): PropWithAlts[] {
     groups.get(key)!.push(prop)
   }
 
+  // Step 3: within each group, sort so the best-line/reasonable-juice prop is first.
+  // Sort precedence:
+  //   1. Has reasonable juice (real line, not alt-priced).
+  //   2. Best line value for the direction (lowest for OVER, highest for UNDER).
+  //   3. Odds closest to -110 (standard juice).
+  //   4. Highest confidence score.
   const result: PropWithAlts[] = []
-  for (const [groupKey, group] of groups) {
-    const psKey = groupKey.split('|').slice(0, 2).join('|') // "player|stat"
-    const canon = canonicalLine.get(psKey)
+  for (const [, group] of groups) {
+    if (group.length === 0) continue
+    const direction = group[0].direction as 'over' | 'under'
 
-    // Sort: canonical line first, then by numerical proximity to canonical (for
-    // under groups where canonical line may not exist), then by proximity to -110,
-    // then confidence.
     group.sort((a, b) => {
-      const aCanon = a.line === canon ? 0 : 1
-      const bCanon = b.line === canon ? 0 : 1
-      if (aCanon !== bCanon) return aCanon - bCanon
-      // If no canonical match, prefer line closest in value to canonical
-      if (canon !== undefined) {
-        const numDistDiff = Math.abs(a.line - canon) - Math.abs(b.line - canon)
-        if (numDistDiff !== 0) return numDistDiff
+      const aJuice = isReasonableJuice(a.odds)
+      const bJuice = isReasonableJuice(b.odds)
+      if (aJuice !== bJuice) return aJuice ? -1 : 1
+
+      // Best-line preference (only meaningful when both have real juice — otherwise
+      // we'd be biased toward whichever side has more null-odds entries).
+      if (aJuice && bJuice && a.line !== b.line) {
+        return isBetterLine(direction, a.line, b.line) ? -1 : 1
       }
-      const distDiff = distTo110Real(a.odds) - distTo110Real(b.odds)
-      if (distDiff !== 0) return distDiff
+
+      const dist = distTo110(a.odds) - distTo110(b.odds)
+      if (dist !== 0) return dist
+
       return (b.confidence_score ?? 0) - (a.confidence_score ?? 0)
     })
 
     const [main, ...rest] = group
     const altLines: AltLine[] = rest
-      .filter((p) => p.line !== main.line)
+      .filter((p) => p.line !== main.line || p.sportsbook !== main.sportsbook)
       .map((p): AltLine => ({
         line:             p.line,
         direction:        p.direction,

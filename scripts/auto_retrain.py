@@ -311,13 +311,44 @@ def recalibrate_over_bias(grades):
     return bias
 
 
+def _normalize_previous_weights(prev):
+    """`previous_weights` has shipped in two shapes over the project's life:
+       legacy:  { points: {...}, rebounds: {...}, ... }
+       current: { weights: {points: {...}, ...}, lock_thresholds: {...}, ... }
+    Normalize both to the current shape so rollback can read a single layout.
+    Returns None if the dict is empty / clearly not weights."""
+    if not prev:
+        return None
+    if 'weights' in prev and isinstance(prev['weights'], dict):
+        return prev
+    if any(stat in prev for stat in ('points', 'rebounds', 'assists', 'three_pointers', 'pra', 'steals', 'blocks')):
+        return {
+            'weights': prev,
+            'lock_thresholds': {},
+            'play_thresholds': {},
+            'over_bias': {},
+        }
+    return None
+
+
 def check_rollback(config, recent_grades, logs_by_player, def_stats_map):
     """
-    Pre-flight: if last week's retrained weights degraded LOCK accuracy by >5pp,
-    roll back to previous_weights.
+    Pre-flight: if last week's retrained weights *materially* degraded LOCK
+    accuracy, roll back to previous_weights.
+
+    Decision rule (post-2026-05): the UPPER 95% bootstrap CI of recent LOCK
+    accuracy must fall below baseline - 3pp. This means we're 95% confident
+    the model has gotten worse, not just unlucky. Plus a hard min-n=50 LOCK
+    floor — anything less is sampling noise (the previous n>=10 floor was
+    triggering rollbacks on a single bad week).
+
     Returns True if rollback was performed.
     """
-    if not config or not config.get('previous_weights'):
+    if not config:
+        return False
+
+    prev = _normalize_previous_weights(config.get('previous_weights'))
+    if not prev:
         return False
 
     last_retrained = config.get('last_retrained', '')
@@ -336,27 +367,39 @@ def check_rollback(config, recent_grades, logs_by_player, def_stats_map):
         print(f"  Rollback check: only {len(cases)} recent cases, skipping.")
         return False
 
-    cur_lock_hr, _, cur_lock_n, _ = score_cases(
+    cur_locks, _ = score_cases_arrays(
         cases, config['weights'],
         config.get('lock_thresholds', {}),
         config.get('play_thresholds', {}),
         config.get('base_lock_threshold', 74),
         config.get('base_play_threshold', 68),
     )
+    cur_lock_n = len(cur_locks)
 
-    drop = baseline_lock - cur_lock_hr
-    print(f"  Rollback check: baseline LOCK={baseline_lock:.1%}, actual={cur_lock_hr:.1%} (n={cur_lock_n}), drop={drop:+.1%}")
+    if cur_lock_n < 50:
+        # Hard min-n: 50 LOCKs over 7 days is a reasonable threshold.
+        # 16 LOCKs (the old n=10 floor) is dominated by sampling noise.
+        cur_lock_hr = sum(cur_locks) / cur_lock_n if cur_lock_n else 0.0
+        print(f"  Rollback check: only {cur_lock_n} recent LOCK predictions (need 50+), skipping. "
+              f"baseline={baseline_lock:.1%} actual={cur_lock_hr:.1%}")
+        return False
 
-    if drop > 0.05 and cur_lock_n >= 10:
-        print(f"  ROLLBACK: LOCK accuracy dropped {drop:.1%} (>5pp threshold)")
-        prev = config['previous_weights']
-        config['weights'] = prev['weights']
-        config['lock_thresholds'] = prev.get('lock_thresholds', {})
-        config['play_thresholds'] = prev.get('play_thresholds', {})
-        config['over_bias'] = prev.get('over_bias', {})
+    cur_lock_hr, lo, hi = bootstrap_ci(cur_locks)
+    print(f"  Rollback check: baseline LOCK={baseline_lock:.1%} | "
+          f"actual={cur_lock_hr:.1%} [{lo:.1%}, {hi:.1%}] (n={cur_lock_n})")
+
+    # Roll back only if the UPPER 95% CI of recent LOCK is materially below
+    # baseline. "Materially" = 3pp, slightly tighter than the old 5pp drop on
+    # the point estimate (because the upper-CI gate is already conservative).
+    if hi < baseline_lock - 0.03:
+        print(f"  ROLLBACK: upper-CI {hi:.1%} < baseline {baseline_lock:.1%} - 3pp = {baseline_lock - 0.03:.1%}")
+        config['weights']          = prev['weights']
+        config['lock_thresholds']  = prev.get('lock_thresholds', config.get('lock_thresholds', {}))
+        config['play_thresholds']  = prev.get('play_thresholds', config.get('play_thresholds', {}))
+        config['over_bias']        = prev.get('over_bias', config.get('over_bias', {}))
         config['previous_weights'] = None
-        config['version'] = config.get('previous_version', config['version']) + '-rollback'
-        config['last_retrained'] = datetime.now(timezone.utc).isoformat()
+        config['version']          = (config.get('previous_version') or config['version']) + '-rollback'
+        config['last_retrained']   = datetime.now(timezone.utc).isoformat()
         with open(JSON_PATH, 'w') as f:
             json.dump(config, f, indent=2)
         print(f"  Rolled back to {config['version']}. Skipping retraining this week.")
