@@ -1,6 +1,15 @@
-// Prizm Confidence Engine v11.0
+// Prizm Confidence Engine v11.1
 //
-// v11.0 — Data-driven tuning from diagnostic pipeline (71k graded props, 119 game days):
+// v11.1 — Manual retune from diagnostic_report.json (71k graded props, 119 game days):
+//   1. trend zeroed (was 0.01–0.07): AUC 0.490, corr -0.018, p=3e-6 over n=69,681 — anti-correlated.
+//   2. restDays zeroed (was 0.01): AUC 0.496, p=0.279 — pure noise.
+//   3. Freed weight (3–8 pp per stat) folded into last20HitRate.
+//   4. Over-bias tightened on volatile stats:
+//        three_pointers -3 → -7 (LOCK hit 48.9% on n=45 — worse than its own PLAY tier at 62.4%)
+//        steals          -7 → -10 (under 61.7% vs over 42.7% — Δ19 pts)
+//        blocks          -6 → -8  (under 56.3% vs over 44.0% — Δ12 pts)
+//
+// v11.0 (preserved for history):
 //   1. Weights: trend halved (anti-correlated AUC 0.490), restDays dropped to 0.01 (p=0.279)
 //      Freed weight redistributed to last20HitRate (60%) and homeAway (40%). All sets sum 1.00.
 //   2. Over bias: stat-specific (steals -7, blocks -6, reb/ast/pra -4, pts/3PM -3)
@@ -27,7 +36,7 @@
 //   - minutesUncertaintyPenalty: −4/−8 pts for fringe/bench players (avg < 24/20 min);
 //                               additional −3 pts if minute variance stdev > 6 min.
 //                               Prevents bench players from reaching LOCK/PLAY without dominant signal.
-//   - overBiasAdj:            −3 to −7 pts for OVER props (stat-specific in v11).
+//   - overBiasAdj:            −3 to −10 pts for OVER props (stat-specific, v11.1).
 //                               Steals −7, blocks −6, reb/ast/pra −4, pts/3PM −3.
 //   - lineMovAdj:              ±2–6 pts for sharp money signal (line value movement vs pick direction)
 //   - oddsMovAdj:              ±3–7 pts for odds movement (P(over) shift ≥3pp since morning snapshot)
@@ -229,111 +238,111 @@ export interface ScoredProp extends Prop {
 //   restDays ↑↑     — rest-adjusted performance is a surprisingly strong predictor
 //   matchupEdge ↑   — defensive matchup still meaningful for scoring
 //   blowout ↑       — garbage time kills points props (blowout risk is real)
-// Weights v11.0 — Diagnostic-driven retune over 71k graded props.
-// Predecessor: v7.0 PIT (point-in-time) Dirichlet search, blended 50/50 with prior reasoning weights.
-// v11 changes: trend halved (anti-correlated AUC 0.490), restDays dropped to 0.01 (p=0.279),
-// freed weight redistributed to last20HitRate (60%) + homeAway (40%). All sets sum to 1.00.
+// Weights v11.1 — Manual retune zeroing trend + restDays based on diagnostic AUC.
+// Predecessor: v11.0 (Apr 12 retrain), v7.0 PIT (point-in-time) Dirichlet search before that.
+// trend (AUC 0.490 anti-correlated) and restDays (AUC 0.496 noise) both zeroed; freed
+// 3–8 pp per stat folded into last20HitRate. All sets sum to 1.00.
 
-// Points: last20HitRate dominant after v11 rebalance; trend+restDays demoted (diagnostic: anti-correlated/no signal).
+// Points: last20HitRate dominant after v11.1 rebalance; trend+restDays zeroed.
 const W_POINTS = {
   lineValue:      0.07,
   matchupEdge:    0.02,
-  last20HitRate:  0.24,
-  trend:          0.03,
+  last20HitRate:  0.28,
+  trend:          0.00,
   seasonCushion:  0.10,
   pace:           0.17,
   newsInjury:     0.13,
-  restDays:       0.01,
+  restDays:       0.00,
   blowout:        0.08,
   homeAway:       0.13,
   vsOpponent:     0.02,
 }
 
-// Rebounds: homeAway confirmed dominant (5th consecutive run). trend+restDays demoted.
+// Rebounds: homeAway confirmed dominant (5th consecutive run). trend+restDays zeroed in v11.1.
 const W_REBOUNDS = {
   lineValue:      0.02,
   matchupEdge:    0.03,
-  last20HitRate:  0.10,
-  trend:          0.01,
+  last20HitRate:  0.12,
+  trend:          0.00,
   seasonCushion:  0.04,
   pace:           0.08,
   newsInjury:     0.13,
-  restDays:       0.01,
+  restDays:       0.00,
   blowout:        0.04,
   homeAway:       0.52,
   vsOpponent:     0.02,
 }
 
-// Assists: seasonCushion dominates; vsOpponent confirmed strong. trend+restDays demoted.
+// Assists: seasonCushion dominates; vsOpponent confirmed strong. trend+restDays zeroed in v11.1.
 const W_ASSISTS = {
   lineValue:      0.05,
   matchupEdge:    0.04,
-  last20HitRate:  0.06,
-  trend:          0.02,
+  last20HitRate:  0.09,
+  trend:          0.00,
   seasonCushion:  0.26,
   pace:           0.13,
   newsInjury:     0.09,
-  restDays:       0.01,
+  restDays:       0.00,
   blowout:        0.06,
   homeAway:       0.12,
   vsOpponent:     0.16,
 }
 
-// PRA: seasonCushion + homeAway dominate composite totals. trend+restDays demoted.
+// PRA: seasonCushion + homeAway dominate composite totals. trend+restDays zeroed in v11.1.
 const W_PRA = {
   lineValue:      0.04,
   matchupEdge:    0.07,
-  last20HitRate:  0.02,
-  trend:          0.03,
+  last20HitRate:  0.06,
+  trend:          0.00,
   seasonCushion:  0.25,
   pace:           0.02,
   newsInjury:     0.06,
-  restDays:       0.01,
+  restDays:       0.00,
   blowout:        0.13,
   homeAway:       0.30,
   vsOpponent:     0.07,
 }
 
-// Blocks: seasonCushion dominant; matchupEdge meaningful via DVP. trend halved, restDays demoted.
+// Blocks: seasonCushion dominant; matchupEdge meaningful via DVP. trend (was 0.07) + restDays zeroed in v11.1 — biggest single redistribution.
 const W_BLOCKS = {
   lineValue:      0.02,
   matchupEdge:    0.13,
-  last20HitRate:  0.11,
-  trend:          0.07,
+  last20HitRate:  0.19,
+  trend:          0.00,
   seasonCushion:  0.25,
   pace:           0.06,
   newsInjury:     0.10,
-  restDays:       0.01,
+  restDays:       0.00,
   blowout:        0.03,
   homeAway:       0.15,
   vsOpponent:     0.07,
 }
 
-// Steals: seasonCushion dominant; vsOpponent strong. trend+restDays demoted.
+// Steals: seasonCushion dominant; vsOpponent strong. trend+restDays zeroed in v11.1.
 const W_STEALS = {
   lineValue:      0.11,
   matchupEdge:    0.03,
-  last20HitRate:  0.13,
-  trend:          0.02,
+  last20HitRate:  0.16,
+  trend:          0.00,
   seasonCushion:  0.29,
   pace:           0.10,
   newsInjury:     0.07,
-  restDays:       0.01,
+  restDays:       0.00,
   blowout:        0.03,
   homeAway:       0.04,
   vsOpponent:     0.17,
 }
 
-// Three-pointers: matchupEdge strongest (DVP confirmed); homeAway elevated. trend+restDays demoted.
+// Three-pointers: matchupEdge strongest (DVP confirmed); homeAway elevated. trend+restDays zeroed in v11.1.
 const W_THREE_POINTERS = {
   lineValue:      0.07,
   matchupEdge:    0.22,
-  last20HitRate:  0.12,
-  trend:          0.03,
+  last20HitRate:  0.16,
+  trend:          0.00,
   seasonCushion:  0.09,
   pace:           0.04,
   newsInjury:     0.06,
-  restDays:       0.01,
+  restDays:       0.00,
   blowout:        0.07,
   homeAway:       0.25,
   vsOpponent:     0.04,
@@ -1194,9 +1203,11 @@ export function scoreProps(
   // for this stat exceeds 55%. If the model isn't over-predicting overs, the
   // penalty would destroy calibrated edge.
   const _obConfig = loadWeightConfig()
+  // v11.1 retune (2026-05-05): tightened steals/blocks/3PM after diagnostic showed
+  // large under > over asymmetry on volatile stats; pts/reb/ast/pra unchanged.
   const OVER_BIAS_DEFAULTS: Record<StatType, number> = {
     points: -3, rebounds: -4, assists: -4,
-    steals: -7, blocks: -6, three_pointers: -3, pra: -4,
+    steals: -10, blocks: -8, three_pointers: -7, pra: -4,
   }
   const OVER_BIAS_GATE = 0.55  // only penalize if model's over hit rate > 55%
   let overBiasAdj = 0

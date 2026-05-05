@@ -1,6 +1,7 @@
 {
-  "version": "v11.0",
+  "version": "v11.1",
   "last_retrained": "2026-04-12T00:00:00Z",
+  "last_manual_retune": "2026-05-05T00:00:00Z",
   "data_window": {
     "start": "2025-12-01",
     "end": "2026-04-10",
@@ -12,15 +13,23 @@
     "play": 0.584,
     "overall": 0.516
   },
-  "previous_version": null,
+  "previous_version": "v11.0",
+  "retune_notes": [
+    "trend zeroed across all stats — diagnostic AUC 0.490, corr -0.018, p=3e-6 over n=69,681 (anti-correlated)",
+    "restDays zeroed — diagnostic AUC 0.496, p=0.279 (pure noise)",
+    "freed weight redistributed to last20HitRate per stat",
+    "over-bias tightened: three_pointers -3 -> -7 (LOCK 48.9% on n=45 — broken)",
+    "over-bias tightened: steals -7 -> -10 (under hits 61.7% vs over 42.7%)",
+    "over-bias tightened: blocks -6 -> -8 (under 56.3% vs over 44.0%)"
+  ],
   "weights": {
-    "points":         { "lineValue": 0.07, "matchupEdge": 0.02, "last20HitRate": 0.24, "trend": 0.03, "seasonCushion": 0.10, "pace": 0.17, "newsInjury": 0.13, "restDays": 0.01, "blowout": 0.08, "homeAway": 0.13, "vsOpponent": 0.02 },
-    "rebounds":       { "lineValue": 0.02, "matchupEdge": 0.03, "last20HitRate": 0.10, "trend": 0.01, "seasonCushion": 0.04, "pace": 0.08, "newsInjury": 0.13, "restDays": 0.01, "blowout": 0.04, "homeAway": 0.52, "vsOpponent": 0.02 },
-    "assists":        { "lineValue": 0.05, "matchupEdge": 0.04, "last20HitRate": 0.06, "trend": 0.02, "seasonCushion": 0.26, "pace": 0.13, "newsInjury": 0.09, "restDays": 0.01, "blowout": 0.06, "homeAway": 0.12, "vsOpponent": 0.16 },
-    "pra":            { "lineValue": 0.04, "matchupEdge": 0.07, "last20HitRate": 0.02, "trend": 0.03, "seasonCushion": 0.25, "pace": 0.02, "newsInjury": 0.06, "restDays": 0.01, "blowout": 0.13, "homeAway": 0.30, "vsOpponent": 0.07 },
-    "blocks":         { "lineValue": 0.02, "matchupEdge": 0.13, "last20HitRate": 0.11, "trend": 0.07, "seasonCushion": 0.25, "pace": 0.06, "newsInjury": 0.10, "restDays": 0.01, "blowout": 0.03, "homeAway": 0.15, "vsOpponent": 0.07 },
-    "steals":         { "lineValue": 0.11, "matchupEdge": 0.03, "last20HitRate": 0.13, "trend": 0.02, "seasonCushion": 0.29, "pace": 0.10, "newsInjury": 0.07, "restDays": 0.01, "blowout": 0.03, "homeAway": 0.04, "vsOpponent": 0.17 },
-    "three_pointers": { "lineValue": 0.07, "matchupEdge": 0.22, "last20HitRate": 0.12, "trend": 0.03, "seasonCushion": 0.09, "pace": 0.04, "newsInjury": 0.06, "restDays": 0.01, "blowout": 0.07, "homeAway": 0.25, "vsOpponent": 0.04 }
+    "points":         { "lineValue": 0.07, "matchupEdge": 0.02, "last20HitRate": 0.28, "trend": 0.00, "seasonCushion": 0.10, "pace": 0.17, "newsInjury": 0.13, "restDays": 0.00, "blowout": 0.08, "homeAway": 0.13, "vsOpponent": 0.02 },
+    "rebounds":       { "lineValue": 0.02, "matchupEdge": 0.03, "last20HitRate": 0.12, "trend": 0.00, "seasonCushion": 0.04, "pace": 0.08, "newsInjury": 0.13, "restDays": 0.00, "blowout": 0.04, "homeAway": 0.52, "vsOpponent": 0.02 },
+    "assists":        { "lineValue": 0.05, "matchupEdge": 0.04, "last20HitRate": 0.09, "trend": 0.00, "seasonCushion": 0.26, "pace": 0.13, "newsInjury": 0.09, "restDays": 0.00, "blowout": 0.06, "homeAway": 0.12, "vsOpponent": 0.16 },
+    "pra":            { "lineValue": 0.04, "matchupEdge": 0.07, "last20HitRate": 0.06, "trend": 0.00, "seasonCushion": 0.25, "pace": 0.02, "newsInjury": 0.06, "restDays": 0.00, "blowout": 0.13, "homeAway": 0.30, "vsOpponent": 0.07 },
+    "blocks":         { "lineValue": 0.02, "matchupEdge": 0.13, "last20HitRate": 0.19, "trend": 0.00, "seasonCushion": 0.25, "pace": 0.06, "newsInjury": 0.10, "restDays": 0.00, "blowout": 0.03, "homeAway": 0.15, "vsOpponent": 0.07 },
+    "steals":         { "lineValue": 0.11, "matchupEdge": 0.03, "last20HitRate": 0.16, "trend": 0.00, "seasonCushion": 0.29, "pace": 0.10, "newsInjury": 0.07, "restDays": 0.00, "blowout": 0.03, "homeAway": 0.04, "vsOpponent": 0.17 },
+    "three_pointers": { "lineValue": 0.07, "matchupEdge": 0.22, "last20HitRate": 0.16, "trend": 0.00, "seasonCushion": 0.09, "pace": 0.04, "newsInjury": 0.06, "restDays": 0.00, "blowout": 0.07, "homeAway": 0.25, "vsOpponent": 0.04 }
   },
   "lock_thresholds": {
     "points": 74, "rebounds": 74, "assists": 78, "pra": 78,
@@ -34,7 +43,15 @@
   "base_play_threshold": 68,
   "over_bias": {
     "points": -3, "rebounds": -4, "assists": -4,
-    "steals": -7, "blocks": -6, "three_pointers": -3, "pra": -4
+    "steals": -10, "blocks": -8, "three_pointers": -7, "pra": -4
   },
-  "previous_weights": null
+  "previous_weights": {
+    "points":         { "lineValue": 0.07, "matchupEdge": 0.02, "last20HitRate": 0.24, "trend": 0.03, "seasonCushion": 0.10, "pace": 0.17, "newsInjury": 0.13, "restDays": 0.01, "blowout": 0.08, "homeAway": 0.13, "vsOpponent": 0.02 },
+    "rebounds":       { "lineValue": 0.02, "matchupEdge": 0.03, "last20HitRate": 0.10, "trend": 0.01, "seasonCushion": 0.04, "pace": 0.08, "newsInjury": 0.13, "restDays": 0.01, "blowout": 0.04, "homeAway": 0.52, "vsOpponent": 0.02 },
+    "assists":        { "lineValue": 0.05, "matchupEdge": 0.04, "last20HitRate": 0.06, "trend": 0.02, "seasonCushion": 0.26, "pace": 0.13, "newsInjury": 0.09, "restDays": 0.01, "blowout": 0.06, "homeAway": 0.12, "vsOpponent": 0.16 },
+    "pra":            { "lineValue": 0.04, "matchupEdge": 0.07, "last20HitRate": 0.02, "trend": 0.03, "seasonCushion": 0.25, "pace": 0.02, "newsInjury": 0.06, "restDays": 0.01, "blowout": 0.13, "homeAway": 0.30, "vsOpponent": 0.07 },
+    "blocks":         { "lineValue": 0.02, "matchupEdge": 0.13, "last20HitRate": 0.11, "trend": 0.07, "seasonCushion": 0.25, "pace": 0.06, "newsInjury": 0.10, "restDays": 0.01, "blowout": 0.03, "homeAway": 0.15, "vsOpponent": 0.07 },
+    "steals":         { "lineValue": 0.11, "matchupEdge": 0.03, "last20HitRate": 0.13, "trend": 0.02, "seasonCushion": 0.29, "pace": 0.10, "newsInjury": 0.07, "restDays": 0.01, "blowout": 0.03, "homeAway": 0.04, "vsOpponent": 0.17 },
+    "three_pointers": { "lineValue": 0.07, "matchupEdge": 0.22, "last20HitRate": 0.12, "trend": 0.03, "seasonCushion": 0.09, "pace": 0.04, "newsInjury": 0.06, "restDays": 0.01, "blowout": 0.07, "homeAway": 0.25, "vsOpponent": 0.04 }
+  }
 }
