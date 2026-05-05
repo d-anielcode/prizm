@@ -8,8 +8,13 @@
 import type { Prop, StatType, Direction } from '@/types'
 
 const BASE_URL = 'https://api.odds-api.io/v3'
-const API_KEY = process.env.ODDS_API_IO_KEY
-if (!API_KEY) throw new Error('Missing ODDS_API_IO_KEY environment variable')
+// Deferred env-var check — module-init throws break Next 16 build-time
+// page-data collection on Vercel (build env doesn't have runtime secrets).
+function apiKey(): string {
+  const k = process.env.ODDS_API_IO_KEY
+  if (!k) throw new Error('Missing ODDS_API_IO_KEY environment variable')
+  return k
+}
 const BOOKMAKERS = 'DraftKings,FanDuel'
 
 // Map stat type strings in labels → our StatType
@@ -67,7 +72,7 @@ export type EventWithProps = IOEventWithOdds & { home_team: string; away_team: s
 // the nearest game date only — prevents processing 100+ events across 14 days,
 // which causes timeouts and incorrect line selection via cross-day dedup collisions.
 export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
-  const url = `${BASE_URL}/events?apiKey=${API_KEY}&sport=basketball&league=usa-nba&status=pending`
+  const url = `${BASE_URL}/events?apiKey=${apiKey()}&sport=basketball&league=usa-nba&status=pending`
   const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) throw new Error(`odds-api.io events failed: ${res.status} ${await res.text()}`)
 
@@ -105,7 +110,7 @@ export async function fetchAllPropsForEvents(events: NBAEvent[]): Promise<Prop[]
     const batch = events.slice(i, i + BATCH)
     const ids = batch.map((e) => e.id).join(',')
 
-    const url = `${BASE_URL}/odds/multi?apiKey=${API_KEY}&eventIds=${ids}&bookmakers=${BOOKMAKERS}`
+    const url = `${BASE_URL}/odds/multi?apiKey=${apiKey()}&eventIds=${ids}&bookmakers=${BOOKMAKERS}`
     let res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) {
       const body = await res.text()

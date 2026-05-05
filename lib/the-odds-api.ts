@@ -8,8 +8,13 @@
 // 45-day backfill estimate: ~18,900 requests.
 
 const BASE = 'https://api.the-odds-api.com/v4'
-const API_KEY = process.env.ODDS_API_KEY
-if (!API_KEY) throw new Error('Missing ODDS_API_KEY environment variable')
+// Deferred env-var check — module-init throws break Next 16 build-time
+// page-data collection on Vercel (build env doesn't have runtime secrets).
+function apiKey(): string {
+  const k = process.env.ODDS_API_KEY
+  if (!k) throw new Error('Missing ODDS_API_KEY environment variable')
+  return k
+}
 
 // Markets we track — matches our StatType enum
 const MARKETS = [
@@ -55,7 +60,7 @@ function toEasternDate(iso: string): string {
 export async function fetchHistoricalEventIds(
   snapshotDate: string, // ISO 8601 UTC, e.g. "2026-03-20T23:00:00Z"
 ): Promise<Array<{ id: string; home_team: string; away_team: string; commence_time: string }>> {
-  const url = `${BASE}/historical/sports/basketball_nba/events?apiKey=${API_KEY}&date=${encodeURIComponent(snapshotDate)}`
+  const url = `${BASE}/historical/sports/basketball_nba/events?apiKey=${apiKey()}&date=${encodeURIComponent(snapshotDate)}`
   const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) {
     console.error(`[the-odds-api] historical events failed: ${res.status}`)
@@ -77,7 +82,7 @@ export async function fetchHistoricalEventProps(
 
   const url =
     `${BASE}/historical/sports/basketball_nba/events/${eventId}/odds` +
-    `?apiKey=${API_KEY}&date=${encodeURIComponent(snapshotDate)}` +
+    `?apiKey=${apiKey()}&date=${encodeURIComponent(snapshotDate)}` +
     `&markets=${MARKETS}&regions=us&oddsFormat=american` +
     `&bookmakers=draftkings,fanduel,williamhill_us,fanatics`
 
