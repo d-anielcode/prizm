@@ -1,5 +1,4 @@
 {
-  "//": "Cron schedules are in UTC. Convert to ET roughly: 04:35 UTC = 12:35a ET (EDT, Mar–Nov) or 11:35p prev-day ET (EST, Nov–Mar). DST shifts every slot by 1 hour twice a year — adjust if a slot needs to land at a specific ET wall-clock time. Vercel sets `Authorization: Bearer $CRON_SECRET` on every entry below; routes verify via lib/api-auth.ts:requireCronAuth.",
   "crons": [
     { "path": "/api/gamelogs?days=3",                        "schedule": "10 4 * * *" },
     { "path": "/api/feed/grade",                              "schedule": "15 4 * * *" },
