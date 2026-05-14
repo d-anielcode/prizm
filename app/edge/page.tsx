@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { calibratedPct } from '@/lib/calibration'
 import { ev, evPct } from '@/lib/ev'
+import { isPlayerName } from '@/lib/odds-api'
 import type { Prop } from '@/types'
 
 export const dynamic = 'force-dynamic'
@@ -60,6 +61,10 @@ async function getEdgePicks(): Promise<Array<Prop & { ev: number; evPct: number;
   // Dedup by (player, stat, line, direction) — keep best EV
   const bestMap = new Map<string, Prop & { ev: number; evPct: number; cal: number }>()
   for (const p of rows) {
+    // Defensive: drop team-total markets that slipped into props before the
+    // ingest-side filter was added. New rows are blocked at /api/props parse
+    // time — see lib/odds-api.ts:isPlayerName.
+    if (!isPlayerName(p.player_name, p.home_team, p.away_team)) continue
     const e = ev(p.confidence_score, p.odds)
     if (e == null || e <= 0) continue
     const key = `${p.player_name}|${p.stat_type}|${p.line}|${p.direction}`

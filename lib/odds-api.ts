@@ -29,6 +29,33 @@ const LABEL_STAT_MAP: Record<string, StatType> = {
   'Pts+Rebs+Asts':   'pra',
 }
 
+/**
+ * True if the parsed "player name" actually looks like an individual player
+ * rather than a team total or alternate-total market posing under the same
+ * "Name (Stat)" label format.
+ *
+ * Observed non-player names from odds-api.io as of 2026-05:
+ *   "Both Teams"                          -- combined game total
+ *   "MIN Timberwolves Alternate"          -- team alt total
+ *   "SA Spurs Alternate"                  -- team alt total
+ *   plus exact home_team / away_team names
+ *
+ * These slip through parsePropsFromEvent because the regex only enforces
+ * the bracket format. Without this guard the confidence engine scores team
+ * totals as if they were player props — which then surfaces as huge
+ * fake-edge picks on /edge (Module 6 of the diagnostic flagged this).
+ */
+export function isPlayerName(name: string, homeTeam?: string, awayTeam?: string): boolean {
+  if (!name) return false
+  const trimmed = name.trim()
+  if (trimmed === 'Both Teams') return false
+  if (trimmed.endsWith(' Alternate')) return false
+  if (trimmed.endsWith(' Total')) return false
+  if (homeTeam && trimmed === homeTeam) return false
+  if (awayTeam && trimmed === awayTeam) return false
+  return true
+}
+
 interface IOEvent {
   id: number
   home: string
@@ -171,6 +198,9 @@ export function parsePropsFromEvent(event: EventWithProps): Prop[] {
         const statKey = match[2].trim()
         const statType = LABEL_STAT_MAP[statKey]
         if (!statType) continue // skip combo props we don't model (Pts+Rebs, Double+Double, etc.)
+        // Skip team-total markets (Both Teams, "<ABBR> <Name> Alternate", etc.) —
+        // they share the "Name (Stat)" label format but aren't player props.
+        if (!isPlayerName(playerName, event.home_team, event.away_team)) continue
 
         const directions: Direction[] = ['over', 'under']
         for (const direction of directions) {
