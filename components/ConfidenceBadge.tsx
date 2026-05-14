@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
 import type { ConfidenceLabel } from '@/types'
 import { ConfidenceTooltip } from '@/components/ConfidenceTooltip'
+import { calibratedPct } from '@/lib/calibration'
 
 const styles: Record<ConfidenceLabel, string> = {
   LOCK: 'bg-[#00D68F]/15 text-[#00D68F] border-[#00D68F]/25 shadow-[0_0_12px_rgba(0,214,143,0.2)]',
@@ -26,7 +27,9 @@ export function ConfidenceBadge({
           styles[label],
         )}
       >
-        <span className="text-[10px] opacity-70">{score}</span>
+        {/* Displayed score is isotonic-calibrated (historical hit rate %),
+            not the raw model score. See lib/calibration.ts. */}
+        <span className="text-[10px] opacity-70">{calibratedPct(score) ?? score}</span>
         {label}
       </span>
       {showTooltip && <ConfidenceTooltip label={label} />}

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { AltLine } from '@/types'
+import { calibratedPct } from '@/lib/calibration'
 
 function impliedProb(odds: number): number {
   if (odds < 0) return Math.abs(odds) / (Math.abs(odds) + 100)
@@ -93,7 +94,7 @@ function AltRow({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; ma
       <div className="flex items-center gap-3">
         {alt.confidence_score != null && (
           <span className={`text-[10px] font-semibold ${confColor}`}>
-            {Math.round(alt.confidence_score)}
+            {calibratedPct(alt.confidence_score) ?? Math.round(alt.confidence_score)}
             {alt.confidence_label && <span className="font-normal text-white/30 ml-0.5">{alt.confidence_label[0]}</span>}
           </span>
         )}

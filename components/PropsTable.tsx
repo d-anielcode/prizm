@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import AltLinesPanel from './AltLinesPanel'
 import { PropReasonChips } from './PropReasonChips'
+import { calibratedPct } from '@/lib/calibration'
 import type { AltLine, PropWithAlts, StatType, ConfidenceLabel } from '@/types'
 
 const STAT_LABELS: Record<StatType, string> = {
@@ -100,7 +101,7 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
       {riskier && <span className="text-[9px] text-[#FF4757]/60">riskier</span>}
       {alt.confidence_score != null && (
         <span className={`text-[10px] font-semibold ${confColor}`}>
-          {Math.round(alt.confidence_score)}
+          {calibratedPct(alt.confidence_score) ?? Math.round(alt.confidence_score)}
           {alt.confidence_label && <span className="font-normal text-[var(--text-tertiary)] ml-0.5">{alt.confidence_label[0]}</span>}
         </span>
       )}

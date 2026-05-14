@@ -97,65 +97,9 @@ function loadWeightConfig(): WeightConfig | null {
   return null
 }
 
-// ── Calibration table (isotonic) ─────────────────────────────────────────────
-// Built by scripts/build_calibration.py — fits sklearn IsotonicRegression on
-// prop_grades (raw confidence_score → actual hit rate) and writes a 101-entry
-// lookup. Module 4 of model_diagnostic.py shows raw scores 65-80 are 9-14pp
-// overconfident; this remap produces honest probabilities.
-//
-// The remap is OPT-IN via env var PRIZM_CALIBRATE_SCORES=true. Off by default
-// because flipping it changes the numeric distribution of confidence_score —
-// any consumer that filters with `confidence_score >= N` (parlay generator,
-// /api/feed/backtest, performance buckets, UI bucketization) needs N to be
-// re-tuned against the calibrated scale before the flag flips on.
-interface CalibrationTable {
-  generated_at: string
-  data_window:  { start: string; end: string; game_days: number; graded_props: number }
-  lookup:       number[]  // 101 entries indexed 0..100
-}
-let _cachedCalibration: CalibrationTable | null | undefined = undefined  // undefined = not tried, null = tried + missing
-
-function loadCalibrationTable(): CalibrationTable | null {
-  if (_cachedCalibration !== undefined) return _cachedCalibration
-  try {
-    const raw = readFileSync(join(process.cwd(), 'lib', 'calibration-table.json'), 'utf-8')
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed.lookup) && parsed.lookup.length === 101) {
-      _cachedCalibration = parsed as CalibrationTable
-      return _cachedCalibration
-    }
-  } catch {
-    // missing/malformed — calibration is opt-in, silent miss is fine
-  }
-  _cachedCalibration = null
-  return null
-}
-
-/**
- * Map a raw confidence score (0-100) to its historically-calibrated hit rate
- * (also 0-100). Linear-interpolated between integer grid points; clamped to
- * [0, 100]. Returns the input untouched if the calibration table is missing
- * or malformed — fail-safe behavior.
- *
- * Example: if isotonic learned that raw=72.5 corresponds to 58.2% actual,
- * applyCalibration(72.5) = 58.2.
- */
-export function applyCalibration(rawScore: number): number {
-  const table = loadCalibrationTable()
-  if (!table) return rawScore
-  const lookup = table.lookup
-  const x = Math.max(0, Math.min(100, rawScore))
-  const lo = Math.floor(x)
-  const hi = Math.min(100, lo + 1)
-  if (lo === hi) return lookup[lo]
-  const frac = x - lo
-  return lookup[lo] * (1 - frac) + lookup[hi] * frac
-}
-
-/** True if the runtime flag is set to remap scores via the calibration table. */
-function isCalibrationEnabled(): boolean {
-  return process.env.PRIZM_CALIBRATE_SCORES === 'true'
-}
+// Calibration helpers — see lib/calibration.ts. Re-exported here so existing
+// imports keep working.
+export { applyCalibration } from '@/lib/calibration'
 
 export interface GameLog {
   game_date:  string
@@ -1317,13 +1261,10 @@ export function scoreProps(
     ctx,
   )
 
-  // Optional isotonic calibration. Off by default. Tier (label) is always
-  // computed from the raw score so the LOCK/PLAY pool is unchanged; only the
-  // numeric score is remapped to honest probability when the flag is on.
-  // Flip PRIZM_CALIBRATE_SCORES=true only after re-tuning numeric filters in
-  // /api/feed/backtest, /api/performance-snapshot, and app/performance.
-  const finalScore = isCalibrationEnabled() ? Math.round(applyCalibration(score)) : score
-  return { ...prop, confidence_score: finalScore, confidence_label: label, risk_tier: tier, confidence_reason: reason }
+  // confidence_score is the RAW score (used for tier mapping, sorting, dedup).
+  // For honest user-facing probabilities, render via applyCalibration() at
+  // display time — see lib/calibration.ts and components/ConfidenceBadge.tsx.
+  return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason }
 }
 
 // ── Label thresholds ──────────────────────────────────────────────────────────

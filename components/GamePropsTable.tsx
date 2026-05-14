@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import AltLinesPanel from './AltLinesPanel'
 import { PropReasonChips } from './PropReasonChips'
+import { calibratedPct } from '@/lib/calibration'
 import type { AltLine, OpponentCtx, PropWithAlts, StatType } from '@/types'
 import type { PropResult } from '@/app/game/[id]/page'
 
@@ -77,7 +78,7 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
       {riskier && <span className="text-[9px] text-red-400/60">riskier</span>}
       {alt.confidence_score != null && (
         <span className={`text-[10px] font-semibold ${confColor}`}>
-          {Math.round(alt.confidence_score)}
+          {calibratedPct(alt.confidence_score) ?? Math.round(alt.confidence_score)}
           {alt.confidence_label && <span className="font-normal text-white/30 ml-0.5">{alt.confidence_label[0]}</span>}
         </span>
       )}

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { calibratedPct } from '@/lib/calibration'
 
 export const dynamic = 'force-dynamic'
 
@@ -366,7 +367,7 @@ export default async function FeedPage() {
                         )}
                         {leg.confidence_label && (
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${labelStyle(leg.confidence_label)}`}>
-                            {leg.confidence_score != null ? Math.round(leg.confidence_score) : ''} {leg.confidence_label}
+                            {calibratedPct(leg.confidence_score) ?? ''} {leg.confidence_label}
                           </span>
                         )}
                       </div>

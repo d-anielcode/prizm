@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import { calibratedPct } from '@/lib/calibration'
 
 const STAT_LABELS: Record<string, string> = {
   points: 'PTS', rebounds: 'REB', assists: 'AST',
@@ -116,7 +117,7 @@ export async function TodaysPicks() {
                       </div>
                       {leg.confidence_label && (
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${labelStyle(leg.confidence_label)}`}>
-                          {leg.confidence_score != null ? Math.round(leg.confidence_score) : ''} {leg.confidence_label}
+                          {calibratedPct(leg.confidence_score) ?? ''} {leg.confidence_label}
                         </span>
                       )}
                     </div>

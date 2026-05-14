@@ -105,7 +105,6 @@ export async function GET(req: Request) {
     .from('props')
     .select('player_name, team, stat_type, line, direction, odds, confidence_label, confidence_score, game_id, home_team, away_team, commence_time')
     .in('confidence_label', ['LOCK', 'PLAY'])
-    .gte('confidence_score', 66)
 
   if (propsErr) return NextResponse.json({ error: propsErr.message }, { status: 500 })
   if (!propsRaw || propsRaw.length === 0) {

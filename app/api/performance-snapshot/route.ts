@@ -14,6 +14,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { requireCronAuth } from '@/lib/api-auth'
+import { applyCalibration } from '@/lib/calibration'
 
 export const maxDuration = 120
 
@@ -113,8 +114,13 @@ async function computeCalibration(db: DB) {
     from += PAGE
   }
 
+  // Bucketize on the CALIBRATED score so the histogram shows honest hit-rate
+  // bands. Stored confidence_score is raw; applyCalibration() does the remap.
   const buckets = CALIB_BUCKETS.map((b) => {
-    const inBucket = rows.filter((r) => r.confidence_score >= b.min && r.confidence_score <= b.max)
+    const inBucket = rows.filter((r) => {
+      const cal = applyCalibration(r.confidence_score)
+      return cal >= b.min && cal <= b.max
+    })
     return { ...b, hits: inBucket.filter((r) => r.hit).length, total: inBucket.length }
   })
 

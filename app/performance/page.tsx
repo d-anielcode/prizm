@@ -3,6 +3,7 @@
 // Two lean parallel queries: all-time totals + last 5 game days.
 
 import { supabase } from '@/lib/supabase'
+import { applyCalibration } from '@/lib/calibration'
 
 // Revalidate every 30 min — performance data only changes after nightly grading
 export const revalidate = 1800
@@ -170,9 +171,13 @@ async function loadCalibrationData(): Promise<CalibrationData> {
     from += PAGE
   }
 
-  // Score buckets
+  // Score buckets — keyed on calibrated score (lib/calibration.ts) so the
+  // histogram shows honest hit-rate bands rather than raw-model bands.
   const buckets: CalibBucket[] = CALIB_BUCKETS.map((b) => {
-    const inBucket = rows.filter((r) => r.confidence_score >= b.min && r.confidence_score <= b.max)
+    const inBucket = rows.filter((r) => {
+      const cal = applyCalibration(r.confidence_score)
+      return cal >= b.min && cal <= b.max
+    })
     return { ...b, hits: inBucket.filter((r) => r.hit).length, total: inBucket.length }
   })
 
