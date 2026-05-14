@@ -35,6 +35,7 @@ import { supabase, safeQuery } from '@/lib/supabase'
 import { requireCronAuth, internalAuthHeaders } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 import { detectChanges, type ChangeReport } from '@/lib/change-detection'
+import { ev as computeEv } from '@/lib/ev'
 
 const adminClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -149,6 +150,7 @@ interface ScoredProp {
   l10_total:        number
   resolvedTeam:     string
   avgMins:          number | null  // avg minutes over last 20 games
+  ev:               number         // expected value per unit stake (calibrated prob × decimal odds − 1)
 }
 
 interface ParlayResult {
@@ -324,6 +326,10 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     const avgMins = last20.length > 0
       ? last20.reduce((sum, g) => sum + Number(g.minutes ?? 0), 0) / last20.length
       : null
+    // EV per unit stake — calibrated probability × decimal odds − 1.
+    // Falls back to 0 (neutral) if either input is missing so the prop stays
+    // in the pool but never gets favored over a real +EV pick.
+    const propEv = computeEv(prop.confidence_score, prop.odds) ?? 0
     return {
       player_name:      prop.player_name,
       team:             prop.team,
@@ -341,6 +347,7 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
       l10_total:        l10.length,
       resolvedTeam:     teamByPlayer.get(prop.player_name) ?? prop.team ?? 'TBD',
       avgMins:          avgMins !== null ? Math.round(avgMins * 10) / 10 : null,
+      ev:               propEv,
     }
   })
 
@@ -385,12 +392,24 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
             p.confidence_score += HOT_BONUS
           }
         }
-        pool.sort((a, b) => b.confidence_score - a.confidence_score)
       }
     }
   } catch {
     // Grades not yet available — fall back to unmodified pool order
   }
+
+  // Final ordering: EV descending. The hot-stat bonus above only affects
+  // confidence_score (kept for tier-aware logic and display). EV is the
+  // real money metric — a +6% edge LEAN beats a +2% edge LOCK in expectation
+  // even though the LOCK looks "safer" by tier.
+  // Tiebreakers: confidence_score (post hot-stat bonus), then l10 hit rate.
+  pool.sort((a, b) => {
+    if (b.ev !== a.ev) return b.ev - a.ev
+    if (b.confidence_score !== a.confidence_score) return b.confidence_score - a.confidence_score
+    const aHr = a.l10_total > 0 ? a.l10_hits / a.l10_total : 0
+    const bHr = b.l10_total > 0 ? b.l10_hits / b.l10_total : 0
+    return bHr - aHr
+  })
 
   // 4. Build VALUE parlay (2-leg, safe stats only + 24min filter for best hit rate)
   //    Safe stats (PTS/REB/AST/3PM) + 24min filter: 40.8% hit rate vs 33.9% current
@@ -409,25 +428,22 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     results.push({ ...buildResult(comboPick.legs, 0, gameDate, 'combo'), tier: 'combo' })
   }
 
-  // 5. Build PREMIUM parlays (4-leg, 24+ avg mins filter, LOCK-first pool)
-  //    T6 research: 4-leg parlays underperform due to leg correlation.
-  //    Sorting LOCKs first ensures the greedy picker selects higher-confidence legs.
-  const lockFirstPool = [...pool].sort((a, b) => {
-    const aLock = a.confidence_label === 'LOCK' ? 0 : 1
-    const bLock = b.confidence_label === 'LOCK' ? 0 : 1
-    return aLock - bLock || b.confidence_score - a.confidence_score
-  })
+  // 5. Build PREMIUM parlays (4-leg, 24+ avg mins filter, EV-first pool)
+  //    Pool is already EV-sorted from step 3, so we just reuse it. Previously
+  //    used a LOCK-first sort which favored tier over edge — replaced because
+  //    a +6% EV PLAY beats a +1% EV LOCK in long-run profit even if the LOCK
+  //    individually hits more often.
   const premiumUsed = new Set<string>()
   for (let i = 0; i < PREMIUM_COUNT; i++) {
-    const pick = pickParlay(lockFirstPool, premiumUsed, PREMIUM_LEGS, PREMIUM_MIN_MINS)
+    const pick = pickParlay(pool, premiumUsed, PREMIUM_LEGS, PREMIUM_MIN_MINS)
     if (!pick) break
     results.push({ ...buildResult(pick.legs, i, gameDate, 'premium'), tier: 'premium' })
     for (const key of pick.used) premiumUsed.add(key)
   }
 
-  // 6. Build JACKPOT parlay (5-leg, 24+ avg mins filter, LOCK-first pool)
+  // 6. Build JACKPOT parlay (5-leg, 24+ avg mins filter, EV-first pool)
   const jackpotUsed = new Set<string>()
-  const jackpotPick = pickParlay(lockFirstPool, jackpotUsed, JACKPOT_LEGS, JACKPOT_MIN_MINS)
+  const jackpotPick = pickParlay(pool, jackpotUsed, JACKPOT_LEGS, JACKPOT_MIN_MINS)
   if (jackpotPick) {
     results.push({ ...buildResult(jackpotPick.legs, 0, gameDate, 'jackpot'), tier: 'jackpot' })
   }
