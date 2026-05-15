@@ -177,6 +177,34 @@ function pickParlay(
   return _pickParlay(pool, globalUsed, legsNeeded, minMins)
 }
 
+/**
+ * Diversity penalty applied to candidate effective-EV during pickParlay.
+ * 0.02 = 2pp of EV subtracted per existing same-game leg, additional 0.01
+ * subtracted when the candidate shares stat type with an existing same-game leg.
+ *
+ * Effect: when two candidates are within 3pp of EV, prefer the one in a
+ * different game. When two candidates have identical EV in the same game,
+ * prefer the one with a different stat type. Reduces parlay variance without
+ * rejecting high-EV outliers outright.
+ */
+const SAME_GAME_DIVERSITY_PENALTY = 0.02
+const SAME_GAME_SAME_STAT_PENALTY = 0.01
+
+function diversityPenalty(
+  candidate: ScoredProp,
+  gameLegs:  Map<string, number>,
+  statByGame: Map<string, Set<string>>,
+): number {
+  const gameId = candidate.game_id ?? ''
+  if (!gameId) return 0
+  const count = gameLegs.get(gameId) ?? 0
+  if (count === 0) return 0
+  let penalty = SAME_GAME_DIVERSITY_PENALTY * count
+  const stats = statByGame.get(gameId)
+  if (stats && stats.has(candidate.stat_type)) penalty += SAME_GAME_SAME_STAT_PENALTY
+  return penalty
+}
+
 function _pickParlay(
   pool:        ScoredProp[],
   globalUsed:  Set<string>,
@@ -185,23 +213,44 @@ function _pickParlay(
 ): { legs: ParlayLeg[]; used: Set<string> } | null {
   const selected: ParlayLeg[] = []
   const usedPlayers = new Set<string>()
-  const usedTeams   = new Set<string>()    // for strict mode: max 1 per team
-  const gameLegs    = new Map<string, number>()  // game_id → legs from that game
+  const usedTeams   = new Set<string>()
+  const gameLegs    = new Map<string, number>()
+  const statByGame  = new Map<string, Set<string>>()
 
-  for (const prop of pool) {
-    if (selected.length >= legsNeeded) break
-    const key = `${prop.player_name}|${prop.stat_type}`
-    if (globalUsed.has(key)) continue
-    if (usedPlayers.has(prop.player_name)) continue
-    if (minMins > 0 && (prop.avgMins == null || prop.avgMins < minMins)) continue
+  // Pre-filter pool to candidates passing gates that DON'T depend on already-
+  // selected legs. Re-checked inside the loop for those that do (used, team,
+  // game cap).
+  const baselineCandidates = pool.filter((p) => {
+    if (globalUsed.has(`${p.player_name}|${p.stat_type}`)) return false
+    if (minMins > 0 && (p.avgMins == null || p.avgMins < minMins)) return false
+    return true
+  })
 
-    // Team correlation guard — always strict: max 1 player per team
+  while (selected.length < legsNeeded) {
+    let bestIdx = -1
+    let bestEffEv = -Infinity
+
+    for (let i = 0; i < baselineCandidates.length; i++) {
+      const prop = baselineCandidates[i]
+      if (usedPlayers.has(prop.player_name)) continue
+      const team = prop.resolvedTeam ?? ''
+      if (team && team !== 'TBD' && usedTeams.has(team)) continue
+      const gameId = prop.game_id ?? ''
+      if (gameId && (gameLegs.get(gameId) ?? 0) >= 2) continue
+
+      // Effective EV = base EV minus same-game diversity penalty. Pool is
+      // EV-sorted so first-pick is unaffected; subsequent picks favor variety.
+      const effEv = prop.ev - diversityPenalty(prop, gameLegs, statByGame)
+      if (effEv > bestEffEv) {
+        bestEffEv = effEv
+        bestIdx = i
+      }
+    }
+
+    if (bestIdx === -1) break
+    const prop = baselineCandidates[bestIdx]
     const team = prop.resolvedTeam ?? ''
-    if (team && team !== 'TBD' && usedTeams.has(team)) continue
-
-    // Game diversity: max 2 legs from the same game (both teams)
     const gameId = prop.game_id ?? ''
-    if (gameId && (gameLegs.get(gameId) ?? 0) >= 2) continue
 
     selected.push({
       player_name:      prop.player_name,
@@ -222,7 +271,11 @@ function _pickParlay(
 
     usedPlayers.add(prop.player_name)
     if (team && team !== 'TBD') usedTeams.add(team)
-    if (gameId) gameLegs.set(gameId, (gameLegs.get(gameId) ?? 0) + 1)
+    if (gameId) {
+      gameLegs.set(gameId, (gameLegs.get(gameId) ?? 0) + 1)
+      if (!statByGame.has(gameId)) statByGame.set(gameId, new Set())
+      statByGame.get(gameId)!.add(prop.stat_type)
+    }
   }
 
   if (selected.length < legsNeeded) return null

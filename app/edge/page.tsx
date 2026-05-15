@@ -12,7 +12,9 @@ import { supabase } from '@/lib/supabase'
 import { calibratedPct } from '@/lib/calibration'
 import { ev, evPct } from '@/lib/ev'
 import { isPlayerName } from '@/lib/odds-api'
-import type { Prop } from '@/types'
+import { loadPlayerBiasMap, biasSignalFor, lookupBias } from '@/lib/player-bias'
+import { PlayerBiasChip } from '@/components/PlayerBiasChip'
+import type { Prop, StatType, Direction } from '@/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,7 +86,10 @@ async function getEdgePicks(): Promise<Array<Prop & { ev: number; evPct: number;
 }
 
 export default async function EdgePage() {
-  const picks = await getEdgePicks()
+  const [picks, biasMap] = await Promise.all([
+    getEdgePicks(),
+    loadPlayerBiasMap(),
+  ])
 
   // Group for quick stats: tier distribution, EV histogram bins
   const byTier: Record<string, number> = { LOCK: 0, PLAY: 0, LEAN: 0, FADE: 0 }
@@ -152,6 +157,11 @@ export default async function EdgePage() {
                       {p.direction === 'over' ? '▲' : '▼'}
                     </span>
                     <span className="ml-1">{p.line} {STAT_LABELS[p.stat_type] ?? p.stat_type}</span>
+                    {(() => {
+                      const bias = lookupBias(biasMap, p.player_name, p.stat_type as StatType)
+                      const signal = biasSignalFor(bias, p.direction as Direction)
+                      return signal ? <span className="ml-2"><PlayerBiasChip signal={signal} /></span> : null
+                    })()}
                   </td>
                   <td className="px-2 py-3 text-right font-mono text-xs">{fmtOdds(p.odds)}</td>
                   <td className="px-2 py-3 text-right font-mono text-xs text-white/80">{p.cal}%</td>
