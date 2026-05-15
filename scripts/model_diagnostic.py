@@ -170,6 +170,14 @@ def factor_rest_days(prior_logs, test_game_date):
         return 0.5
 
 
+# Diagnostic factor surface for AUC + logreg ceiling. Note: last10HitRate is
+# included historically for completeness but is NOT in the production weight
+# set (scripts/auto_retrain.py:66, lib/confidence.ts). Investigation 2026-05-13
+# (scripts/investigate_collinearity.py) confirmed l20-alone beats l10+l20
+# combined (AUC 0.5531 vs 0.5504) -- l10 adds noise, not signal, once l20 is
+# in the model. The diagnostic keeps reporting it so we can re-evaluate if
+# the relationship changes, but the ceiling AUC should be interpreted as
+# "ceiling with l10 INCLUDED" -- production AUC without l10 is slightly higher.
 FACTOR_NAMES = [
     'last10HitRate', 'matchupEdge', 'seasonCushion', 'vsOpponent',
     'homeAway', 'trend', 'last20HitRate', 'restDays',
