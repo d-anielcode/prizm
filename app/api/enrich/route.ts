@@ -12,6 +12,7 @@ import { supabase, safeQuery } from '@/lib/supabase'
 import { TEAM_ABBR } from '@/lib/team-abbr'
 import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
+import { isPlayerName } from '@/lib/odds-api'
 
 export const maxDuration = 300
 import {
@@ -271,6 +272,24 @@ async function runEnrichment(force = false) {
     props.push(...(page as Prop[]))
     if (page.length < PAGE) break
     from += PAGE
+  }
+
+  // Drop team-total markets that pre-date the lib/odds-api.ts:isPlayerName
+  // guard. Without this, enrich would score "Both Teams (Points)" as if it
+  // were an individual player — fake +EV pollution on /edge, garbage rows
+  // in prop_history for the bias / calibration training corpora.
+  const beforeFilter = props.length
+  const filteredOut: Prop[] = []
+  for (let i = props.length - 1; i >= 0; i--) {
+    const p = props[i]
+    if (!isPlayerName(p.player_name, p.home_team, p.away_team)) {
+      filteredOut.push(p)
+      props.splice(i, 1)
+    }
+  }
+  if (filteredOut.length > 0) {
+    logger.warn(`[enrich] dropped ${filteredOut.length}/${beforeFilter} non-player rows from scoring queue`,
+      { samples: filteredOut.slice(0, 5).map((p) => p.player_name) })
   }
   if (!props || props.length === 0) {
     await releaseEnrichLock()

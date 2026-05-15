@@ -8,6 +8,7 @@ import type { Prop, StatType } from '@/types'
 import { getEspnVariants } from '@/lib/player-aliases'
 import { TEAM_ABBR } from '@/lib/team-abbr'
 import { CURRENT_SEASON } from '@/lib/constants'
+import { calibratedPct } from '@/lib/calibration'
 
 export const revalidate = 0
 
@@ -643,7 +644,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                           {g.confidence_label}
                         </span>
                         {g.confidence_score != null && (
-                          <span className="text-[10px] text-white/20 ml-1">({g.confidence_score})</span>
+                          <span className="text-[10px] text-white/20 ml-1">({calibratedPct(g.confidence_score) ?? g.confidence_score})</span>
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-right font-mono text-white/60">

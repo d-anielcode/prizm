@@ -7,6 +7,8 @@
 // For 7 markets per event: 70 requests/event.
 // 45-day backfill estimate: ~18,900 requests.
 
+import { isPlayerName } from '@/lib/odds-api'
+
 const BASE = 'https://api.the-odds-api.com/v4'
 // Deferred env-var check — module-init throws break Next 16 build-time
 // page-data collection on Vercel (build env doesn't have runtime secrets).
@@ -109,6 +111,11 @@ export async function fetchHistoricalEventProps(
       for (const outcome of market.outcomes ?? []) {
         const player = outcome.description?.trim()
         if (!player || outcome.point == null) continue
+        // Drop team-total markets that share the same outcome.description shape
+        // as player props ("Both Teams", "Lakers Alternate", etc.). Mirrors
+        // lib/odds-api.ts:isPlayerName for live ingest — keeps historical_prop_lines
+        // clean so calibration + bias training corpora aren't polluted.
+        if (!isPlayerName(player, homeTeam, awayTeam)) continue
         if (!playerLines.has(player)) playerLines.set(player, {})
         const entry = playerLines.get(player)!
         if (outcome.name === 'Over') {
