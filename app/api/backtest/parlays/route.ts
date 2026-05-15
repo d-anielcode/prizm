@@ -22,6 +22,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { requireCronAuth } from '@/lib/api-auth'
+import { ev as computeEv } from '@/lib/ev'
 
 export const maxDuration = 120
 
@@ -244,12 +245,21 @@ export async function GET(req: Request) {
     for (const date of sortedDates) {
       const dayProps = byDate.get(date) ?? []
 
-      // Filter: tier + market + must have result
+      // Filter: tier + market + must have result.
+      // Sort by EV (calibrated_prob × decimal_odds − 1) descending — mirrors
+      // production's app/api/feed/generate/parlay sort change so backtest
+      // simulates current behavior, not the old tier-first pre-073b000 logic.
+      // Falls back to confidence_score when EV is unavailable (no odds).
       const eligible = dayProps
         .filter(p => allowedTiers.has(p.confidence_label))
         .filter(p => allowedMarkets.has(p.stat_type))
         .filter(p => p.hit !== null)
-        .sort((a, b) => b.confidence_score - a.confidence_score)
+        .sort((a, b) => {
+          const aEv = computeEv(a.confidence_score, a.odds) ?? -Infinity
+          const bEv = computeEv(b.confidence_score, b.odds) ?? -Infinity
+          if (aEv !== bEv) return bEv - aEv
+          return b.confidence_score - a.confidence_score
+        })
 
       // Greedy selection: max 1 per game, max 1 per player
       const selected: AnnProp[] = []

@@ -14,10 +14,15 @@
 //   · legs_per_parlay:  3 | 4
 //   · markets:          pts_reb_3pm | pts_reb_ast_3pm | pts_reb_ast | pts_reb | all_no_volatile
 //   · tiers:            LOCK+PLAY | LOCK+PLAY+LEAN
+//
+// Sort order: EV (calibrated_prob × decimal_odds − 1) desc, matching the
+// production /api/feed/generate/parlay logic since 073b000. Falls back to
+// confidence_score when odds are missing.
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { requireCronAuth } from '@/lib/api-auth'
+import { ev as computeEv } from '@/lib/ev'
 
 export const maxDuration = 120
 
@@ -141,7 +146,12 @@ function buildParlays(
     .filter((p) => allowedMarkets.has(p.stat_type))
     .filter((p) => allowedTiers.has(p.confidence_label))
     .filter((p) => p.hit !== null)
-    .sort((a, b) => b.confidence_score - a.confidence_score)
+    .sort((a, b) => {
+      const aEv = computeEv(a.confidence_score, a.odds) ?? -Infinity
+      const bEv = computeEv(b.confidence_score, b.odds) ?? -Infinity
+      if (aEv !== bEv) return bEv - aEv
+      return b.confidence_score - a.confidence_score
+    })
 
   const parlays: ParlayLeg[][] = []
   const globalUsed = new Set<string>()
@@ -173,7 +183,12 @@ function buildHybridParlays(
     .filter((p) => allowedMarkets.has(p.stat_type))
     .filter((p) => allowedTiers.has(p.confidence_label))
     .filter((p) => p.hit !== null)
-    .sort((a, b) => b.confidence_score - a.confidence_score)
+    .sort((a, b) => {
+      const aEv = computeEv(a.confidence_score, a.odds) ?? -Infinity
+      const bEv = computeEv(b.confidence_score, b.odds) ?? -Infinity
+      if (aEv !== bEv) return bEv - aEv
+      return b.confidence_score - a.confidence_score
+    })
 
   const results: ParlayLeg[][] = []
 

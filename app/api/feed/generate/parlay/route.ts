@@ -230,6 +230,35 @@ function _pickParlay(
   return { legs: selected, used }
 }
 
+/**
+ * Same-game correlation haircut applied per game-pair.
+ *
+ * Two legs in the same NBA game share the game-state (pace, blowout risk,
+ * minutes distribution) which makes the joint outcome MORE correlated than
+ * independent. Books price this in — SGP markets typically reduce payouts
+ * 5–15% vs the cross-game equivalent. Our parlay generator allows up to 2
+ * legs per game, so each "same-game pair" gets a 5% multiplier haircut to
+ * reflect that the displayed product-of-decimals over-states the bettor's
+ * true expected payoff.
+ *
+ * Computed as Σ C(legsInGame, 2) across all games — e.g. a 4-leg parlay
+ * with two pairs of same-game legs has 2 same-game pairs.
+ */
+const PARLAY_SAME_GAME_HAIRCUT = 0.95
+
+function countSameGamePairs(legs: ParlayLeg[]): number {
+  const perGame = new Map<string, number>()
+  for (const l of legs) {
+    if (!l.game_id) continue
+    perGame.set(l.game_id, (perGame.get(l.game_id) ?? 0) + 1)
+  }
+  let pairs = 0
+  for (const n of perGame.values()) {
+    if (n >= 2) pairs += (n * (n - 1)) / 2
+  }
+  return pairs
+}
+
 function buildResult(
   legs:        ParlayLeg[],
   idx:         number,
@@ -237,8 +266,13 @@ function buildResult(
   tier:        'value' | 'combo' | 'premium' | 'jackpot',
 ): ParlayResult {
   const parlayDecimal = legs.reduce((acc, l) => acc * toDecimal(l.odds), 1)
-  // Apply compounding per-leg vig for a realistic displayed estimate
-  const multiplier    = Math.round(parlayDecimal * Math.pow(PARLAY_VIG_PER_LEG, legs.length) * 10) / 10
+  // Compounding per-leg vig + same-game correlation haircut. Both terms
+  // pull the displayed multiplier toward the bettor's *expected* payoff
+  // rather than the naive product-of-decimals fair-price assumption.
+  const sameGamePairs = countSameGamePairs(legs)
+  const vigAdj   = Math.pow(PARLAY_VIG_PER_LEG, legs.length)
+  const corrAdj  = Math.pow(PARLAY_SAME_GAME_HAIRCUT, sameGamePairs)
+  const multiplier = Math.round(parlayDecimal * vigAdj * corrAdj * 10) / 10
   const legStrs = legs.map((l) => {
     const stat   = STAT_LABELS[l.stat_type] ?? l.stat_type
     const l10str = l.l10_total > 0 ? ` (${l.l10_hits}/${l.l10_total} L${l.l10_total})` : ''
