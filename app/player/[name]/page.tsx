@@ -566,7 +566,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                 <div className="flex items-center gap-2">
                   <PropSparkline values={sparkValues} line={prop.line} direction={prop.direction} />
                   {prop.confidence_label && prop.confidence_score != null && (
-                    <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+                    <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} statType={prop.stat_type} />
                   )}
                 </div>
               </div>
@@ -644,7 +644,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
                           {g.confidence_label}
                         </span>
                         {g.confidence_score != null && (
-                          <span className="text-[10px] text-white/20 ml-1">({calibratedPct(g.confidence_score) ?? g.confidence_score})</span>
+                          <span className="text-[10px] text-white/20 ml-1">({calibratedPct(g.confidence_score, g.stat_type) ?? g.confidence_score})</span>
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-right font-mono text-white/60">

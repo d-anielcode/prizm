@@ -91,7 +91,7 @@ def main():
           f"({dates[0]} -> {dates[-1]})")
 
     # ── 2. Fit isotonic ──────────────────────────────────────────────────────
-    print("\n[2/3] Fitting isotonic regression...")
+    print("\n[2/3] Fitting isotonic regression (global + per-stat)...")
     try:
         import numpy as np
         from sklearn.isotonic import IsotonicRegression
@@ -99,20 +99,48 @@ def main():
         print("  Need scikit-learn + numpy. pip install scikit-learn numpy")
         sys.exit(1)
 
+    def fit_table(scores_arr, hits_arr):
+        iso = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds='clip')
+        iso.fit(scores_arr, hits_arr)
+        grid = np.arange(0, 101, 1)
+        return [float(v) for v in (iso.predict(grid) * 100).round(2)], iso
+
     scores = np.array([float(g['confidence_score']) for g in grades])
     hits   = np.array([1 if g['hit'] else 0 for g in grades])
+    stat_types = np.array([g.get('stat_type', '') for g in grades])
 
-    iso = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds='clip')
-    iso.fit(scores, hits)
+    # Global fit (fallback for missing stat type)
+    global_lookup, iso_global = fit_table(scores, hits)
+    print(f"  global:        n={len(scores):,}  ", end='')
+    for raw in [50, 65, 75]:
+        cal = float(iso_global.predict([raw])[0]) * 100
+        print(f'{raw}->{cal:.0f}', end='  ')
+    print()
 
-    # Build a 0..100 lookup table at integer points (101 entries).
-    grid = np.arange(0, 101, 1)
-    calibrated = iso.predict(grid)
-    # Express calibrated probability on the same 0..100 scale that scores live on.
-    calibrated_score = (calibrated * 100).round(2)
+    # Per-stat fits — only when we have enough samples
+    per_stat: dict = {}
+    sample_counts: dict = {}
+    STAT_MIN_N = max(args.min_n, 500)  # need at least 500 props per stat for a usable curve
+    KNOWN_STATS = ['points', 'rebounds', 'assists', 'pra', 'steals', 'blocks', 'three_pointers']
+    for stat in KNOWN_STATS:
+        mask = stat_types == stat
+        n = int(mask.sum())
+        sample_counts[stat] = n
+        if n < STAT_MIN_N:
+            print(f'  {stat:<14} n={n:>5} -- under {STAT_MIN_N} threshold, falling back to global')
+            continue
+        lookup, iso_s = fit_table(scores[mask], hits[mask])
+        per_stat[stat] = lookup
+        # Print key points for sanity
+        print(f'  {stat:<14} n={n:>5,}  ', end='')
+        for raw in [50, 65, 75]:
+            cal = float(iso_s.predict([raw])[0]) * 100
+            print(f'{raw}->{cal:.0f}', end='  ')
+        print()
 
-    # Diagnostic table — what each 5-pt bucket maps to, plus the n that supports it.
-    print(f"\n  Bucket    Raw -> Calibrated     N      ActualHR (in raw bucket)")
+    # Calibration bucket sanity for global (matches diagnostic Module 4)
+    print(f"\n  Global bucket sanity:")
+    print(f"  Bucket    Raw -> Calibrated     N      ActualHR (in raw bucket)")
     print(f"  {'-'*60}")
     for lo in range(30, 90, 5):
         hi = lo + 5
@@ -122,26 +150,33 @@ def main():
             continue
         actual_hr = float(hits[mask].mean())
         raw_mid = (lo + hi) / 2.0
-        cal_mid = float(iso.predict([raw_mid])[0]) * 100
+        cal_mid = float(iso_global.predict([raw_mid])[0]) * 100
         print(f"  {lo}-{hi:<5} {raw_mid:>5.1f} -> {cal_mid:>5.1f}     {n:>6,}    {actual_hr*100:>5.1f}%")
 
     # ── 3. Write calibration table ──────────────────────────────────────────
     out_path = os.path.join(os.path.dirname(__file__), '..', args.out)
     payload = {
+        'version': 'v2-per-stat' if per_stat else 'v1-global',
         'generated_at': datetime.now(timezone.utc).isoformat(),
         'data_window': {
             'start': dates[0], 'end': dates[-1],
             'game_days': len(dates), 'graded_props': len(grades),
         },
-        'method': 'sklearn.isotonic.IsotonicRegression(y_min=0, y_max=1)',
+        'method': 'sklearn.isotonic.IsotonicRegression(y_min=0, y_max=1) — fit globally + per stat type',
         'description': (
             'Maps raw confidence_score (0-100) to historically observed hit rate '
-            '(0-100). Use applyCalibration() in lib/confidence.ts to remap any '
-            'raw score; tier thresholds in confidence-weights.json must be re-tuned '
-            'against this calibrated scale before flipping PRIZM_CALIBRATE_SCORES on.'
+            '(0-100). Use applyCalibration(raw, statType) in lib/calibration.ts — '
+            'per-stat lookup is preferred when available, global is the fallback. '
+            'Different stat types have very different calibration curves: 3PM is '
+            'overconfident at LOCK scores, rebounds is well-calibrated, etc. '
+            'See lib/calibration.ts for full design.'
         ),
-        # 101-element array indexed by raw score 0..100.
-        'lookup': [float(v) for v in calibrated_score],
+        # Legacy 101-element global array, indexed by raw score 0..100.
+        # Kept under `lookup` for backwards-compat with the v1 reader.
+        'lookup': global_lookup,
+        # New: per-stat lookups. Same 101-entry shape. Missing stats fall back to global.
+        'per_stat': per_stat,
+        'sample_counts': sample_counts,
     }
     with open(out_path, 'w') as f:
         json.dump(payload, f, indent=2)

@@ -171,11 +171,11 @@ async function loadCalibrationData(): Promise<CalibrationData> {
     from += PAGE
   }
 
-  // Score buckets — keyed on calibrated score (lib/calibration.ts) so the
-  // histogram shows honest hit-rate bands rather than raw-model bands.
+  // Score buckets — keyed on per-stat calibrated score so the histogram shows
+  // honest hit-rate bands. Each row applies its own stat_type calibration curve.
   const buckets: CalibBucket[] = CALIB_BUCKETS.map((b) => {
     const inBucket = rows.filter((r) => {
-      const cal = applyCalibration(r.confidence_score)
+      const cal = applyCalibration(r.confidence_score, r.stat_type)
       return cal >= b.min && cal <= b.max
     })
     return { ...b, hits: inBucket.filter((r) => r.hit).length, total: inBucket.length }

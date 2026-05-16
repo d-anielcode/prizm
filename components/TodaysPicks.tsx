@@ -117,7 +117,7 @@ export async function TodaysPicks() {
                       </div>
                       {leg.confidence_label && (
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${labelStyle(leg.confidence_label)}`}>
-                          {calibratedPct(leg.confidence_score) ?? ''} {leg.confidence_label}
+                          {calibratedPct(leg.confidence_score, leg.stat_type) ?? ''} {leg.confidence_label}
                         </span>
                       )}
                     </div>

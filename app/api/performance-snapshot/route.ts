@@ -116,9 +116,11 @@ async function computeCalibration(db: DB) {
 
   // Bucketize on the CALIBRATED score so the histogram shows honest hit-rate
   // bands. Stored confidence_score is raw; applyCalibration() does the remap.
+  // Per-stat calibration table (v2): each row maps using its own stat_type curve
+  // so a "70" PRA shows in a different bucket than a "70" rebounds where appropriate.
   const buckets = CALIB_BUCKETS.map((b) => {
     const inBucket = rows.filter((r) => {
-      const cal = applyCalibration(r.confidence_score)
+      const cal = applyCalibration(r.confidence_score, r.stat_type)
       return cal >= b.min && cal <= b.max
     })
     return { ...b, hits: inBucket.filter((r) => r.hit).length, total: inBucket.length }

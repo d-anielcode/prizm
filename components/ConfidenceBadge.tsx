@@ -13,10 +13,14 @@ const styles: Record<ConfidenceLabel, string> = {
 export function ConfidenceBadge({
   label,
   score,
+  statType,
   showTooltip = false,
 }: {
   label: ConfidenceLabel
   score: number
+  /** Pass when available — enables per-stat calibration (much more accurate than the
+   *  global fallback, especially for rebounds and 3PM which diverge widely). */
+  statType?: string
   showTooltip?: boolean
 }) {
   return (
@@ -28,8 +32,9 @@ export function ConfidenceBadge({
         )}
       >
         {/* Displayed score is isotonic-calibrated (historical hit rate %),
-            not the raw model score. See lib/calibration.ts. */}
-        <span className="text-[10px] opacity-70">{calibratedPct(score) ?? score}</span>
+            not the raw model score. Per-stat curve when statType is provided.
+            See lib/calibration.ts. */}
+        <span className="text-[10px] opacity-70">{calibratedPct(score, statType) ?? score}</span>
         {label}
       </span>
       {showTooltip && <ConfidenceTooltip label={label} />}

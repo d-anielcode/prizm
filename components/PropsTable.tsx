@@ -279,7 +279,7 @@ export function PropsTable({
               <div className="flex items-center gap-1.5">
                 <TrendArrow score={prop.confidence_score} prev={prop.prev_confidence_score} />
                 {prop.confidence_label && prop.confidence_score != null ? (
-                  <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+                  <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} statType={prop.stat_type} />
                 ) : (
                   <span className="text-[var(--text-secondary)] text-xs">—</span>
                 )}
@@ -372,7 +372,7 @@ export function PropsTable({
                       <div className="flex items-center gap-1.5">
                         <TrendArrow score={prop.confidence_score} prev={prop.prev_confidence_score} />
                         {prop.confidence_label && prop.confidence_score != null ? (
-                          <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+                          <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} statType={prop.stat_type} />
                         ) : (
                           <span className="text-[var(--text-secondary)]">—</span>
                         )}

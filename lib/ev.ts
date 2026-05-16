@@ -39,18 +39,29 @@ export function impliedProb(odds: number | null | undefined): number | null {
  *
  *   rawConfidenceScore: 0-100 from confidence.ts (RAW — we'll calibrate it)
  *   americanOdds: standard American odds (e.g. -110, +145)
+ *   statType: optional; when provided, uses the per-stat calibration curve
+ *             (much more accurate than the global fallback for stats that
+ *             diverge widely — e.g. rebounds vs 3PM).
  */
-export function ev(rawConfidenceScore: number | null | undefined, americanOdds: number | null | undefined): number | null {
+export function ev(
+  rawConfidenceScore: number | null | undefined,
+  americanOdds: number | null | undefined,
+  statType?: string,
+): number | null {
   if (rawConfidenceScore == null) return null
   const dec = americanToDecimal(americanOdds)
   if (dec == null) return null
-  const prob = applyCalibration(rawConfidenceScore) / 100
+  const prob = applyCalibration(rawConfidenceScore, statType) / 100
   return prob * dec - 1
 }
 
 /** EV as a percentage, rounded to 1 decimal. Returns null if inputs invalid. */
-export function evPct(rawConfidenceScore: number | null | undefined, americanOdds: number | null | undefined): number | null {
-  const e = ev(rawConfidenceScore, americanOdds)
+export function evPct(
+  rawConfidenceScore: number | null | undefined,
+  americanOdds: number | null | undefined,
+  statType?: string,
+): number | null {
+  const e = ev(rawConfidenceScore, americanOdds, statType)
   if (e == null) return null
   return Math.round(e * 1000) / 10  // e.g. 0.0834 -> 8.3
 }

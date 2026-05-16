@@ -67,14 +67,14 @@ async function getEdgePicks(): Promise<Array<Prop & { ev: number; evPct: number;
     // ingest-side filter was added. New rows are blocked at /api/props parse
     // time — see lib/odds-api.ts:isPlayerName.
     if (!isPlayerName(p.player_name, p.home_team, p.away_team)) continue
-    const e = ev(p.confidence_score, p.odds)
+    const e = ev(p.confidence_score, p.odds, p.stat_type)
     if (e == null || e <= 0) continue
     const key = `${p.player_name}|${p.stat_type}|${p.line}|${p.direction}`
     const enriched = {
       ...p,
       ev: e,
-      evPct: evPct(p.confidence_score, p.odds) ?? 0,
-      cal: calibratedPct(p.confidence_score) ?? 0,
+      evPct: evPct(p.confidence_score, p.odds, p.stat_type) ?? 0,
+      cal: calibratedPct(p.confidence_score, p.stat_type) ?? 0,
     }
     const existing = bestMap.get(key)
     if (!existing || enriched.ev > existing.ev) {

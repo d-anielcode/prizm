@@ -33,45 +33,73 @@
 import calibrationTable from '@/lib/calibration-table.json'
 
 interface CalibrationTable {
+  version?:      string
   generated_at: string
   data_window:  { start: string; end: string; game_days: number; graded_props: number }
+  /** Legacy global lookup — used as fallback when per-stat is missing. */
   lookup:       number[]
+  /** v2+: per-stat-type lookups (101 entries each, indexed by raw score 0-100). */
+  per_stat?:    Record<string, number[]>
+  /** Sample counts behind each per-stat fit (for QA / "data window" UX). */
+  sample_counts?: Record<string, number>
 }
 
 const TABLE = calibrationTable as CalibrationTable
-const LOOKUP = TABLE.lookup
-const VALID = Array.isArray(LOOKUP) && LOOKUP.length === 101
+const GLOBAL = TABLE.lookup
+const PER_STAT = TABLE.per_stat ?? {}
+const GLOBAL_VALID = Array.isArray(GLOBAL) && GLOBAL.length === 101
 
-/**
- * Map a raw confidence score (0-100) to its historically-calibrated hit rate
- * (also 0-100). Linear-interpolated between integer grid points; clamped to
- * [0, 100]. Returns the input untouched if the calibration table is missing
- * or malformed — fail-safe behavior.
- *
- * Example: if isotonic learned that raw=72.5 corresponds to 58.2% actual,
- * applyCalibration(72.5) ≈ 58.2.
- */
-export function applyCalibration(rawScore: number): number {
-  if (!VALID) return rawScore
+function interpolate(lookup: number[], rawScore: number): number {
   const x = Math.max(0, Math.min(100, rawScore))
   const lo = Math.floor(x)
   const hi = Math.min(100, lo + 1)
-  if (lo === hi) return LOOKUP[lo]
+  if (lo === hi) return lookup[lo]
   const frac = x - lo
-  return LOOKUP[lo] * (1 - frac) + LOOKUP[hi] * frac
+  return lookup[lo] * (1 - frac) + lookup[hi] * frac
+}
+
+/**
+ * Map a raw confidence score (0-100) to its historically-calibrated hit rate
+ * (also 0-100). When `statType` is provided AND a per-stat table exists,
+ * uses the per-stat curve — different stats have very different calibration
+ * (e.g. rebounds at 75 = 90% historical, 3PM at 75 = 61%).
+ *
+ * Falls back to the global curve when statType is missing or has no per-stat
+ * fit (e.g. stats with <500 graded samples). Falls back to raw score if the
+ * whole table is malformed.
+ *
+ * Linear-interpolated between integer grid points; clamped to [0, 100].
+ */
+export function applyCalibration(rawScore: number, statType?: string): number {
+  if (statType && PER_STAT[statType]?.length === 101) {
+    return interpolate(PER_STAT[statType], rawScore)
+  }
+  if (GLOBAL_VALID) return interpolate(GLOBAL, rawScore)
+  return rawScore
 }
 
 /** Round helper for display — applyCalibration + Math.round in one call. */
-export function calibratedPct(rawScore: number | null | undefined): number | null {
+export function calibratedPct(
+  rawScore: number | null | undefined,
+  statType?: string,
+): number | null {
   if (rawScore == null) return null
-  return Math.round(applyCalibration(rawScore))
+  return Math.round(applyCalibration(rawScore, statType))
 }
 
 /** Metadata about the calibration fit, for "trained on N props from X to Y" UX. */
 export function calibrationMeta() {
   return {
-    generated_at: TABLE.generated_at,
-    window:       TABLE.data_window,
-    valid:        VALID,
+    version:       TABLE.version ?? 'v1-global',
+    generated_at:  TABLE.generated_at,
+    window:        TABLE.data_window,
+    valid:         GLOBAL_VALID,
+    per_stat_keys: Object.keys(PER_STAT),
+    sample_counts: TABLE.sample_counts ?? {},
   }
+}
+
+/** True when a per-stat lookup is available for this stat type. */
+export function hasPerStatCalibration(statType: string): boolean {
+  return PER_STAT[statType]?.length === 101
 }

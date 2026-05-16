@@ -157,7 +157,7 @@ export default function GamePropsTable({
                   )
                 })()}
                 {prop.confidence_label && prop.confidence_score != null ? (
-                  <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+                  <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} statType={prop.stat_type} />
                 ) : (
                   <span className="text-white/30 text-xs">—</span>
                 )}
@@ -255,7 +255,7 @@ export default function GamePropsTable({
                     </td>
                     <td className="px-4 py-3">
                       {prop.confidence_label && prop.confidence_score != null ? (
-                        <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+                        <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} statType={prop.stat_type} />
                       ) : (
                         <span className="text-white/30">—</span>
                       )}

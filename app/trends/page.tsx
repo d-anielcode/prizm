@@ -424,7 +424,7 @@ function StreakCard({ prop, streak, l10, hot }: { prop: Prop; streak: number; l1
       {/* Right: confidence + time */}
       <div className="flex items-center gap-3 ml-auto">
         {prop.confidence_label && prop.confidence_score != null && (
-          <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} />
+          <ConfidenceBadge label={prop.confidence_label} score={prop.confidence_score} statType={prop.stat_type} />
         )}
         {prop.commence_time && (
           <span className="text-white/30 text-xs">{formatGameTime(prop.commence_time)}</span>

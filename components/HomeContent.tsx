@@ -161,7 +161,7 @@ export function HomeContent({
                   </span>
                 </div>
                 {prop.confidence_label && prop.confidence_score != null && (
-                  <ConfidenceBadge label={prop.confidence_label as ConfidenceLabel} score={prop.confidence_score} />
+                  <ConfidenceBadge label={prop.confidence_label as ConfidenceLabel} score={prop.confidence_score} statType={prop.stat_type} />
                 )}
               </Link>
             ))}
