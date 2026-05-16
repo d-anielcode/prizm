@@ -57,6 +57,34 @@ const PREMIUM_COUNT    = 1
 const PREMIUM_MIN_MINS = 24
 const JACKPOT_LEGS     = 5
 const JACKPOT_MIN_MINS = 24
+
+// Playoff mode — auto-detected when slate falls in conference/NBA finals window.
+// Rotations tighten 10-11 deep -> 8-9 deep, pace slows, stars play 38+ mins
+// instead of 32-35, and bench players see drastically reduced minutes (often <15).
+// We tighten the min-minutes filter to keep low-confidence bench picks out of
+// multi-leg parlays where their variance compounds.
+const PLAYOFF_PREMIUM_MIN_MINS = 30
+const PLAYOFF_JACKPOT_MIN_MINS = 32
+const PLAYOFF_VALUE_MIN_MINS   = 28
+
+/**
+ * Detect whether the slate is in NBA playoffs based on game-date.
+ * Conservative: only late-round playoffs (conference finals + finals) get the
+ * tightening since play-in / first-round still has many close-to-regular-season
+ * rotation patterns.
+ *
+ * Conference finals typically start mid-May; NBA Finals late-May through June.
+ * Off-season after mid-June so this returns false until the next playoffs.
+ */
+function isPlayoffSlate(gameDate: string): boolean {
+  // gameDate is YYYY-MM-DD Eastern
+  const [y, m, d] = gameDate.split('-').map(Number)
+  if (!y || !m || !d) return false
+  // May 15 - June 30: conference finals through NBA Finals
+  if (m === 5 && d >= 15) return true
+  if (m === 6 && d <= 30) return true
+  return false
+}
 // Sportsbooks apply extra vig on parlays — displayed multiplier is discounted ~15%
 // to give a realistic estimate rather than the raw mathematical product.
 // Per-leg vig factor: ~7% juice per leg (0.93^N compounds correctly)
@@ -498,12 +526,27 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     return bHr - aHr
   })
 
-  // 4. Build VALUE parlay (2-leg, safe stats only + 24min filter for best hit rate)
+  // Playoff-mode tightening: conference finals + NBA Finals have ~8-9 player
+  // rotations vs ~10-11 in regular season. Bench-leaning props with 20-24 min
+  // averages collapse to 12-18 min in playoffs, so their hit rates plummet.
+  // Bump the min-minutes thresholds to push the parlay generator toward the
+  // 30+ MPG core rotation that survives playoff minute cuts.
+  const playoff       = isPlayoffSlate(gameDate)
+  const valueMinMins  = playoff ? PLAYOFF_VALUE_MIN_MINS   : VALUE_MIN_MINS
+  const premiumMinMins= playoff ? PLAYOFF_PREMIUM_MIN_MINS : PREMIUM_MIN_MINS
+  const jackpotMinMins= playoff ? PLAYOFF_JACKPOT_MIN_MINS : JACKPOT_MIN_MINS
+  if (playoff) {
+    logger.info('[parlay] playoff-mode active — tightened min-minutes', {
+      gameDate, value: valueMinMins, premium: premiumMinMins, jackpot: jackpotMinMins,
+    })
+  }
+
+  // 4. Build VALUE parlay (2-leg, safe stats only + min-minutes filter)
   //    Safe stats (PTS/REB/AST/3PM) + 24min filter: 40.8% hit rate vs 33.9% current
   const safePool = pool.filter((p) => SAFE_STATS.has(p.stat_type))
   const results: ParlayResult[] = []
   const valueUsed = new Set<string>()
-  const valuePick = pickParlay(safePool, valueUsed, VALUE_LEGS, VALUE_MIN_MINS)
+  const valuePick = pickParlay(safePool, valueUsed, VALUE_LEGS, valueMinMins)
   if (valuePick) {
     results.push({ ...buildResult(valuePick.legs, 0, gameDate, 'value'), tier: 'value' })
   }
@@ -515,14 +558,12 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     results.push({ ...buildResult(comboPick.legs, 0, gameDate, 'combo'), tier: 'combo' })
   }
 
-  // 5. Build PREMIUM parlays (4-leg, 24+ avg mins filter, EV-first pool)
-  //    Pool is already EV-sorted from step 3, so we just reuse it. Previously
-  //    used a LOCK-first sort which favored tier over edge — replaced because
-  //    a +6% EV PLAY beats a +1% EV LOCK in long-run profit even if the LOCK
-  //    individually hits more often.
+  // 5. Build PREMIUM parlays (4-leg, EV-first pool, min-minutes filter)
+  //    Playoff-mode bumps the min-minutes threshold to 30+ since rotations
+  //    tighten dramatically in late-round playoffs.
   const premiumUsed = new Set<string>()
   for (let i = 0; i < PREMIUM_COUNT; i++) {
-    const pick = pickParlay(pool, premiumUsed, PREMIUM_LEGS, PREMIUM_MIN_MINS)
+    const pick = pickParlay(pool, premiumUsed, PREMIUM_LEGS, premiumMinMins)
     if (!pick) break
     results.push({ ...buildResult(pick.legs, i, gameDate, 'premium'), tier: 'premium' })
     for (const key of pick.used) premiumUsed.add(key)
@@ -530,7 +571,7 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
 
   // 6. Build JACKPOT parlay (5-leg, 24+ avg mins filter, EV-first pool)
   const jackpotUsed = new Set<string>()
-  const jackpotPick = pickParlay(pool, jackpotUsed, JACKPOT_LEGS, JACKPOT_MIN_MINS)
+  const jackpotPick = pickParlay(pool, jackpotUsed, JACKPOT_LEGS, jackpotMinMins)
   if (jackpotPick) {
     results.push({ ...buildResult(jackpotPick.legs, 0, gameDate, 'jackpot'), tier: 'jackpot' })
   }
