@@ -794,6 +794,37 @@ function newsInjuryScore(
   return clamp(0.50 + boost)
 }
 
+// ── Player consistency / variance ────────────────────────────────────────────
+// Coefficient of variation (CV = stdev / mean) on the last N stat outcomes.
+// A player hitting 20 PTS with stdev 2 is far more reliable than a player
+// hitting 20 PTS with stdev 8 — same line, same hit rate, very different bet.
+// Low CV → boost high-tier confidence both ways (over and under both more
+// predictable). High CV → suppress (avoid volatile players at LOCK).
+//
+// Returns a CV value (0..1+), or null if insufficient data.
+// Used as an additive adjustment in scoreProps — NOT a tunable weight, so it
+// doesn't require a retrain cycle to ship. Magnitudes capped at ±3 pts.
+function consistencyCV(logs: GameLog[], statType: StatType): number | null {
+  const recent = logs.slice(0, 10).filter((g) => g.minutes >= 5)
+  if (recent.length < 5) return null
+  const vals = recent.map((g) => {
+    switch (statType) {
+      case 'points':         return g.points
+      case 'rebounds':       return g.rebounds
+      case 'assists':        return g.assists
+      case 'steals':         return g.steals
+      case 'blocks':         return g.blocks
+      case 'three_pointers': return g.fg3m
+      case 'pra':            return g.pra
+    }
+  })
+  const mean = vals.reduce((s, v) => s + v, 0) / vals.length
+  if (mean < 1) return null  // tiny means make CV unstable (e.g. blocks averaging 0.5)
+  const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length
+  const stdev = Math.sqrt(variance)
+  return stdev / mean
+}
+
 // ── Factor 12: Rest days ──────────────────────────────────────────────────────
 // Back-to-back games reduce performance ~3-4% in counting stats (published research).
 // Computed from the most recent game log date vs tonight's tipoff time.
@@ -1202,24 +1233,59 @@ export function scoreProps(
   // +2 pts for OVER, -2 pts for UNDER. Only applies when opponentOnB2B is confirmed.
   const opponentB2bAdj = opponentOnB2B ? (direction === 'over' ? 2 : -2) : 0
 
-  // Over bias correction — stat-specific (auto-retrained from prop_grades data).
-  // Calibration gate: only apply the penalty if trailing 30-day over hit rate
-  // for this stat exceeds 55%. If the model isn't over-predicting overs, the
-  // penalty would destroy calibrated edge.
+  // Player consistency adjustment: low coefficient of variation = predictable
+  // outcomes → boost high-tier confidence. High CV = volatile → suppress.
+  // Direction-agnostic: a reliable player is reliable for OVER and UNDER alike.
+  // Tuned thresholds based on per-stat variance distributions across 56k game logs.
+  let consistencyAdj = 0
+  if (hasLogs) {
+    const cv = consistencyCV(gameLogs, stat_type)
+    if (cv != null) {
+      // Stat-type-aware thresholds — blocks/steals naturally have higher CV (smaller integers).
+      // Volatile stats use higher cutoffs so a 0.5 CV on steals doesn't read as scary.
+      const isVolatile = stat_type === 'blocks' || stat_type === 'steals'
+      const lowCutoff  = isVolatile ? 0.55 : 0.30
+      const highCutoff = isVolatile ? 0.85 : 0.50
+      if (cv <= lowCutoff)        consistencyAdj = 3   // very reliable
+      else if (cv <= lowCutoff + 0.10) consistencyAdj = 1   // somewhat reliable
+      else if (cv >= highCutoff)  consistencyAdj = -3  // very volatile
+      else if (cv >= highCutoff - 0.10) consistencyAdj = -1  // somewhat volatile
+    }
+  }
+
+  // Over-bias correction — stat-specific (auto-retrained from prop_grades data).
+  //
+  // Gate semantics (FIXED 2026-05-14): apply the penalty when trailing 30-day
+  // over hit rate is BELOW 50% — i.e. when the books have priced overs such
+  // that they consistently miss, indicating systematic under-pricing.
+  //
+  // Previous logic was `> 0.55` which meant "apply only when overs are
+  // hitting higher than 55%". That gate condition never fired in production
+  // because real over hit rates run ~40-49% across all stats (verified
+  // empirically: assists 46.1%, blocks 40.1%, points 46.5%, pra 44.9%,
+  // rebounds 48.7%, steals 46.2%, three_pointers 48.5% over 12,319 trailing
+  // 30-day grades). The hand-set bias values (steals -10, blocks -8, 3PM -7)
+  // were dead code — the Δ asymmetries the diagnostic measured were what
+  // happens WITHOUT the bias being applied.
+  //
+  // The new gate is semantically correct AND conservative: bias fires only
+  // when there's evidence of mispricing, no-data case (cold start) still
+  // applies the conservative penalty.
   const _obConfig = loadWeightConfig()
-  // v11.1 retune (2026-05-05): tightened steals/blocks/3PM after diagnostic showed
-  // large under > over asymmetry on volatile stats; pts/reb/ast/pra unchanged.
+  // v11.1 magnitudes — kept unchanged for now. Once the gate fires correctly,
+  // auto_retrain's next run will re-tune these against actual post-gate data.
+  // Watch for over-correction in the first week (LOCK volume drop > 25%).
   const OVER_BIAS_DEFAULTS: Record<StatType, number> = {
     points: -3, rebounds: -4, assists: -4,
     steals: -10, blocks: -8, three_pointers: -7, pra: -4,
   }
-  const OVER_BIAS_GATE = 0.55  // only penalize if model's over hit rate > 55%
+  const OVER_BIAS_GATE = 0.50  // fire when over hit rate < 50% (was > 0.55, never fired)
   let overBiasAdj = 0
   if (direction === 'over') {
     const trailingOverRate = ctx.overHitRates?.get(stat_type)
-    // Apply penalty only when we have calibration data showing over-prediction,
-    // or when no calibration data exists (conservative default)
-    if (trailingOverRate == null || trailingOverRate > OVER_BIAS_GATE) {
+    // Apply penalty when overs have been under-performing the line,
+    // OR when we have no data (conservative default — assume mispricing).
+    if (trailingOverRate == null || trailingOverRate < OVER_BIAS_GATE) {
       overBiasAdj = _obConfig?.over_bias?.[stat_type] ?? OVER_BIAS_DEFAULTS[stat_type] ?? -3
     }
   }
@@ -1244,7 +1310,7 @@ export function scoreProps(
   // are capped at 65 (top of PLAY) — insufficient data to justify LOCK confidence.
   const scoreMax = hasLogs ? 95 : 65
   const score = Math.round(Math.min(scoreMax, Math.max(18,
-    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + opponentB2bAdj + simAdj
+    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + opponentB2bAdj + simAdj + consistencyAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
   // Derive correct opponent display name from game-log-based opponentAbbr.
