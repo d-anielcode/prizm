@@ -960,13 +960,19 @@ export function computeFactors(
   }
 
   // Opponent leak: team-specific defensive tendency for this stat.
-  // Scale: (hit_rate - 0.50) × confidenceScale × 8, capped at ±4 pts.
-  // Weaker signal than player bias (team tendencies shift more than player habits).
+  // Scale: (over_hit_rate - 0.50) × confidenceScale × 15, capped at ±6 pts.
+  //
+  // Retuned 2026-05-15 alongside player_line_bias (mult 8 -> 15, cap 4 -> 6).
+  // Same under-application bug — original mult=8 produced p95=1.4 pts on
+  // the 209 qualifying rows. New mult=15 produces p95=2.6 pts, no row hits
+  // the new ±6 cap. Team tendencies are still ~half the magnitude of player
+  // bias (which is correct — books price team-level effects more efficiently
+  // than per-player tendencies).
   let leakAdj = 0
   if (opponentLeak && opponentLeak.sample_count >= 10) {
     const confidenceScale = Math.min(opponentLeak.sample_count / 40, 1.0)
-    const rawAdj = (opponentLeak.over_hit_rate - 0.50) * confidenceScale * 8
-    leakAdj = Math.max(-4, Math.min(4, rawAdj))
+    const rawAdj = (opponentLeak.over_hit_rate - 0.50) * confidenceScale * 15
+    leakAdj = Math.max(-6, Math.min(6, rawAdj))
     if (direction === 'under') leakAdj = -leakAdj
   }
 
