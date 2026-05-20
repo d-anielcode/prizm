@@ -74,6 +74,7 @@ interface WeightConfig {
   base_lock_threshold: number
   base_play_threshold: number
   over_bias: Record<string, number>
+  under_bias?: Record<string, number>  // optional — added 2026-05-14, falls back to UNDER_BIAS_DEFAULTS
 }
 
 let _cachedConfig: WeightConfig | null = null
@@ -210,7 +211,8 @@ export interface ScoringContext {
   homePace?:          number | null              // home team pace (possessions/48)
   awayPace?:          number | null              // away team pace (possessions/48)
   simThreePm?:        SimThreePm | null          // Monte Carlo 3PM simulation result
-  overHitRates?:      Map<string, number> | null // trailing 30-day over hit rate per stat type (for calibration gate)
+  overHitRates?:      Map<string, number> | null // trailing 30-day over hit rate per stat type (for over-bias gate)
+  underHitRates?:     Map<string, number> | null // trailing 30-day under hit rate per stat type (for under-bias gate)
 }
 
 export interface ScoredProp extends Prop {
@@ -1290,6 +1292,44 @@ export function scoreProps(
     }
   }
 
+  // Under-bias correction — symmetric counterpart to over_bias.
+  //
+  // Discovered 2026-05-14 from LEAN/FADE analysis of 83,277 graded props:
+  // every single stat shows UNDER hitting higher than OVER in LEAN/FADE tier.
+  // Across-all-scores deltas (UNDER - OVER hit rate):
+  //   blocks: +15.5pt, steals: +12.8pt, assists: +7.3pt, pra: +6.8pt,
+  //   rebounds: +5.5pt, points: +4.9pt, three_pointers: +4.3pt.
+  // The model treats over and under symmetrically when scoring, but the
+  // empirical hit rates are systematically biased toward UNDER. The
+  // over_bias penalty fixes one side; this under_bias bonus fixes the other.
+  //
+  // Magnitudes are HALF the observed delta — conservative starting point so
+  // we don't over-correct. Auto_retrain's recalibrate_over_bias logic can
+  // be mirrored for under_bias in a future commit; for now these are
+  // hand-set defaults that ride on top of the calibration table.
+  //
+  // Gate: only fires when trailing 30-day UNDER hit rate exceeds 50% (i.e.,
+  // unders are demonstrably profitable). Mirror of over_bias gate.
+  const UNDER_BIAS_DEFAULTS: Record<StatType, number> = {
+    blocks:         +8,  // observed Δ +15.5
+    steals:         +6,  // observed Δ +12.8
+    assists:        +4,  // observed Δ  +7.3
+    pra:            +3,  // observed Δ  +6.8
+    rebounds:       +3,  // observed Δ  +5.5
+    points:         +2,  // observed Δ  +4.9
+    three_pointers: +2,  // observed Δ  +4.3
+  }
+  const UNDER_BIAS_GATE = 0.50  // fire when under hit rate > 50%
+  let underBiasAdj = 0
+  if (direction === 'under') {
+    const trailingUnderRate = ctx.underHitRates?.get(stat_type)
+    // Apply bonus when unders have been outperforming the line,
+    // OR when we have no data (conservative default — historical asymmetry holds).
+    if (trailingUnderRate == null || trailingUnderRate > UNDER_BIAS_GATE) {
+      underBiasAdj = _obConfig?.under_bias?.[stat_type] ?? UNDER_BIAS_DEFAULTS[stat_type] ?? 2
+    }
+  }
+
   // 3PM zone simulation adjustment: Monte Carlo sim with zone-specific defense
   // produces p(over) — compare to baseline 0.50 to determine sim edge.
   // Only applies to three_pointers props.
@@ -1310,7 +1350,7 @@ export function scoreProps(
   // are capped at 65 (top of PLAY) — insufficient data to justify LOCK confidence.
   const scoreMax = hasLogs ? 95 : 65
   const score = Math.round(Math.min(scoreMax, Math.max(18,
-    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + opponentB2bAdj + simAdj + consistencyAdj
+    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + underBiasAdj + opponentB2bAdj + simAdj + consistencyAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
   // Derive correct opponent display name from game-log-based opponentAbbr.

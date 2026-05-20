@@ -429,20 +429,28 @@ async function runEnrichment(force = false) {
     soft(safeQuery(supabase.from('prop_grades').select('stat_type, direction, hit').gte('game_date', minGradeDate).not('hit', 'is', null), 'load calibration grades'), [], 'calibration grades'),
   ])
 
-  // ── Build over-hit-rate calibration map (for over-bias gate) ──────────────
-  const overHitRates = new Map<string, number>()
+  // ── Build over/under hit-rate calibration maps (for bias gates) ──────────
+  const overHitRates  = new Map<string, number>()
+  const underHitRates = new Map<string, number>()
   {
-    const tally = new Map<string, { hits: number; total: number }>()
+    const overTally  = new Map<string, { hits: number; total: number }>()
+    const underTally = new Map<string, { hits: number; total: number }>()
     for (const row of calibrationRows) {
-      if ((row as Record<string, unknown>).direction !== 'over') continue
-      const st = (row as Record<string, unknown>).stat_type as string
+      const r = row as Record<string, unknown>
+      const st = r.stat_type as string
+      const dir = r.direction as string
+      const tally = dir === 'over' ? overTally : dir === 'under' ? underTally : null
+      if (!tally) continue
       if (!tally.has(st)) tally.set(st, { hits: 0, total: 0 })
       const t = tally.get(st)!
       t.total++
-      if ((row as Record<string, unknown>).hit === true) t.hits++
+      if (r.hit === true) t.hits++
     }
-    for (const [st, { hits, total }] of tally) {
-      if (total >= 20) overHitRates.set(st, hits / total)  // need ≥20 samples
+    for (const [st, { hits, total }] of overTally) {
+      if (total >= 20) overHitRates.set(st, hits / total)
+    }
+    for (const [st, { hits, total }] of underTally) {
+      if (total >= 20) underHitRates.set(st, hits / total)
     }
   }
 
@@ -660,6 +668,7 @@ async function runEnrichment(force = false) {
                         ? (simMap.get(`${prop.player_name}|${opponentAbbr}`) ?? null)
                         : null,
       overHitRates,
+      underHitRates,
     }
 
     return scoreProps(prop, logs, null, ctx)
