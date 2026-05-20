@@ -937,11 +937,25 @@ export function computeFactors(
   let starBonus = 0
   if (hasLogs && playerTier === 'star' && fLineValue >= 0.58 && f7 >= 0.55) starBonus = 3
 
+  // Player line bias: per-player+stat over-hit-rate from historical grades.
+  // Retuned 2026-05-15 — multiplier 10 → 22, cap ±5 → ±10.
+  //
+  // The old multiplier was applying ~10% of the actual edge. Empirical
+  // analysis of 83k LEAN/FADE props showed specific players (Duren PRA
+  // under 77%, KAT pts under 72%, etc.) have +20-30pp persistent edge
+  // that the +2.7 pt adjustment couldn't possibly capture. With mult=22
+  // and cap=10:
+  //   - 50th percentile bias gets ~1.8 pts (was 0.8)
+  //   - 95th percentile gets ~5.5 pts (was 2.5)
+  //   - Strongest 1.1% of signals hit the cap (was 4.4%)
+  // Validation: across 1,517 qualifying player_line_bias rows, only 17
+  // players (1.1%) exceed the new cap — those ARE the systematic outliers
+  // and deserve to be capped. The cap prevents one factor from dominating.
   let biasAdj = 0
   if (playerBias && playerBias.sample_count >= 6) {
     const confidenceScale = Math.min(playerBias.sample_count / 20, 1.0)
-    const rawAdj = (playerBias.hit_rate - 0.50) * confidenceScale * 10
-    biasAdj = Math.max(-5, Math.min(5, rawAdj))
+    const rawAdj = (playerBias.hit_rate - 0.50) * confidenceScale * 22
+    biasAdj = Math.max(-10, Math.min(10, rawAdj))
     if (direction === 'under') biasAdj = -biasAdj
   }
 
@@ -1134,11 +1148,25 @@ export function scoreProps(
   // Formula: (hit_rate - 0.50) × confidence_scale × 10, capped at ±5 pts.
   // confidence_scale = min(sample_count / 20, 1.0) — grows toward full weight at 20+ games.
   // Direction: OVER props get positive adj for high hit_rate, negative for low.
+  // Player line bias: per-player+stat over-hit-rate from historical grades.
+  // Retuned 2026-05-15 — multiplier 10 → 22, cap ±5 → ±10.
+  //
+  // The old multiplier was applying ~10% of the actual edge. Empirical
+  // analysis of 83k LEAN/FADE props showed specific players (Duren PRA
+  // under 77%, KAT pts under 72%, etc.) have +20-30pp persistent edge
+  // that the +2.7 pt adjustment couldn't possibly capture. With mult=22
+  // and cap=10:
+  //   - 50th percentile bias gets ~1.8 pts (was 0.8)
+  //   - 95th percentile gets ~5.5 pts (was 2.5)
+  //   - Strongest 1.1% of signals hit the cap (was 4.4%)
+  // Validation: across 1,517 qualifying player_line_bias rows, only 17
+  // players (1.1%) exceed the new cap — those ARE the systematic outliers
+  // and deserve to be capped. The cap prevents one factor from dominating.
   let biasAdj = 0
   if (playerBias && playerBias.sample_count >= 6) {
     const confidenceScale = Math.min(playerBias.sample_count / 20, 1.0)
-    const rawAdj = (playerBias.hit_rate - 0.50) * confidenceScale * 10
-    biasAdj = Math.max(-5, Math.min(5, rawAdj))
+    const rawAdj = (playerBias.hit_rate - 0.50) * confidenceScale * 22
+    biasAdj = Math.max(-10, Math.min(10, rawAdj))
     if (direction === 'under') biasAdj = -biasAdj
   }
 
