@@ -864,10 +864,244 @@ export interface PrecomputedFactors {
   biasAdj:       number
   leakAdj:       number
   minutesTrendAdj: number  // ±2–3 pts based on L5 vs L20 minutes trend
+  // Additives added 2026-05-20 to bring applyWeights into parity with
+  // scoreProps's full additive chain. Previously these existed only in
+  // scoreProps and the optimizer (which uses applyWeights) was tuning weights
+  // against a stripped-down phantom model.
+  lineMovAdj:                number  // ±2–6 pts on sharp line movement
+  oddsMovAdj:                number  // ±3–7 pts on implied-prob shifts
+  minutesUncertaintyPenalty: number  // -4 to -11 pts for bench/fringe players
+  overBiasAdj:               number  // negative for OVERs when overs under-perform
+  underBiasAdj:              number  // positive for UNDERs when unders out-perform
+  opponentB2bAdj:            number  // ±2 if opponent on back-to-back
+  simAdj:                    number  // ±2/4/6 from 3PM Monte Carlo sim
+  consistencyAdj:            number  // ±3 from L10 CV (player reliability)
+  lineupAdj:                 number  // +2 confirmed starter; -25 confirmed out
   hasLogs:     boolean
   statType:    StatType
   direction:   'over' | 'under'
   hit:         boolean  // did OVER actually hit?
+}
+
+/**
+ * computeAdditives — single source of truth for the 14 score-time additives.
+ *
+ * BLOCKER fix 2026-05-20: previously these additives lived inline inside
+ * scoreProps. Only 5 of them were stored on PrecomputedFactors, so applyWeights
+ * (used by scripts/optimize-weights.ts) was summing a stripped-down phantom
+ * model — and the optimizer was tuning factor weights against it. This
+ * extraction guarantees both code paths score the same prop the same way.
+ *
+ * Inputs are the prop, raw game logs, full ScoringContext, and the 11
+ * pre-computed factor values (passed in to avoid recomputing them). Returns
+ * every additive used in the final sum, ready to be added to (adjustedRaw * 100).
+ *
+ * Keep in lockstep with the `score = Math.round(...)` line in scoreProps.
+ * A parity test in lib/__tests__/confidence.test.ts asserts this.
+ */
+export interface ScoreAdditives {
+  freshness:                 number  // multiplier on consensusAdj + on (raw - 0.5)
+  consensusAdj:              number
+  starBonus:                 number
+  biasAdj:                   number
+  leakAdj:                   number
+  lineMovAdj:                number
+  oddsMovAdj:                number
+  minutesTrendAdj:           number
+  minutesUncertaintyPenalty: number
+  overBiasAdj:               number
+  underBiasAdj:              number
+  opponentB2bAdj:            number
+  simAdj:                    number
+  consistencyAdj:            number
+  lineupAdj:                 number
+}
+
+export function computeAdditives(
+  prop:       Prop,
+  gameLogs:   GameLog[],
+  ctx:        ScoringContext,
+  factors:    { fLineValue: number; f2: number; f3: number; f4: number; f5: number; f6: number; f7: number; f10: number; f11: number; f12: number; fPace: number },
+  playerTier: 'star' | 'starter' | 'rotation',
+  hasLogs:    boolean,
+): ScoreAdditives {
+  const { line: _line, stat_type, direction } = prop
+  void _line  // unused locally but kept for signature stability
+  const ct = prop.commence_time
+  const { fLineValue, f2, f3, f6, f7, f11 } = factors
+
+  // freshness multiplier (used in adjustedRaw + applied to consensusAdj)
+  const freshness = hasLogs ? dataFreshness(gameLogs, ct) : 1.00
+
+  // Consensus among top 5 primary factors
+  const primaryFactors = [fLineValue, f2, f7, f6, f3]
+  const agreeCount = primaryFactors.filter((f) => f >= 0.55).length
+  const consensusAdj = agreeCount >= 4 ? 3 : agreeCount >= 3 ? 0 : agreeCount >= 2 ? -4 : -10
+
+  // Star bonus
+  let starBonus = 0
+  if (hasLogs && direction === 'over' && playerTier === 'star' && fLineValue >= 0.58 && f7 >= 0.55) {
+    starBonus = 3
+  }
+
+  // Player line bias (mult=10, cap=±5 — see fb3bef6, 4c668fe)
+  let biasAdj = 0
+  if (ctx.playerBias && ctx.playerBias.sample_count >= 6) {
+    const cs = Math.min(ctx.playerBias.sample_count / 20, 1.0)
+    const raw = (ctx.playerBias.hit_rate - 0.50) * cs * 10
+    biasAdj = Math.max(-5, Math.min(5, raw))
+    if (direction === 'under') biasAdj = -biasAdj
+  }
+
+  // Opponent leak (mult=15, cap=±6 — see a815182)
+  let leakAdj = 0
+  if (ctx.opponentLeak && ctx.opponentLeak.sample_count >= 10) {
+    const cs = Math.min(ctx.opponentLeak.sample_count / 40, 1.0)
+    const raw = (ctx.opponentLeak.over_hit_rate - 0.50) * cs * 15
+    leakAdj = Math.max(-6, Math.min(6, raw))
+    if (direction === 'under') leakAdj = -leakAdj
+  }
+
+  // Line movement
+  const lineMovementDelta = ctx.lineMovementDelta ?? null
+  let lineMovAdj = 0
+  if (lineMovementDelta != null && Math.abs(lineMovementDelta) >= 0.5) {
+    const moved = Math.abs(lineMovementDelta)
+    const mag = moved >= 2.0 ? 6 : moved >= 1.0 ? 4 : 2
+    const confirming = direction === 'over' ? lineMovementDelta > 0 : lineMovementDelta < 0
+    lineMovAdj = confirming ? mag : -mag
+  }
+
+  // Odds movement
+  const oddsMovementDelta = ctx.oddsMovementDelta ?? null
+  let oddsMovAdj = 0
+  if (oddsMovementDelta != null && Math.abs(oddsMovementDelta) >= 0.03) {
+    const abs = Math.abs(oddsMovementDelta)
+    const mag = abs >= 0.10 ? 7 : abs >= 0.06 ? 5 : 3
+    const confirming = direction === 'over' ? oddsMovementDelta > 0 : oddsMovementDelta < 0
+    oddsMovAdj = confirming ? mag : -mag
+  }
+
+  // Minutes trend (L5 vs L20)
+  let minutesTrendAdj = 0
+  if (hasLogs) {
+    const cutoff90 = dateCutoff(ct, 90)
+    const mEligible = (cutoff90 ? gameLogs.filter((g) => g.game_date >= cutoff90) : gameLogs)
+      .filter((g) => g.minutes >= 5)
+    const ml5  = mEligible.slice(0, 5)
+    const ml20 = mEligible.slice(0, 20)
+    if (ml5.length >= 3 && ml20.length >= 8) {
+      const avgM5  = ml5.reduce((s, g) => s + g.minutes, 0) / ml5.length
+      const avgM20 = ml20.reduce((s, g) => s + g.minutes, 0) / ml20.length
+      if (avgM20 > 0) {
+        const trend = (avgM5 - avgM20) / avgM20
+        if (Math.abs(trend) >= 0.10) {
+          const mag = Math.abs(trend) >= 0.20 ? 3 : 2
+          minutesTrendAdj = (trend > 0 ? mag : -mag) * (direction === 'over' ? 1 : -1)
+        }
+      }
+    }
+  }
+
+  // Minutes uncertainty penalty (bench/fringe players)
+  let minutesUncertaintyPenalty = 0
+  if (hasLogs) {
+    const mRecent = gameLogs.slice(0, 10).filter((g) => g.minutes >= 1)
+    if (mRecent.length >= 4) {
+      const avg = mRecent.reduce((s, g) => s + g.minutes, 0) / mRecent.length
+      const variance = mRecent.reduce((s, g) => s + (g.minutes - avg) ** 2, 0) / mRecent.length
+      const stdev = Math.sqrt(variance)
+      if (avg < 20)      minutesUncertaintyPenalty = -8
+      else if (avg < 24) minutesUncertaintyPenalty = -4
+      if (stdev > 6)     minutesUncertaintyPenalty -= 3
+    }
+  }
+
+  // Opponent B2B
+  const opponentB2bAdj = ctx.opponentOnB2B ? (direction === 'over' ? 2 : -2) : 0
+
+  // Consistency (L10 CV)
+  let consistencyAdj = 0
+  if (hasLogs) {
+    const cv = consistencyCV(gameLogs, stat_type)
+    if (cv != null) {
+      const isVolatile = stat_type === 'blocks' || stat_type === 'steals'
+      const lowCutoff  = isVolatile ? 0.55 : 0.30
+      const highCutoff = isVolatile ? 0.85 : 0.50
+      if (cv <= lowCutoff)                  consistencyAdj = 3
+      else if (cv <= lowCutoff + 0.10)      consistencyAdj = 1
+      else if (cv >= highCutoff)            consistencyAdj = -3
+      else if (cv >= highCutoff - 0.10)     consistencyAdj = -1
+    }
+  }
+
+  // Over-bias correction
+  const obCfg = loadWeightConfig()
+  const OVER_BIAS_DEFAULTS: Record<StatType, number> = {
+    points: -3, rebounds: -4, assists: -4,
+    steals: -10, blocks: -8, three_pointers: -7, pra: -4,
+  }
+  const OVER_BIAS_GATE = 0.50
+  let overBiasAdj = 0
+  if (direction === 'over') {
+    const tr = ctx.overHitRates?.get(stat_type)
+    if (tr == null || tr < OVER_BIAS_GATE) {
+      overBiasAdj = obCfg?.over_bias?.[stat_type] ?? OVER_BIAS_DEFAULTS[stat_type] ?? -3
+    }
+  }
+
+  // Under-bias correction
+  const UNDER_BIAS_DEFAULTS: Record<StatType, number> = {
+    blocks: +8, steals: +6, assists: +4, pra: +3,
+    rebounds: +3, points: +2, three_pointers: +2,
+  }
+  const UNDER_BIAS_GATE = 0.50
+  let underBiasAdj = 0
+  if (direction === 'under') {
+    const tr = ctx.underHitRates?.get(stat_type)
+    if (tr == null || tr > UNDER_BIAS_GATE) {
+      underBiasAdj = obCfg?.under_bias?.[stat_type] ?? UNDER_BIAS_DEFAULTS[stat_type] ?? 2
+    }
+  }
+
+  // 3PM Monte Carlo sim
+  let simAdj = 0
+  if (stat_type === 'three_pointers' && ctx.simThreePm) {
+    const edge = ctx.simThreePm.p_over - 0.50
+    if (edge > 0.10)       simAdj = 6
+    else if (edge > 0.05)  simAdj = 4
+    else if (edge > 0.02)  simAdj = 2
+    else if (edge < -0.10) simAdj = -6
+    else if (edge < -0.05) simAdj = -4
+    else if (edge < -0.02) simAdj = -2
+    if (direction === 'under') simAdj = -simAdj
+  }
+
+  // Lineup confirmation (Phase 2 of lineups pipeline)
+  let lineupAdj = 0
+  if (ctx.confirmedStarter === false)     lineupAdj = -25
+  else if (ctx.confirmedStarter === true) lineupAdj = 2
+
+  // f11 was passed in but only used implicitly via consensus; void to silence lint
+  void f11
+
+  return {
+    freshness,
+    consensusAdj,
+    starBonus,
+    biasAdj,
+    leakAdj,
+    lineMovAdj,
+    oddsMovAdj,
+    minutesTrendAdj,
+    minutesUncertaintyPenalty,
+    overBiasAdj,
+    underBiasAdj,
+    opponentB2bAdj,
+    simAdj,
+    consistencyAdj,
+    lineupAdj,
+  }
 }
 
 /** Pre-computes all factor values for a prop. The optimizer calls this once per
@@ -932,82 +1166,33 @@ export function computeFactors(
     else if (avgMins < 26) playerTier = 'rotation'
   }
 
-  const primaryFactors = [fLineValue, f2, f7, f6, f3]
-  const agreeCount = primaryFactors.filter((f) => f >= 0.55).length
-  const consensusAdj = agreeCount >= 4 ? 3 : agreeCount >= 3 ? 0 : agreeCount >= 2 ? -4 : -10
-  const freshness = hasLogs ? dataFreshness(gameLogs, ct) : 1.00
-
-  let starBonus = 0
-  if (hasLogs && playerTier === 'star' && fLineValue >= 0.58 && f7 >= 0.55) starBonus = 3
-
-  // Player line bias: per-player+stat over-hit-rate from historical grades.
-  //
-  // 2026-05-15: tried boosting multiplier 10 -> 22 and cap 5 -> 10 based on
-  // the theory that the adjustment was applying ~10% of observed edge.
-  // Counterfactual backtest on 84k prop_grades rebutted this — at LOCK tier
-  // the boosted multiplier ADDED only ~9 picks but they hit 33% (vs 68%
-  // baseline), pulling overall LOCK hit rate from 68.1% -> 65.0%.
-  //
-  // Plausible reasons the boosted multiplier underperformed at the top tier:
-  //   (a) player_line_bias double-counts signal that under_bias already
-  //       captures (UNDERs are systematically under-priced — see Δ table
-  //       in fb3bef6's commit message).
-  //   (b) The bias values in the table are aggregated long-term and don't
-  //       reflect the player's recent state, so boosting amplifies stale
-  //       signal.
-  //   (c) Sample size n=9 at the margin is too small to conclude — but
-  //       the directional signal was negative, so we revert pending more data.
-  //
-  // Original mult=10, cap=±5 restored.
-  let biasAdj = 0
-  if (playerBias && playerBias.sample_count >= 6) {
-    const confidenceScale = Math.min(playerBias.sample_count / 20, 1.0)
-    const rawAdj = (playerBias.hit_rate - 0.50) * confidenceScale * 10
-    biasAdj = Math.max(-5, Math.min(5, rawAdj))
-    if (direction === 'under') biasAdj = -biasAdj
-  }
-
-  // Opponent leak: team-specific defensive tendency for this stat.
-  // Scale: (over_hit_rate - 0.50) × confidenceScale × 15, capped at ±6 pts.
-  //
-  // Retuned 2026-05-15 alongside player_line_bias (mult 8 -> 15, cap 4 -> 6).
-  // Same under-application bug — original mult=8 produced p95=1.4 pts on
-  // the 209 qualifying rows. New mult=15 produces p95=2.6 pts, no row hits
-  // the new ±6 cap. Team tendencies are still ~half the magnitude of player
-  // bias (which is correct — books price team-level effects more efficiently
-  // than per-player tendencies).
-  let leakAdj = 0
-  if (opponentLeak && opponentLeak.sample_count >= 10) {
-    const confidenceScale = Math.min(opponentLeak.sample_count / 40, 1.0)
-    const rawAdj = (opponentLeak.over_hit_rate - 0.50) * confidenceScale * 15
-    leakAdj = Math.max(-6, Math.min(6, rawAdj))
-    if (direction === 'under') leakAdj = -leakAdj
-  }
-
-  // Minutes trend: L5 vs L20 minutes divergence → counting stat volume signal
-  let minutesTrendAdj = 0
-  if (hasLogs) {
-    const cutoff90m = dateCutoff(ct, 90)
-    const mEligible = (cutoff90m ? gameLogs.filter((g) => g.game_date >= cutoff90m) : gameLogs)
-      .filter((g) => g.minutes >= 5)
-    const ml5  = mEligible.slice(0, 5)
-    const ml20 = mEligible.slice(0, 20)
-    if (ml5.length >= 3 && ml20.length >= 8) {
-      const avgM5  = ml5.reduce((s, g) => s + g.minutes, 0) / ml5.length
-      const avgM20 = ml20.reduce((s, g) => s + g.minutes, 0) / ml20.length
-      if (avgM20 > 0) {
-        const minsTrend = (avgM5 - avgM20) / avgM20
-        if (Math.abs(minsTrend) >= 0.10) {
-          const mag = Math.abs(minsTrend) >= 0.20 ? 3 : 2
-          minutesTrendAdj = (minsTrend > 0 ? mag : -mag) * (direction === 'over' ? 1 : -1)
-        }
-      }
-    }
-  }
+  // All score-time additives — single source of truth shared with scoreProps.
+  const adds = computeAdditives(
+    prop,
+    gameLogs,
+    ctx,
+    { fLineValue, f2, f3, f4, f5, f6, f7, f10, f11, f12, fPace },
+    playerTier,
+    hasLogs,
+  )
 
   return {
     fLineValue, f2, f3, f4, f5, f6, f7, f10, f11, f12, fPace,
-    freshness, consensusAdj, starBonus, biasAdj, leakAdj, minutesTrendAdj,
+    freshness:                 adds.freshness,
+    consensusAdj:              adds.consensusAdj,
+    starBonus:                 adds.starBonus,
+    biasAdj:                   adds.biasAdj,
+    leakAdj:                   adds.leakAdj,
+    minutesTrendAdj:           adds.minutesTrendAdj,
+    lineMovAdj:                adds.lineMovAdj,
+    oddsMovAdj:                adds.oddsMovAdj,
+    minutesUncertaintyPenalty: adds.minutesUncertaintyPenalty,
+    overBiasAdj:               adds.overBiasAdj,
+    underBiasAdj:              adds.underBiasAdj,
+    opponentB2bAdj:            adds.opponentB2bAdj,
+    simAdj:                    adds.simAdj,
+    consistencyAdj:            adds.consistencyAdj,
+    lineupAdj:                 adds.lineupAdj,
     hasLogs, statType: stat_type, direction, hit,
   }
 }
@@ -1032,8 +1217,25 @@ export function applyWeights(f: PrecomputedFactors, weights: Record<string, numb
       f.f4         * weights.vsOpponent
   }
   const adjustedRaw = f.hasLogs ? (0.50 + (raw - 0.50) * f.freshness) : raw
+  // MUST mirror the score formula in scoreProps exactly. The parity test in
+  // lib/__tests__/confidence.test.ts asserts scoreProps and applyWeights ∘
+  // computeFactors produce the same score for any given (prop, ctx).
   const score = Math.round(Math.min(95, Math.max(18,
-    adjustedRaw * 100 + f.consensusAdj * f.freshness + f.starBonus + f.biasAdj + f.leakAdj + f.minutesTrendAdj
+    adjustedRaw * 100 +
+    f.consensusAdj * f.freshness +
+    f.starBonus +
+    f.biasAdj +
+    f.leakAdj +
+    f.lineMovAdj +
+    f.oddsMovAdj +
+    f.minutesTrendAdj +
+    f.minutesUncertaintyPenalty +
+    f.overBiasAdj +
+    f.underBiasAdj +
+    f.opponentB2bAdj +
+    f.simAdj +
+    f.consistencyAdj +
+    f.lineupAdj
   )))
   const label = getLabel(score, f.statType).label
   return { score, label }
@@ -1136,284 +1338,59 @@ export function scoreProps(
       f4         * Wt.vsOpponent
   }
 
-  // Consensus bonus/penalty: count how many of the 5 primary factors agree (≥0.55)
-  const primaryFactors = [fLineValue, f2, f7, f6, f3]
-  const agreeCount = primaryFactors.filter((f) => f >= 0.55).length
-  const consensusAdj = agreeCount >= 4 ? 3 : agreeCount >= 3 ? 0 : agreeCount >= 2 ? -4 : -10
+  // All 14 score-time additives come from the shared computeAdditives helper.
+  // See its definition above for the per-additive logic. Single source of truth
+  // — applyWeights (used by the optimizer) reads the same values via
+  // PrecomputedFactors so retrain and production always agree.
+  const adds = computeAdditives(
+    prop,
+    gameLogs,
+    ctx,
+    { fLineValue, f2, f3, f4, f5, f6, f7, f10, f11, f12, fPace },
+    playerTier,
+    hasLogs,
+  )
+  const {
+    freshness,
+    consensusAdj,
+    starBonus,
+    biasAdj,
+    leakAdj,
+    lineMovAdj,
+    oddsMovAdj,
+    minutesTrendAdj,
+    minutesUncertaintyPenalty,
+    overBiasAdj,
+    underBiasAdj,
+    opponentB2bAdj,
+    simAdj,
+    consistencyAdj,
+    lineupAdj,
+  } = adds
 
-  // Freshness: multiplicative (most impactful — compresses all log-based signal
-  // when the player has been out for a while). Validated by model design.
-  const freshness = hasLogs ? dataFreshness(gameLogs, ct) : 1.00
   const adjustedRaw = hasLogs ? (0.50 + (raw - 0.50) * freshness) : raw
-
-  // Star bonus: additive boost for high-usage players (≥36 min avg) when both
-  // lineValue AND hit rate are bullish. Stars are matchup-proof so log-based
-  // signals are more reliable for them. Only fires for OVER props (log signals
-  // are directional — high-usage stars skew volume upward).
-  // Additive-only: never penalizes; cannot push a pick below its current score.
-  // Requires both lineValue ≥ 0.58 (generous line) AND hit rate ≥ 0.55 (hot).
-  let starBonus = 0
-  if (hasLogs && direction === 'over' && playerTier === 'star' && fLineValue >= 0.58 && f7 >= 0.55) {
-    starBonus = 3
-  }
-
-  // Player line bias adjustment: if the book has historically under/overpriced
-  // this player for this stat, apply a small calibration bump.
-  // Formula: (hit_rate - 0.50) × confidence_scale × 10, capped at ±5 pts.
-  // confidence_scale = min(sample_count / 20, 1.0) — grows toward full weight at 20+ games.
-  // Direction: OVER props get positive adj for high hit_rate, negative for low.
-  // Player line bias: per-player+stat over-hit-rate from historical grades.
-  //
-  // 2026-05-15: tried boosting multiplier 10 -> 22 and cap 5 -> 10 based on
-  // the theory that the adjustment was applying ~10% of observed edge.
-  // Counterfactual backtest on 84k prop_grades rebutted this — at LOCK tier
-  // the boosted multiplier ADDED only ~9 picks but they hit 33% (vs 68%
-  // baseline), pulling overall LOCK hit rate from 68.1% -> 65.0%.
-  //
-  // Plausible reasons the boosted multiplier underperformed at the top tier:
-  //   (a) player_line_bias double-counts signal that under_bias already
-  //       captures (UNDERs are systematically under-priced — see Δ table
-  //       in fb3bef6's commit message).
-  //   (b) The bias values in the table are aggregated long-term and don't
-  //       reflect the player's recent state, so boosting amplifies stale
-  //       signal.
-  //   (c) Sample size n=9 at the margin is too small to conclude — but
-  //       the directional signal was negative, so we revert pending more data.
-  //
-  // Original mult=10, cap=±5 restored.
-  let biasAdj = 0
-  if (playerBias && playerBias.sample_count >= 6) {
-    const confidenceScale = Math.min(playerBias.sample_count / 20, 1.0)
-    const rawAdj = (playerBias.hit_rate - 0.50) * confidenceScale * 10
-    biasAdj = Math.max(-5, Math.min(5, rawAdj))
-    if (direction === 'under') biasAdj = -biasAdj
-  }
-
-  // Opponent leak adjustment: some teams give up specific stats at elevated rates
-  // regardless of their overall defensive rank. Weaker signal than player bias
-  // (team tendencies shift more), so capped at ±4 pts with higher sample floor.
-  // Formula: (over_hit_rate - 0.50) × confidence_scale × 8, capped at ±4 pts.
-  let leakAdj = 0
-  if (opponentLeak && opponentLeak.sample_count >= 10) {
-    const confidenceScale = Math.min(opponentLeak.sample_count / 40, 1.0)
-    const rawAdj = (opponentLeak.over_hit_rate - 0.50) * confidenceScale * 8
-    leakAdj = Math.max(-4, Math.min(4, rawAdj))
-    if (direction === 'under') leakAdj = -leakAdj
-  }
-
-  // Sharp money / line movement adjustment:
-  // A line moving in the same direction as the pick (e.g. OVER and line goes up)
-  // signals sharp/syndicate money confirming the direction → +2 to +6 pts.
-  // A line moving against the pick direction → -2 to -6 pts.
-  // Threshold: |delta| must be ≥ 0.5 to avoid noise.
-  const lineMovementDelta = ctx.lineMovementDelta ?? null
-  let lineMovAdj = 0
-  if (lineMovementDelta != null && Math.abs(lineMovementDelta) >= 0.5) {
-    const moved = Math.abs(lineMovementDelta)
-    const magnitude = moved >= 2.0 ? 6 : moved >= 1.0 ? 4 : 2
-    // For OVER: line up = sharp money on OVER = confirming; line down = COUNTER
-    // For UNDER: line down = sharp money on UNDER = confirming; line up = COUNTER
-    const confirming = direction === 'over' ? lineMovementDelta > 0 : lineMovementDelta < 0
-    lineMovAdj = confirming ? magnitude : -magnitude
-  }
-
-  // Odds movement adjustment (sharp money signal):
-  // Books move juice before moving the line — when implied probability shifts ≥3pp
-  // without a corresponding line move, it's a stronger signal of syndicate action.
-  // Uses P(over) computed from American odds: |odds|/(|odds|+100) for negative, 100/(odds+100) for positive.
-  // oddsMovementDelta = P_now − P_open (positive = more OVER action since morning snapshot)
-  // Confirming direction → +3/5/7 pts; counter → −3/5/7 pts.
-  // Only triggers when |delta| ≥ 0.03 (3pp implied prob shift) to filter noise.
-  const oddsMovementDelta = ctx.oddsMovementDelta ?? null
-  let oddsMovAdj = 0
-  if (oddsMovementDelta != null && Math.abs(oddsMovementDelta) >= 0.03) {
-    const absDelta  = Math.abs(oddsMovementDelta)
-    const magnitude = absDelta >= 0.10 ? 7 : absDelta >= 0.06 ? 5 : 3
-    const confirming = direction === 'over' ? oddsMovementDelta > 0 : oddsMovementDelta < 0
-    oddsMovAdj = confirming ? magnitude : -magnitude
-  }
-
-  // Minutes trend adjustment: if a player's recent minutes (L5) are significantly
-  // higher than their rolling baseline (L20), they're getting more time = more counting
-  // stat volume. ±2 pts at ≥10% change, ±3 pts at ≥20% change. Applies to all stat types.
-  let minutesTrendAdj = 0
-  if (hasLogs) {
-    const cutoff90m = dateCutoff(ct, 90)
-    const mEligible = (cutoff90m ? gameLogs.filter((g) => g.game_date >= cutoff90m) : gameLogs)
-      .filter((g) => g.minutes >= 5)
-    const ml5  = mEligible.slice(0, 5)
-    const ml20 = mEligible.slice(0, 20)
-    if (ml5.length >= 3 && ml20.length >= 8) {
-      const avgM5  = ml5.reduce((s, g) => s + g.minutes, 0) / ml5.length
-      const avgM20 = ml20.reduce((s, g) => s + g.minutes, 0) / ml20.length
-      if (avgM20 > 0) {
-        const minsTrend = (avgM5 - avgM20) / avgM20
-        if (Math.abs(minsTrend) >= 0.10) {
-          const mag = Math.abs(minsTrend) >= 0.20 ? 3 : 2
-          // Trending up → positive for OVER (more minutes = more production)
-          // Trending down → negative for OVER, positive for UNDER
-          minutesTrendAdj = (minsTrend > 0 ? mag : -mag) * (direction === 'over' ? 1 : -1)
-        }
-      }
-    }
-  }
-
-  // Minutes uncertainty penalty: bench and fringe-starter players have high minute
-  // variance — a coaching decision or foul trouble can kill their prop entirely.
-  // avg_mins < 20 → -8pts (deep bench); avg_mins < 24 → -4pts (fringe starter).
-  // Stdev > 6 min adds another -3pts for unpredictable rotation players.
-  // Uses L10 games including short-minute games (not filtered to ≥5 min) to
-  // accurately capture the full distribution of how often they sit.
-  let minutesUncertaintyPenalty = 0
-  if (hasLogs) {
-    const mRecent = gameLogs.slice(0, 10).filter((g) => g.minutes >= 1)
-    if (mRecent.length >= 4) {
-      const avgMinsR = mRecent.reduce((s, g) => s + g.minutes, 0) / mRecent.length
-      const variance = mRecent.reduce((s, g) => s + (g.minutes - avgMinsR) ** 2, 0) / mRecent.length
-      const stdevMins = Math.sqrt(variance)
-      if (avgMinsR < 20)      minutesUncertaintyPenalty = -8
-      else if (avgMinsR < 24) minutesUncertaintyPenalty = -4
-      if (stdevMins > 6) minutesUncertaintyPenalty -= 3
-    }
-  }
-
-  // Opponent back-to-back adjustment: when the opposing defense played last night,
-  // fatigue degrades their rotations — expect higher offensive outputs.
-  // +2 pts for OVER, -2 pts for UNDER. Only applies when opponentOnB2B is confirmed.
-  const opponentB2bAdj = opponentOnB2B ? (direction === 'over' ? 2 : -2) : 0
-
-  // Player consistency adjustment: low coefficient of variation = predictable
-  // outcomes → boost high-tier confidence. High CV = volatile → suppress.
-  // Direction-agnostic: a reliable player is reliable for OVER and UNDER alike.
-  // Tuned thresholds based on per-stat variance distributions across 56k game logs.
-  let consistencyAdj = 0
-  if (hasLogs) {
-    const cv = consistencyCV(gameLogs, stat_type)
-    if (cv != null) {
-      // Stat-type-aware thresholds — blocks/steals naturally have higher CV (smaller integers).
-      // Volatile stats use higher cutoffs so a 0.5 CV on steals doesn't read as scary.
-      const isVolatile = stat_type === 'blocks' || stat_type === 'steals'
-      const lowCutoff  = isVolatile ? 0.55 : 0.30
-      const highCutoff = isVolatile ? 0.85 : 0.50
-      if (cv <= lowCutoff)        consistencyAdj = 3   // very reliable
-      else if (cv <= lowCutoff + 0.10) consistencyAdj = 1   // somewhat reliable
-      else if (cv >= highCutoff)  consistencyAdj = -3  // very volatile
-      else if (cv >= highCutoff - 0.10) consistencyAdj = -1  // somewhat volatile
-    }
-  }
-
-  // Over-bias correction — stat-specific (auto-retrained from prop_grades data).
-  //
-  // Gate semantics (FIXED 2026-05-14): apply the penalty when trailing 30-day
-  // over hit rate is BELOW 50% — i.e. when the books have priced overs such
-  // that they consistently miss, indicating systematic under-pricing.
-  //
-  // Previous logic was `> 0.55` which meant "apply only when overs are
-  // hitting higher than 55%". That gate condition never fired in production
-  // because real over hit rates run ~40-49% across all stats (verified
-  // empirically: assists 46.1%, blocks 40.1%, points 46.5%, pra 44.9%,
-  // rebounds 48.7%, steals 46.2%, three_pointers 48.5% over 12,319 trailing
-  // 30-day grades). The hand-set bias values (steals -10, blocks -8, 3PM -7)
-  // were dead code — the Δ asymmetries the diagnostic measured were what
-  // happens WITHOUT the bias being applied.
-  //
-  // The new gate is semantically correct AND conservative: bias fires only
-  // when there's evidence of mispricing, no-data case (cold start) still
-  // applies the conservative penalty.
-  const _obConfig = loadWeightConfig()
-  // v11.1 magnitudes — kept unchanged for now. Once the gate fires correctly,
-  // auto_retrain's next run will re-tune these against actual post-gate data.
-  // Watch for over-correction in the first week (LOCK volume drop > 25%).
-  const OVER_BIAS_DEFAULTS: Record<StatType, number> = {
-    points: -3, rebounds: -4, assists: -4,
-    steals: -10, blocks: -8, three_pointers: -7, pra: -4,
-  }
-  const OVER_BIAS_GATE = 0.50  // fire when over hit rate < 50% (was > 0.55, never fired)
-  let overBiasAdj = 0
-  if (direction === 'over') {
-    const trailingOverRate = ctx.overHitRates?.get(stat_type)
-    // Apply penalty when overs have been under-performing the line,
-    // OR when we have no data (conservative default — assume mispricing).
-    if (trailingOverRate == null || trailingOverRate < OVER_BIAS_GATE) {
-      overBiasAdj = _obConfig?.over_bias?.[stat_type] ?? OVER_BIAS_DEFAULTS[stat_type] ?? -3
-    }
-  }
-
-  // Under-bias correction — symmetric counterpart to over_bias.
-  //
-  // Discovered 2026-05-14 from LEAN/FADE analysis of 83,277 graded props:
-  // every single stat shows UNDER hitting higher than OVER in LEAN/FADE tier.
-  // Across-all-scores deltas (UNDER - OVER hit rate):
-  //   blocks: +15.5pt, steals: +12.8pt, assists: +7.3pt, pra: +6.8pt,
-  //   rebounds: +5.5pt, points: +4.9pt, three_pointers: +4.3pt.
-  // The model treats over and under symmetrically when scoring, but the
-  // empirical hit rates are systematically biased toward UNDER. The
-  // over_bias penalty fixes one side; this under_bias bonus fixes the other.
-  //
-  // Magnitudes are HALF the observed delta — conservative starting point so
-  // we don't over-correct. Auto_retrain's recalibrate_over_bias logic can
-  // be mirrored for under_bias in a future commit; for now these are
-  // hand-set defaults that ride on top of the calibration table.
-  //
-  // Gate: only fires when trailing 30-day UNDER hit rate exceeds 50% (i.e.,
-  // unders are demonstrably profitable). Mirror of over_bias gate.
-  const UNDER_BIAS_DEFAULTS: Record<StatType, number> = {
-    blocks:         +8,  // observed Δ +15.5
-    steals:         +6,  // observed Δ +12.8
-    assists:        +4,  // observed Δ  +7.3
-    pra:            +3,  // observed Δ  +6.8
-    rebounds:       +3,  // observed Δ  +5.5
-    points:         +2,  // observed Δ  +4.9
-    three_pointers: +2,  // observed Δ  +4.3
-  }
-  const UNDER_BIAS_GATE = 0.50  // fire when under hit rate > 50%
-  let underBiasAdj = 0
-  if (direction === 'under') {
-    const trailingUnderRate = ctx.underHitRates?.get(stat_type)
-    // Apply bonus when unders have been outperforming the line,
-    // OR when we have no data (conservative default — historical asymmetry holds).
-    if (trailingUnderRate == null || trailingUnderRate > UNDER_BIAS_GATE) {
-      underBiasAdj = _obConfig?.under_bias?.[stat_type] ?? UNDER_BIAS_DEFAULTS[stat_type] ?? 2
-    }
-  }
-
-  // 3PM zone simulation adjustment: Monte Carlo sim with zone-specific defense
-  // produces p(over) — compare to baseline 0.50 to determine sim edge.
-  // Only applies to three_pointers props.
-  let simAdj = 0
-  if (stat_type === 'three_pointers' && ctx.simThreePm) {
-    const simEdge = ctx.simThreePm.p_over - 0.50
-    if (simEdge > 0.10)      simAdj =  6
-    else if (simEdge > 0.05) simAdj =  4
-    else if (simEdge > 0.02) simAdj =  2
-    else if (simEdge < -0.10) simAdj = -6
-    else if (simEdge < -0.05) simAdj = -4
-    else if (simEdge < -0.02) simAdj = -2
-    // Flip for UNDER picks: if sim favors over, that's bad for an under pick
-    if (direction === 'under') simAdj = -simAdj
-  }
-
-  // Lineup confirmation adjustment — populated from confirmed_lineups by enrich.
-  //   confirmedStarter === true  -> player confirmed to start. Modest +2 boost
-  //                                 (eliminates minutes uncertainty, but the model
-  //                                 already factors in projected minutes).
-  //   confirmedStarter === false -> player on "may not play" list. Heavy -25
-  //                                 penalty pushes any prop to FADE — we don't
-  //                                 want to grade props for players who probably
-  //                                 won't play.
-  //   confirmedStarter === null  -> no lineup data (cron hasn't run yet, or pre-tip).
-  //                                 No adjustment; rely on other factors.
-  // Effective gate: a confirmed-out player's max score becomes ~70 (raw 95 - 25),
-  // and after under_bias/over_bias is typically in the high-FADE range.
-  let lineupAdj = 0
-  if (ctx.confirmedStarter === false) lineupAdj = -25
-  else if (ctx.confirmedStarter === true) lineupAdj = 2
 
   // No-log cap: props without sufficient game log history (injury returns, new acquisitions)
   // are capped at 65 (top of PLAY) — insufficient data to justify LOCK confidence.
+  // The score formula here MUST match applyWeights line-for-line; the parity test
+  // in lib/__tests__/confidence.test.ts asserts equality.
   const scoreMax = hasLogs ? 95 : 65
   const score = Math.round(Math.min(scoreMax, Math.max(18,
-    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + underBiasAdj + opponentB2bAdj + simAdj + consistencyAdj + lineupAdj
+    adjustedRaw * 100 +
+    consensusAdj * freshness +
+    starBonus +
+    biasAdj +
+    leakAdj +
+    lineMovAdj +
+    oddsMovAdj +
+    minutesTrendAdj +
+    minutesUncertaintyPenalty +
+    overBiasAdj +
+    underBiasAdj +
+    opponentB2bAdj +
+    simAdj +
+    consistencyAdj +
+    lineupAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
   // Derive correct opponent display name from game-log-based opponentAbbr.

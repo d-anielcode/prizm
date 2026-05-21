@@ -338,3 +338,162 @@ describe('C4 regression: Star bonus only for OVER', () => {
     expect(typeof underResult.confidence_score).toBe('number')
   })
 })
+
+// ── U6: scoreProps ↔ applyWeights parity ─────────────────────────────────────
+// Catches the BLOCKER discovered 2026-05-20: applyWeights was missing 9 of
+// the 14 additives that scoreProps applies, so scripts/optimize-weights.ts
+// was tuning factor weights against a phantom model.
+
+describe('U6: scoreProps ↔ applyWeights parity', () => {
+  // Default weight set must match getWeights('points') in lib/confidence.ts.
+  const defaultWeightsPoints = {
+    lineValue: 0.07, matchupEdge: 0.02, last20HitRate: 0.28, trend: 0.00,
+    seasonCushion: 0.10, pace: 0.17, newsInjury: 0.13, restDays: 0.00,
+    blowout: 0.08, homeAway: 0.13, vsOpponent: 0.02,
+  }
+
+  function parity(prop: Prop, gameLogs: GameLog[], ctx: ScoringContext | null): void {
+    const scored = scoreProps(prop, gameLogs, null, ctx)
+    const factors = computeFactors(prop, gameLogs, ctx ?? {}, false)
+    const replayed = applyWeights(factors, defaultWeightsPoints)
+    expect(replayed.score).toBe(scored.confidence_score)
+  }
+
+  it('matches with no-log path (empty gameLogs + null ctx)', () => {
+    parity(makeProp(), [], null)
+  })
+
+  it('matches with 20 game logs and basic context', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const ctx: ScoringContext = { defStats: makeDefStats(), isHome: true }
+    parity(makeProp({ line: 20.5 }), logs, ctx)
+  })
+
+  it('matches with confirmedStarter true (lineup boost)', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const ctx: ScoringContext = {
+      defStats: makeDefStats(),
+      isHome: true,
+      confirmedStarter: true,
+    }
+    parity(makeProp({ line: 20.5 }), logs, ctx)
+  })
+
+  it('matches with confirmedStarter false (lineup penalty)', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const ctx: ScoringContext = {
+      defStats: makeDefStats(),
+      isHome: true,
+      confirmedStarter: false,
+    }
+    parity(makeProp({ line: 20.5 }), logs, ctx)
+  })
+
+  it('matches with all-additives active (kitchen sink)', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const ctx: ScoringContext = {
+      defStats: makeDefStats(),
+      isHome: true,
+      opponentAbbr: 'OPP',
+      playerBias: { hit_rate: 0.65, sample_count: 15, median_ratio: 1.05 },
+      opponentLeak: { over_hit_rate: 0.60, under_hit_rate: 0.40, sample_count: 25, median_ratio: 1.05 },
+      lineMovementDelta: 1.0,
+      oddsMovementDelta: 0.05,
+      opponentOnB2B: true,
+      overHitRates: new Map([['points', 0.45]]),
+      underHitRates: new Map([['points', 0.55]]),
+      confirmedStarter: true,
+    }
+    parity(makeProp({ line: 20.5 }), logs, ctx)
+  })
+
+  it('matches for UNDER direction', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const ctx: ScoringContext = {
+      defStats: makeDefStats(),
+      isHome: true,
+      underHitRates: new Map([['points', 0.55]]),
+    }
+    parity(makeProp({ direction: 'under', line: 20.5 }), logs, ctx)
+  })
+})
+
+// ── U7: lineupAdj boundaries ─────────────────────────────────────────────────
+
+describe('U7: lineup adjustment', () => {
+  it('confirmedStarter=true adds +2 vs baseline', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const baseline = scoreProps(makeProp(), logs, null, { defStats: makeDefStats(), isHome: true })
+    const withStarter = scoreProps(makeProp(), logs, null, { defStats: makeDefStats(), isHome: true, confirmedStarter: true })
+    expect(withStarter.confidence_score - baseline.confidence_score).toBe(2)
+  })
+
+  it('confirmedStarter=false drops score by 25 (clamped at min 18)', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const baseline = scoreProps(makeProp(), logs, null, { defStats: makeDefStats(), isHome: true })
+    const withOut = scoreProps(makeProp(), logs, null, { defStats: makeDefStats(), isHome: true, confirmedStarter: false })
+    // -25 may saturate the floor at 18; assert the delta OR floor.
+    const dropExpected = Math.max(baseline.confidence_score - 25, 18)
+    expect(withOut.confidence_score).toBe(dropExpected)
+  })
+
+  it('confirmedStarter=null is identical to omitting the field', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const omitted = scoreProps(makeProp(), logs, null, { defStats: makeDefStats(), isHome: true })
+    const explicitNull = scoreProps(makeProp(), logs, null, { defStats: makeDefStats(), isHome: true, confirmedStarter: null })
+    expect(omitted.confidence_score).toBe(explicitNull.confidence_score)
+  })
+})
+
+// ── U8: over/under bias gates ────────────────────────────────────────────────
+
+describe('U8: over_bias / under_bias gates', () => {
+  it('over_bias does NOT fire when trailing over rate >= 0.50', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const noBias = scoreProps(
+      makeProp({ direction: 'over' }),
+      logs, null,
+      { defStats: makeDefStats(), isHome: true, overHitRates: new Map([['points', 0.55]]) },
+    )
+    const withBias = scoreProps(
+      makeProp({ direction: 'over' }),
+      logs, null,
+      { defStats: makeDefStats(), isHome: true, overHitRates: new Map([['points', 0.45]]) },
+    )
+    // Gate fires at <0.50; lower trailing rate -> bias applies -> lower score.
+    expect(withBias.confidence_score).toBeLessThan(noBias.confidence_score)
+  })
+
+  it('under_bias DOES fire when trailing under rate > 0.50', () => {
+    const logs = makeGameLogSeries(20, 22)
+    const noBias = scoreProps(
+      makeProp({ direction: 'under' }),
+      logs, null,
+      { defStats: makeDefStats(), isHome: true, underHitRates: new Map([['points', 0.45]]) },
+    )
+    const withBias = scoreProps(
+      makeProp({ direction: 'under' }),
+      logs, null,
+      { defStats: makeDefStats(), isHome: true, underHitRates: new Map([['points', 0.55]]) },
+    )
+    // Gate fires at >0.50; higher trailing rate -> bias applies -> higher score.
+    expect(withBias.confidence_score).toBeGreaterThan(noBias.confidence_score)
+  })
+
+  it('null hitRates triggers conservative fallback (bias applied)', () => {
+    // overHitRates absent -> over_bias fires by design (line 1346-1352)
+    const logs = makeGameLogSeries(20, 22)
+    const noMap = scoreProps(
+      makeProp({ direction: 'over' }),
+      logs, null,
+      { defStats: makeDefStats(), isHome: true },
+    )
+    const safeMap = scoreProps(
+      makeProp({ direction: 'over' }),
+      logs, null,
+      { defStats: makeDefStats(), isHome: true, overHitRates: new Map([['points', 0.55]]) },
+    )
+    // No data -> fallback applies bias -> lower than gated-off case.
+    expect(noMap.confidence_score).toBeLessThan(safeMap.confidence_score)
+  })
+})

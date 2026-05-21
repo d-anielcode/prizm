@@ -184,8 +184,26 @@ export function lineupContextFor(
   return { confirmedStarter: null, lineupStatus: null }
 }
 
-/** Case-insensitive name match with light normalization for "J." vs "Jamal" style abbreviations. */
+/**
+ * Robust name normalization for cross-source matching. Handles:
+ *   - Case (Stephon vs stephon)
+ *   - Punctuation: dots, commas, both straight ' and curly ' apostrophes
+ *   - Diacritics: Dončić -> Doncic (via NFKD decomposition)
+ *
+ * This is the cross-cutting normalizer — also exported for use in enrich
+ * and any other consumer. Was previously a closure that only stripped
+ * straight ASCII apostrophe, missing De'Aaron Fox (U+2019) and Dončić.
+ */
+export function normalizePlayerName(s: string): string {
+  return s
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')          // strip combining diacritics
+    .toLowerCase()
+    .replace(/[.,'‘’]/g, '')        // straight + curly apostrophes
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function sameName(a: string, b: string): boolean {
-  const norm = (s: string) => s.toLowerCase().replace(/[\.,'']/g, '').trim()
-  return norm(a) === norm(b)
+  return normalizePlayerName(a) === normalizePlayerName(b)
 }

@@ -49,20 +49,44 @@ async function fetchAndStore(): Promise<{
   }
 
   const gameDate = toEasternDate(new Date())
-  const rows: Array<Record<string, unknown>> = []
+
+  // Dedup by (game_date, team) BEFORE upsert. Postgres will reject an upsert
+  // where the same conflict target appears twice — "cannot affect row a second
+  // time" — and the entire batch silently fails. Rotowire occasionally renders
+  // the same team in two adjacent blocks (doubleheaders, parse glitches);
+  // dedup here, preferring the strongest status (confirmed > expected > projected).
+  const STATUS_RANK: Record<string, number> = {
+    confirmed: 3, expected: 2, projected: 1, unknown: 0,
+  }
+  const dedupMap = new Map<string, Record<string, unknown>>()
+  let duplicatesDropped = 0
   for (const g of games) {
     for (const side of [g.away, g.home]) {
       if (side.team === 'UNK' || side.starters.length === 0) continue
-      rows.push({
+      const key = `${gameDate}|${side.team}`
+      const existing = dedupMap.get(key)
+      const row = {
         game_date:    gameDate,
         team:         side.team,
         status:       side.status,
         starters:     side.starters,
         may_not_play: side.may_not_play,
         fetched_at:   new Date().toISOString(),
-      })
+      }
+      if (!existing) {
+        dedupMap.set(key, row)
+      } else {
+        duplicatesDropped++
+        const newRank = STATUS_RANK[side.status] ?? 0
+        const existingRank = STATUS_RANK[existing.status as string] ?? 0
+        if (newRank > existingRank) dedupMap.set(key, row)
+      }
     }
   }
+  if (duplicatesDropped > 0) {
+    errors.push(`deduped ${duplicatesDropped} duplicate (date,team) rows pre-upsert`)
+  }
+  const rows = [...dedupMap.values()]
 
   if (rows.length === 0) {
     errors.push('parsed games but produced 0 storable rows')
