@@ -11,11 +11,14 @@ Changes simulated:
      now applied to over picks.
   2. Under-bias addition — new factor, full magnitude on under picks.
   3. player_line_bias multiplier 10 -> 22, cap 5 -> 10.
+  4. Consistency factor — CV(L10) on the player's outcomes for that stat,
+     adjusted ±3/±1/0 per the rules in lib/confidence.ts:1302-1316.
+     This factor was shipped without empirical validation; the sensitivity
+     test in this script tells us whether it earns its keep at LOCK tier.
 
 Limitations:
   - player_line_bias values are current (not point-in-time at grade date).
     OK as approximation since bias is a slow-moving signal.
-  - Doesn't simulate consistency factor (needs per-prop game logs).
   - Doesn't simulate opponent_leak retune (needs opponent lookup).
   - Tier thresholds held at v11.1 values to isolate the bias impact.
 """
@@ -73,12 +76,12 @@ def fetch_all(table, select='*'):
     return rows
 
 
-print('[1/4] Loading prop_grades...')
-grades = fetch_all('prop_grades', 'player_name,stat_type,direction,confidence_score,hit')
+print('[1/5] Loading prop_grades...')
+grades = fetch_all('prop_grades', 'player_name,stat_type,direction,confidence_score,hit,game_date')
 grades = [g for g in grades if g.get('hit') is not None and g.get('confidence_score') is not None]
 print(f'  {len(grades):,} graded props')
 
-print('[2/4] Loading player_line_bias...')
+print('[2/5] Loading player_line_bias...')
 bias_rows = fetch_all('player_line_bias', 'player_name,stat_type,hit_rate,sample_count')
 bias_map = {}
 for r in bias_rows:
@@ -97,7 +100,62 @@ def player_bias_adj(player, stat, direction, mult, cap):
     return adj if direction == 'over' else -adj
 
 
-print('[3/4] Re-tiering all props with new model...')
+print('[3/5] Loading player_game_logs (for consistency factor)...')
+log_rows = fetch_all('player_game_logs', 'player_name,game_date,points,rebounds,assists,steals,blocks,fg3m,pra,minutes')
+# Index by player_name -> sorted list of logs (game_date desc — so [:10] is L10)
+log_index: dict = {}
+for r in log_rows:
+    n = r.get('player_name')
+    if not n: continue
+    log_index.setdefault(n, []).append(r)
+for n in log_index:
+    log_index[n].sort(key=lambda r: r.get('game_date') or '', reverse=True)
+print(f'  {len(log_rows):,} log rows across {len(log_index):,} players')
+
+import math
+
+STAT_FIELD = {
+    'points': 'points', 'rebounds': 'rebounds', 'assists': 'assists',
+    'steals': 'steals', 'blocks': 'blocks',
+    'three_pointers': 'fg3m', 'pra': 'pra',
+}
+
+
+def consistency_cv(player: str, stat: str, before_date: str) -> float | None:
+    """CV of L10 outcomes for (player, stat), strictly before before_date.
+    Mirrors lib/confidence.ts:consistencyCV — requires >=5 logs with minutes>=5,
+    and mean >= 1 (otherwise CV is unstable for tiny averages like blocks=0.5).
+    """
+    field = STAT_FIELD.get(stat)
+    if not field: return None
+    logs = log_index.get(player)
+    if not logs: return None
+    # Take L10 STRICTLY BEFORE grade date, with minutes >= 5
+    recent = [l for l in logs if (l.get('game_date') or '') < before_date and (l.get('minutes') or 0) >= 5][:10]
+    if len(recent) < 5: return None
+    vals = [float(l.get(field) or 0) for l in recent]
+    mean = sum(vals) / len(vals)
+    if mean < 1: return None
+    var = sum((v - mean) ** 2 for v in vals) / len(vals)
+    stdev = math.sqrt(var)
+    return stdev / mean
+
+
+def consistency_adj(player: str, stat: str, before_date: str) -> int:
+    """Return the ±3/±1/0 adjustment per lib/confidence.ts:consistencyAdj."""
+    cv = consistency_cv(player, stat, before_date)
+    if cv is None: return 0
+    is_volatile = stat in ('blocks', 'steals')
+    low_cutoff  = 0.55 if is_volatile else 0.30
+    high_cutoff = 0.85 if is_volatile else 0.50
+    if cv <= low_cutoff:                  return 3
+    if cv <= low_cutoff + 0.10:           return 1
+    if cv >= high_cutoff:                 return -3
+    if cv >= high_cutoff - 0.10:          return -1
+    return 0
+
+
+print('[4/5] Re-tiering all props with new model...')
 old_tiers = defaultdict(lambda: {'n': 0, 'hits': 0})
 new_tiers = defaultdict(lambda: {'n': 0, 'hits': 0})
 tier_movement = defaultdict(int)
@@ -136,7 +194,7 @@ def hr(t):
     return (t['hits'] / t['n'] * 100) if t['n'] else 0
 
 
-print('[4/4] Done\n')
+print('[5/5] Done\n')
 print('=' * 72)
 print('TIER DISTRIBUTION + HIT RATES: OLD MODEL vs NEW MODEL')
 print('=' * 72)
@@ -173,12 +231,14 @@ print('=' * 72)
 print('SENSITIVITY: each change in isolation')
 print('=' * 72)
 tests = [
-    ('baseline (no changes)',         {'ob': False, 'ub': False, 'pb_new': False}),
-    ('+ over-bias gate fix only',     {'ob': True,  'ub': False, 'pb_new': False}),
-    ('+ under-bias only',             {'ob': False, 'ub': True,  'pb_new': False}),
-    ('+ player_bias mult only',       {'ob': False, 'ub': False, 'pb_new': True}),
-    ('over-bias + under-bias',        {'ob': True,  'ub': True,  'pb_new': False}),
-    ('all three combined',            {'ob': True,  'ub': True,  'pb_new': True}),
+    ('baseline (no changes)',         {'ob': False, 'ub': False, 'pb_new': False, 'cons': False}),
+    ('+ over-bias gate fix only',     {'ob': True,  'ub': False, 'pb_new': False, 'cons': False}),
+    ('+ under-bias only',             {'ob': False, 'ub': True,  'pb_new': False, 'cons': False}),
+    ('+ player_bias mult only',       {'ob': False, 'ub': False, 'pb_new': True,  'cons': False}),
+    ('+ consistency factor only',     {'ob': False, 'ub': False, 'pb_new': False, 'cons': True}),
+    ('over-bias + under-bias',        {'ob': True,  'ub': True,  'pb_new': False, 'cons': False}),
+    ('over+under+consistency',        {'ob': True,  'ub': True,  'pb_new': False, 'cons': True}),
+    ('all four combined',             {'ob': True,  'ub': True,  'pb_new': True,  'cons': True}),
 ]
 for label, cfg in tests:
     lock_n = lock_h = play_n = play_h = 0
@@ -194,6 +254,8 @@ for label, cfg in tests:
             new_pb = player_bias_adj(g['player_name'], stat, direction, 22, 10)
             old_pb = player_bias_adj(g['player_name'], stat, direction, 10, 5)
             score += (new_pb - old_pb)
+        if cfg['cons']:
+            score += consistency_adj(g['player_name'], stat, g.get('game_date') or '')
         t = tier_for(score, stat)
         if t == 'LOCK':
             lock_n += 1
