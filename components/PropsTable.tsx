@@ -76,7 +76,7 @@ function fmtOdds(odds: number): string {
   return odds > 0 ? `+${odds}` : `${odds}`
 }
 
-function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; mainDir: 'over' | 'under' }) {
+function AltLineChip({ alt, mainLine, mainDir, statType }: { alt: AltLine; mainLine: number; mainDir: 'over' | 'under'; statType: string }) {
   const prob    = alt.odds != null ? impliedProb(alt.odds) : null
   const probPct = prob != null ? Math.round(prob * 100) : null
   const probColor = probPct == null ? 'text-[var(--text-tertiary)]'
@@ -101,7 +101,7 @@ function AltLineChip({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: numbe
       {riskier && <span className="text-[9px] text-[#FF4757]/60">riskier</span>}
       {alt.confidence_score != null && (
         <span className={`text-[10px] font-semibold ${confColor}`}>
-          {calibratedPct(alt.confidence_score) ?? Math.round(alt.confidence_score)}
+          {calibratedPct(alt.confidence_score, statType) ?? Math.round(alt.confidence_score)}
           {alt.confidence_label && <span className="font-normal text-[var(--text-tertiary)] ml-0.5">{alt.confidence_label[0]}</span>}
         </span>
       )}
@@ -298,7 +298,7 @@ export function PropsTable({
             </div>
             <PropReasonChips reason={prop.confidence_reason} />
             {prop.altLines && prop.altLines.length > 0 && (
-              <AltLinesPanel mainLine={prop.line} altLines={prop.altLines} direction={prop.direction} />
+              <AltLinesPanel mainLine={prop.line} altLines={prop.altLines} direction={prop.direction} statType={prop.stat_type} />
             )}
           </div>
         ))}
@@ -393,7 +393,7 @@ export function PropsTable({
                         >
                           <div className="px-4 py-3 bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] flex flex-wrap gap-2">
                             {prop.altLines!.map((alt, j) => (
-                              <AltLineChip key={j} alt={alt} mainLine={prop.line} mainDir={prop.direction} />
+                              <AltLineChip key={j} alt={alt} mainLine={prop.line} mainDir={prop.direction} statType={prop.stat_type} />
                             ))}
                           </div>
                         </div>

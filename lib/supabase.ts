@@ -6,7 +6,7 @@
  *     and must never be bundled into client-side JavaScript.
  *
  * For client components that need Supabase (e.g. real-time subscriptions),
- * use lib/supabase-browser.ts instead (anon key only, RLS enforced).
+ * create a separate client there using NEXT_PUBLIC_SUPABASE_ANON_KEY.
  */
 
 import { createClient } from '@supabase/supabase-js'

@@ -17,9 +17,13 @@ interface Props {
   mainLine:  number
   altLines:  AltLine[]
   direction: 'over' | 'under'
+  /** Parent's stat type — required for per-stat calibration on alt-line scores.
+   *  Without this the chip renders the global-curve calibration, which can be
+   *  10+ pts off for stats like rebounds (90% calibrated at raw 75) vs 3PM (61%). */
+  statType:  string
 }
 
-export default function AltLinesPanel({ mainLine, altLines, direction }: Props) {
+export default function AltLinesPanel({ mainLine, altLines, direction, statType }: Props) {
   const [open, setOpen] = useState(false)
 
   if (altLines.length === 0) return null
@@ -50,14 +54,14 @@ export default function AltLinesPanel({ mainLine, altLines, direction }: Props) 
 
       {open && (
         <div className="mt-2 rounded-xl border border-white/[0.07] bg-white/[0.03] overflow-hidden px-3 py-2 flex flex-col gap-1">
-          {sorted.map((alt, i) => <AltRow key={i} alt={alt} mainLine={mainLine} mainDir={direction} />)}
+          {sorted.map((alt, i) => <AltRow key={i} alt={alt} mainLine={mainLine} mainDir={direction} statType={statType} />)}
         </div>
       )}
     </div>
   )
 }
 
-function AltRow({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; mainDir: 'over' | 'under' }) {
+function AltRow({ alt, mainLine, mainDir, statType }: { alt: AltLine; mainLine: number; mainDir: 'over' | 'under'; statType: string }) {
   const prob    = alt.odds != null ? impliedProb(alt.odds) : null
   const probPct = prob != null ? Math.round(prob * 100) : null
   const probColor = probPct == null ? 'text-white/30'
@@ -94,9 +98,7 @@ function AltRow({ alt, mainLine, mainDir }: { alt: AltLine; mainLine: number; ma
       <div className="flex items-center gap-3">
         {alt.confidence_score != null && (
           <span className={`text-[10px] font-semibold ${confColor}`}>
-            {/* Per-stat calibration applied via parent's stat context — falls back
-                to the global curve since AltLine doesn't carry stat_type itself. */}
-            {calibratedPct(alt.confidence_score) ?? Math.round(alt.confidence_score)}
+            {calibratedPct(alt.confidence_score, statType) ?? Math.round(alt.confidence_score)}
             {alt.confidence_label && <span className="font-normal text-white/30 ml-0.5">{alt.confidence_label[0]}</span>}
           </span>
         )}

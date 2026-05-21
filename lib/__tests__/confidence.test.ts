@@ -396,7 +396,7 @@ describe('U6: scoreProps ↔ applyWeights parity', () => {
       isHome: true,
       opponentAbbr: 'OPP',
       playerBias: { hit_rate: 0.65, sample_count: 15, median_ratio: 1.05 },
-      opponentLeak: { over_hit_rate: 0.60, under_hit_rate: 0.40, sample_count: 25, median_ratio: 1.05 },
+      opponentLeak: { over_hit_rate: 0.60, median_ratio: 1.05, sample_count: 25 },
       lineMovementDelta: 1.0,
       oddsMovementDelta: 0.05,
       opponentOnB2B: true,
