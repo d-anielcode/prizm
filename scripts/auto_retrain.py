@@ -146,8 +146,160 @@ def factor_rest_days(prior_logs, game_date):
         return 0.5
 
 
-def build_cases(grades, logs_by_player, def_stats_map):
-    """Build feature vectors for graded props."""
+# ── Score-time additives — Python mirror of lib/confidence.ts:computeAdditives ──
+#
+# Before 2026-05-20, this script optimized factor weights against feat @ w * 100,
+# omitting the 14 additives that production scoreProps actually applies. Auto-
+# retrain was therefore tuning weights to compensate for absent signal — a
+# divergent phantom model. This block restores parity for everything we can
+# compute in Python without extra DB tables.
+#
+# Implemented in Python: consensusAdj, starBonus, freshness (multiplier),
+# minutesTrendAdj, minutesUncertaintyPenalty, consistencyAdj, opponentB2bAdj,
+# biasAdj (player_line_bias), leakAdj (opponent_stat_leaks), overBiasAdj,
+# underBiasAdj.
+#
+# NOT implemented here (would need extra loads / point-in-time data):
+#   lineMovAdj, oddsMovAdj  — need prop_history snapshots
+#   simAdj                  — needs sim_3pm rows
+#   lineupAdj               — most historical props pre-date confirmed_lineups
+# These default to 0 — acceptable since they primarily affect *today's* picks
+# and the optimizer trains on historical data where they were also ~zero.
+
+OVER_BIAS_DEFAULTS = {'points': -3, 'rebounds': -4, 'assists': -4, 'pra': -4,
+                      'steals': -10, 'blocks': -8, 'three_pointers': -7}
+UNDER_BIAS_DEFAULTS = {'blocks': 8, 'steals': 6, 'assists': 4, 'pra': 3,
+                       'rebounds': 3, 'points': 2, 'three_pointers': 2}
+
+def consistency_cv(prior, stat_type):
+    """CV on L10 stat outcomes — mirrors lib/confidence.ts:consistencyCV."""
+    recent = [l for l in prior if (l.get('minutes') or 0) >= 5][:10]
+    if len(recent) < 5: return None
+    vals = [get_stat(l, stat_type) for l in recent]
+    mean = sum(vals) / len(vals)
+    if mean < 1: return None
+    var = sum((v - mean) ** 2 for v in vals) / len(vals)
+    return (var ** 0.5) / mean
+
+def consistency_adj_for(cv, stat_type):
+    if cv is None: return 0
+    is_volatile = stat_type in ('blocks', 'steals')
+    low_cutoff  = 0.55 if is_volatile else 0.30
+    high_cutoff = 0.85 if is_volatile else 0.50
+    if cv <= low_cutoff:                  return 3
+    if cv <= low_cutoff + 0.10:           return 1
+    if cv >= high_cutoff:                 return -3
+    if cv >= high_cutoff - 0.10:          return -1
+    return 0
+
+def minutes_trend_adj(prior, direction):
+    eligible = [l for l in prior if (l.get('minutes') or 0) >= 5]
+    l5  = eligible[:5]
+    l20 = eligible[:20]
+    if len(l5) < 3 or len(l20) < 8: return 0
+    avg5  = sum((l.get('minutes') or 0) for l in l5)  / len(l5)
+    avg20 = sum((l.get('minutes') or 0) for l in l20) / len(l20)
+    if avg20 == 0: return 0
+    trend = (avg5 - avg20) / avg20
+    if abs(trend) < 0.10: return 0
+    mag = 3 if abs(trend) >= 0.20 else 2
+    return (mag if trend > 0 else -mag) * (1 if direction == 'over' else -1)
+
+def minutes_uncertainty_penalty(prior):
+    recent = [l for l in prior if (l.get('minutes') or 0) >= 1][:10]
+    if len(recent) < 4: return 0
+    mins = [(l.get('minutes') or 0) for l in recent]
+    avg = sum(mins) / len(mins)
+    var = sum((m - avg) ** 2 for m in mins) / len(mins)
+    stdev = var ** 0.5
+    pen = 0
+    if avg < 20:    pen = -8
+    elif avg < 24:  pen = -4
+    if stdev > 6:   pen -= 3
+    return pen
+
+def freshness_score(prior, game_date_str):
+    """Mirror of lib/confidence.ts:dataFreshness — recency-weighted compression
+    on raw signal. Approximated by days-since-last-game; <=2 days = 1.0,
+    decay to 0.7 over 14 days."""
+    if not prior: return 1.0
+    try:
+        last = datetime.strptime(prior[0]['game_date'], '%Y-%m-%d')
+        curr = datetime.strptime(game_date_str, '%Y-%m-%d')
+        days = (curr - last).days
+        if days <= 2:  return 1.0
+        if days >= 14: return 0.70
+        return 1.0 - (days - 2) * (0.30 / 12)
+    except Exception:
+        return 1.0
+
+def consensus_adj(features):
+    primary = [features['lineValue'], features['matchupEdge'],
+               features['last20HitRate'], features['trend'], features['seasonCushion']]
+    agree = sum(1 for f in primary if f >= 0.55)
+    if agree >= 4: return 3
+    if agree >= 3: return 0
+    if agree >= 2: return -4
+    return -10
+
+def star_bonus(player_avg_min, direction, fLineValue, f7):
+    """Mirror of scoreProps line 1358."""
+    if direction != 'over': return 0
+    if player_avg_min < 36: return 0
+    if fLineValue < 0.58:   return 0
+    if f7 < 0.55:           return 0
+    return 3
+
+def player_avg_minutes(prior, n=10):
+    if not prior: return 0
+    recent = prior[:n]
+    return sum((l.get('minutes') or 0) for l in recent) / len(recent)
+
+def opponent_b2b_adj(yesterday_teams, opp_abbr, direction):
+    if not opp_abbr or opp_abbr not in yesterday_teams: return 0
+    return 2 if direction == 'over' else -2
+
+def bias_adj_for(bias_row, direction):
+    """mult=10, cap=±5 — matches lib/confidence.ts (post-revert 4c668fe)."""
+    if not bias_row: return 0
+    sample = bias_row.get('sample_count', 0) or 0
+    if sample < 6: return 0
+    cs = min(sample / 20, 1.0)
+    raw = (bias_row.get('hit_rate', 0.5) - 0.50) * cs * 10
+    adj = max(-5, min(5, raw))
+    return adj if direction == 'over' else -adj
+
+def leak_adj_for(leak_row, direction):
+    """mult=15, cap=±6 — matches lib/confidence.ts (after a815182)."""
+    if not leak_row: return 0
+    sample = leak_row.get('sample_count', 0) or 0
+    if sample < 10: return 0
+    cs = min(sample / 40, 1.0)
+    raw = (leak_row.get('over_hit_rate', 0.5) - 0.50) * cs * 15
+    adj = max(-6, min(6, raw))
+    return adj if direction == 'over' else -adj
+
+def over_bias_adj(direction, stat, trailing_over_rate):
+    if direction != 'over': return 0
+    # Gate: fire when trailing < 0.50 OR no data (cold-start fallback)
+    if trailing_over_rate is not None and trailing_over_rate >= 0.50: return 0
+    return OVER_BIAS_DEFAULTS.get(stat, -3)
+
+def under_bias_adj(direction, stat, trailing_under_rate):
+    if direction != 'under': return 0
+    if trailing_under_rate is not None and trailing_under_rate <= 0.50: return 0
+    return UNDER_BIAS_DEFAULTS.get(stat, 2)
+
+
+def build_cases(grades, logs_by_player, def_stats_map,
+                player_bias_map=None, opp_leak_map=None,
+                trailing_over_rates=None, trailing_under_rates=None,
+                yesterday_teams_by_date=None):
+    """Build feature vectors + per-prop additive total for graded props.
+
+    Each case now carries `features` (dict, factor scores) AND `additive` (float,
+    total of all score-time adjustments). score_cases_arrays consumes both.
+    """
     cases = []
     for g in grades:
         player, stat = g['player_name'], g['stat_type']
@@ -178,7 +330,51 @@ def build_cases(grades, logs_by_player, def_stats_map):
             'homeAway':      factor_home_away(prior, stat, line, direction, is_home),
             'vsOpponent':    factor_vs_opponent(prior, stat, line, direction, opp),
         }
-        cases.append({'features': features, 'label': hit, 'stat': stat, 'direction': direction})
+
+        # Score-time additives — mirror lib/confidence.ts:computeAdditives.
+        # See module docstring for what's implemented vs deferred.
+        cv = consistency_cv(prior, stat)
+        freshness = freshness_score(prior, game_date)
+        avg_min = player_avg_minutes(prior, 10)
+
+        cons_adj   = consensus_adj(features)
+        starB      = star_bonus(avg_min, direction, features['lineValue'], features['last20HitRate'])
+        mins_trend = minutes_trend_adj(prior, direction)
+        mins_unc   = minutes_uncertainty_penalty(prior)
+        cons       = consistency_adj_for(cv, stat)
+        bias_v     = bias_adj_for((player_bias_map or {}).get((player, stat)), direction)
+        leak_v     = leak_adj_for((opp_leak_map or {}).get((opp, stat)) if opp else None, direction)
+        ymap       = (yesterday_teams_by_date or {}).get(game_date, set())
+        b2b_v      = opponent_b2b_adj(ymap, opp, direction)
+        ob_v       = over_bias_adj(direction, stat,
+                                    (trailing_over_rates or {}).get((stat, game_date)))
+        ub_v       = under_bias_adj(direction, stat,
+                                    (trailing_under_rates or {}).get((stat, game_date)))
+
+        # NOTE: consensusAdj is MULTIPLIED by freshness in the score formula;
+        # store it pre-multiplied to keep score_cases_arrays simple.
+        additive = (
+            cons_adj * freshness +
+            starB +
+            bias_v +
+            leak_v +
+            mins_trend +
+            mins_unc +
+            ob_v +
+            ub_v +
+            b2b_v +
+            cons
+            # lineMovAdj, oddsMovAdj, simAdj, lineupAdj: not modeled here (see docstring)
+        )
+
+        cases.append({
+            'features':   features,
+            'label':      hit,
+            'stat':       stat,
+            'direction':  direction,
+            'additive':   additive,
+            'freshness':  freshness,  # multiplier applied to raw - 0.5 portion
+        })
     return cases
 
 
@@ -192,7 +388,13 @@ def score_cases(cases, weights_map, lock_thresholds, play_thresholds, b_lock, b_
 
 def score_cases_arrays(cases, weights_map, lock_thresholds, play_thresholds, b_lock, b_play):
     """Same scoring as score_cases but returns the raw 0/1 label arrays so
-    callers can compute bootstrap CIs without re-running scoring."""
+    callers can compute bootstrap CIs without re-running scoring.
+
+    Mirrors lib/confidence.ts:scoreProps line 1389-1408:
+        adjustedRaw = 0.5 + (raw - 0.5) * freshness
+        score = adjustedRaw * 100 + sum_of_additives
+    where `additive` already includes consensusAdj * freshness.
+    """
     locks, plays = [], []
     for c in cases:
         stat = c['stat']
@@ -200,7 +402,13 @@ def score_cases_arrays(cases, weights_map, lock_thresholds, play_thresholds, b_l
         if not w_dict: continue
         w = np.array([w_dict.get(f, 0.0) for f in FACTOR_NAMES])
         feat = np.array([c['features'][f] for f in FACTOR_NAMES])
-        score = float(feat @ w) * 100
+        raw = float(feat @ w)
+        freshness = c.get('freshness', 1.0)
+        adjusted_raw = 0.50 + (raw - 0.50) * freshness
+        # Clamp to [18, 95] like scoreProps does (note: scoreMax=65 in no-log
+        # case isn't enforced here — auto_retrain skips cases with < 10 prior
+        # logs at build_cases:313 so hasLogs is always true).
+        score = max(18, min(95, adjusted_raw * 100 + c.get('additive', 0.0)))
         lt = lock_thresholds.get(stat, b_lock)
         pt = play_thresholds.get(stat, b_play)
         if score >= lt:
@@ -444,6 +652,61 @@ if __name__ == '__main__':
     def_rows = sb_get_all('team_defense_stats')
     def_stats_map = {r['team_abbreviation']: r for r in def_rows}
 
+    print("  Loading player_line_bias...")
+    bias_rows = sb_get_all('player_line_bias')
+    player_bias_map = {(r['player_name'], r['stat_type']): r for r in bias_rows}
+    print(f"  {len(player_bias_map):,} player×stat bias entries")
+
+    print("  Loading opponent_stat_leaks...")
+    leak_rows = sb_get_all('opponent_stat_leaks')
+    opp_leak_map = {(r.get('opponent_team') or r.get('team'), r['stat_type']): r for r in leak_rows}
+    print(f"  {len(opp_leak_map):,} (opp, stat) leak entries")
+
+    # Build trailing 30-day over/under hit rate maps for over_bias/under_bias gates.
+    # Point-in-time: at game_date G, rate for stat S = mean(hit) over props with
+    # the same stat_type and direction graded in [G-30, G). Bins by date for
+    # O(1) lookup during build_cases.
+    print("  Computing point-in-time trailing 30-day hit rates...")
+    trailing_over_rates = {}
+    trailing_under_rates = {}
+    all_dates = sorted(set(g['game_date'] for g in grades))
+    grades_by_stat_dir_date = defaultdict(list)
+    for g in grades:
+        grades_by_stat_dir_date[(g['stat_type'], g.get('direction', 'over'))].append(g)
+    for (stat, direction), gs in grades_by_stat_dir_date.items():
+        # gs already chronological (build above iterates `grades` which is sorted by ASC)
+        for d in all_dates:
+            dt = datetime.strptime(d, '%Y-%m-%d')
+            start = (dt - timedelta(days=30)).strftime('%Y-%m-%d')
+            window = [x for x in gs if start <= x['game_date'] < d and x.get('hit') is not None]
+            if len(window) < 20: continue
+            hits = sum(1 for x in window if x['hit'])
+            rate = hits / len(window)
+            if direction == 'over':
+                trailing_over_rates[(stat, d)] = rate
+            else:
+                trailing_under_rates[(stat, d)] = rate
+    print(f"  {len(trailing_over_rates):,} (stat,date) over-rates / {len(trailing_under_rates):,} under-rates")
+
+    # Yesterday-played-teams map for opponentB2bAdj. For each game_date G, find
+    # teams that had ANY game on G-1 (from game logs).
+    yesterday_teams_by_date = defaultdict(set)
+    games_by_date = defaultdict(set)  # date -> set of teams that played
+    for log in raw_logs:
+        gd = log.get('game_date')
+        m = log.get('matchup')
+        if not gd or not m: continue
+        # matchup like "OKC vs. SAS" or "SAS @ OKC"
+        # Pull both teams to mark both as having played
+        toks = re.split(r'\s+vs\.\s+|\s+@\s+', m)
+        if len(toks) == 2:
+            games_by_date[gd].add(toks[0].strip().upper())
+            games_by_date[gd].add(toks[1].strip().upper())
+    for d in all_dates:
+        dt = datetime.strptime(d, '%Y-%m-%d')
+        prev = (dt - timedelta(days=1)).strftime('%Y-%m-%d')
+        yesterday_teams_by_date[d] = games_by_date.get(prev, set())
+
     # -- Pre-flight rollback check ---------------------------------------------
     current_config_precheck = None
     try:
@@ -459,9 +722,19 @@ if __name__ == '__main__':
             sys.exit(0)
 
     # -- Build cases -----------------------------------------------------------
-    print("\n[2/5] Building feature vectors...")
-    all_cases = build_cases(grades, logs_by_player, def_stats_map)
+    print("\n[2/5] Building feature vectors + additives...")
+    all_cases = build_cases(
+        grades, logs_by_player, def_stats_map,
+        player_bias_map=player_bias_map,
+        opp_leak_map=opp_leak_map,
+        trailing_over_rates=trailing_over_rates,
+        trailing_under_rates=trailing_under_rates,
+        yesterday_teams_by_date=yesterday_teams_by_date,
+    )
     print(f"  {len(all_cases):,} matched cases")
+    if all_cases:
+        avg_add = sum(c.get('additive', 0) for c in all_cases) / len(all_cases)
+        print(f"  avg additive total: {avg_add:+.2f} pts (mirrors production score-time adjustments)")
 
     if len(all_cases) < 100:
         print("  Not enough matched cases. Exiting.")
