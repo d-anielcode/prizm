@@ -213,6 +213,9 @@ export interface ScoringContext {
   simThreePm?:        SimThreePm | null          // Monte Carlo 3PM simulation result
   overHitRates?:      Map<string, number> | null // trailing 30-day over hit rate per stat type (for over-bias gate)
   underHitRates?:     Map<string, number> | null // trailing 30-day under hit rate per stat type (for under-bias gate)
+  // Lineup confirmation (from confirmed_lineups, populated by /api/lineups/fetch)
+  confirmedStarter?:  boolean | null             // true = confirmed/expected starter, false = on may-not-play list, null = no data
+  lineupStatus?:      'confirmed' | 'expected' | 'projected' | 'unknown' | null
 }
 
 export interface ScoredProp extends Prop {
@@ -1390,11 +1393,27 @@ export function scoreProps(
     if (direction === 'under') simAdj = -simAdj
   }
 
+  // Lineup confirmation adjustment — populated from confirmed_lineups by enrich.
+  //   confirmedStarter === true  -> player confirmed to start. Modest +2 boost
+  //                                 (eliminates minutes uncertainty, but the model
+  //                                 already factors in projected minutes).
+  //   confirmedStarter === false -> player on "may not play" list. Heavy -25
+  //                                 penalty pushes any prop to FADE — we don't
+  //                                 want to grade props for players who probably
+  //                                 won't play.
+  //   confirmedStarter === null  -> no lineup data (cron hasn't run yet, or pre-tip).
+  //                                 No adjustment; rely on other factors.
+  // Effective gate: a confirmed-out player's max score becomes ~70 (raw 95 - 25),
+  // and after under_bias/over_bias is typically in the high-FADE range.
+  let lineupAdj = 0
+  if (ctx.confirmedStarter === false) lineupAdj = -25
+  else if (ctx.confirmedStarter === true) lineupAdj = 2
+
   // No-log cap: props without sufficient game log history (injury returns, new acquisitions)
   // are capped at 65 (top of PLAY) — insufficient data to justify LOCK confidence.
   const scoreMax = hasLogs ? 95 : 65
   const score = Math.round(Math.min(scoreMax, Math.max(18,
-    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + underBiasAdj + opponentB2bAdj + simAdj + consistencyAdj
+    adjustedRaw * 100 + consensusAdj * freshness + starBonus + biasAdj + leakAdj + lineMovAdj + oddsMovAdj + minutesTrendAdj + minutesUncertaintyPenalty + overBiasAdj + underBiasAdj + opponentB2bAdj + simAdj + consistencyAdj + lineupAdj
   )))
   const { label, tier } = getLabel(score, stat_type)
   // Derive correct opponent display name from game-log-based opponentAbbr.

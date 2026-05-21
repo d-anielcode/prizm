@@ -454,6 +454,41 @@ async function runEnrichment(force = false) {
     }
   }
 
+  // ── Load today's confirmed lineups (graceful if table missing) ────────────
+  // Builds two name-keyed maps used by scoreProps:
+  //   starterMap[name] = true   if name is in any team's starters today
+  //   outMap[name]     = true   if name is in any team's may_not_play
+  // The maps are case/punctuation-insensitive (rotowire uses full names;
+  // odds-api props may use display names like "S. Castle").
+  const starterMap = new Map<string, boolean>()
+  const outMap     = new Map<string, boolean>()
+  const lineupStatusMap = new Map<string, 'confirmed' | 'expected' | 'projected' | 'unknown'>()
+  try {
+    const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    const { data: lineupRows } = await supabase
+      .from('confirmed_lineups')
+      .select('team, status, starters, may_not_play')
+      .eq('game_date', todayET)
+    const normalize = (s: string) => s.toLowerCase().replace(/[\.,'']/g, '').trim()
+    for (const row of (lineupRows ?? [])) {
+      const status = (row.status as string) === 'unknown' ? 'unknown' : row.status as 'confirmed'|'expected'|'projected'
+      for (const s of (row.starters as Array<{ name: string }>) ?? []) {
+        starterMap.set(normalize(s.name), true)
+        lineupStatusMap.set(normalize(s.name), status)
+      }
+      for (const name of (row.may_not_play as string[]) ?? []) {
+        outMap.set(normalize(name), true)
+        lineupStatusMap.set(normalize(name), status)
+      }
+    }
+    if (starterMap.size > 0 || outMap.size > 0) {
+      logger.info(`[/api/enrich] loaded lineups: ${starterMap.size} starters, ${outMap.size} out`)
+    }
+  } catch (e) {
+    // Table may not exist yet — degrade gracefully (no lineup adjustment)
+    logger.warn(`[/api/enrich] confirmed_lineups unavailable: ${String(e).slice(0, 80)}`)
+  }
+
   // ── Build in-memory maps from raw rows ────────────────────────────────────
   const logsMap = new Map<string, GameLog[]>()
   for (const row of allLogRows) {
@@ -669,6 +704,19 @@ async function runEnrichment(force = false) {
                         : null,
       overHitRates,
       underHitRates,
+      // Lineup confirmation (rotowire) — see lib/lineups.ts. confirmedStarter
+      // resolves to true/false/null based on the maps built above. The score
+      // adjustment ±2/-25 is applied in lib/confidence.ts:lineupAdj.
+      confirmedStarter: (() => {
+        const k = prop.player_name.toLowerCase().replace(/[\.,'']/g, '').trim()
+        if (outMap.get(k))     return false  // listed as "may not play"
+        if (starterMap.get(k)) return true   // in confirmed/expected starters
+        return null                          // no lineup data for this player
+      })(),
+      lineupStatus: (() => {
+        const k = prop.player_name.toLowerCase().replace(/[\.,'']/g, '').trim()
+        return lineupStatusMap.get(k) ?? null
+      })(),
     }
 
     return scoreProps(prop, logs, null, ctx)
