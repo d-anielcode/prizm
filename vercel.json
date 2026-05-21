@@ -15,8 +15,8 @@
     { "path": "/api/enrich",                                  "schedule": "35 14 * * *" },
     { "path": "/api/feed/generate/parlay?force=true",         "schedule": "50 14 * * *" },
     { "path": "/api/props?refresh=true",                      "schedule": "0 19 * * *" },
-    { "path": "/api/enrich",                                  "schedule": "15 19 * * *" },
     { "path": "/api/lineups/fetch",                           "schedule": "30 22 * * *" },
+    { "path": "/api/enrich?force=true",                       "schedule": "40 22 * * *" },
     { "path": "/api/props/snapshot",                          "schedule": "0 23 * * *" },
     { "path": "/api/player-bias?action=analyze",              "schedule": "0 5 * * 0" },
     { "path": "/api/opponent-leaks?action=analyze",           "schedule": "30 5 * * 0" }
