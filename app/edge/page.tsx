@@ -13,6 +13,8 @@ import { calibratedPct } from '@/lib/calibration'
 import { ev, evPct } from '@/lib/ev'
 import { isPlayerName } from '@/lib/odds-api'
 import { loadPlayerBiasMap, biasSignalFor, lookupBias } from '@/lib/player-bias'
+import { loadLineupMap, lineupBadgeFor } from '@/lib/lineups'
+import { LineupBadge } from '@/components/LineupBadge'
 import { PlayerBiasChip } from '@/components/PlayerBiasChip'
 import type { Prop, StatType, Direction } from '@/types'
 
@@ -86,9 +88,11 @@ async function getEdgePicks(): Promise<Array<Prop & { ev: number; evPct: number;
 }
 
 export default async function EdgePage() {
-  const [picks, biasMap] = await Promise.all([
+  const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const [picks, biasMap, lineupMap] = await Promise.all([
     getEdgePicks(),
     loadPlayerBiasMap(),
+    loadLineupMap(supabase, todayET),
   ])
 
   // Group for quick stats: tier distribution, EV histogram bins
@@ -142,15 +146,18 @@ export default async function EdgePage() {
               {top.map((p) => (
                 <tr key={`${p.player_name}|${p.stat_type}|${p.line}|${p.direction}`} className="hover:bg-white/[0.02]">
                   <td className="px-4 py-3">
-                    <Link
-                      href={`/player/${encodeURIComponent(p.player_name)}`}
-                      className="font-medium hover:text-primary transition-colors"
-                    >
-                      {p.player_name}
-                    </Link>
-                    {p.team && (
-                      <span className="ml-2 text-[10px] text-white/40 font-mono">{p.team}</span>
-                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Link
+                        href={`/player/${encodeURIComponent(p.player_name)}`}
+                        className="font-medium hover:text-primary transition-colors"
+                      >
+                        {p.player_name}
+                      </Link>
+                      <LineupBadge info={lineupBadgeFor(lineupMap, p.player_name)} />
+                      {p.team && (
+                        <span className="text-[10px] text-white/40 font-mono">{p.team}</span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-2 py-3 font-mono text-xs">
                     <span className={p.direction === 'over' ? 'text-emerald-400/80' : 'text-rose-400/80'}>

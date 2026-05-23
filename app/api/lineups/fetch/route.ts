@@ -12,7 +12,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { requireCronAuth } from '@/lib/api-auth'
+import { requireCronAuth, internalAuthHeaders } from '@/lib/api-auth'
 import { parseRotowireLineups } from '@/lib/lineups'
 import { logger } from '@/lib/logger'
 
@@ -104,6 +104,29 @@ async function fetchAndStore(): Promise<{
   return { scraped: games.length, upserted: rows.length, errors }
 }
 
+/** Fire-and-forget re-enrich after a successful lineup upsert. The /api/enrich
+ *  cron at 22:40 UTC is the safety net; this trigger propagates the new lineup
+ *  data into scoring as soon as it lands (e.g. immediately after the 20:00 UTC
+ *  lineup fetch instead of waiting 2.5h). Failures are logged but don't fail
+ *  the lineup fetch — the safety cron always runs. */
+async function triggerEnrichAsync(reqUrl: string): Promise<void> {
+  try {
+    const baseUrl = new URL(reqUrl).origin
+    // Fire-and-forget: don't await; if the enrich is slow we'd block the cron
+    // response past the 60s function timeout. Vercel kills the post-response
+    // execution anyway, so we use the fetch API's keepalive flag.
+    fetch(`${baseUrl}/api/enrich?force=true`, {
+      method:  'POST',
+      headers: internalAuthHeaders(),
+      keepalive: true,
+    }).catch((err) => {
+      console.warn('[/api/lineups/fetch] enrich trigger failed (will retry on next cron)', err)
+    })
+  } catch (err) {
+    console.warn('[/api/lineups/fetch] failed to schedule enrich trigger', err)
+  }
+}
+
 export async function GET(req: Request) {
   const authError = requireCronAuth(req)
   if (authError) return authError
@@ -111,6 +134,11 @@ export async function GET(req: Request) {
   try {
     const result = await fetchAndStore()
     logger.info('[/api/lineups/fetch] result', result)
+    // Trigger re-enrich only when we actually upserted something — no point
+    // re-scoring if the scrape produced nothing new.
+    if (result.upserted > 0 && result.errors.length === 0) {
+      await triggerEnrichAsync(req.url)
+    }
     return NextResponse.json(result)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

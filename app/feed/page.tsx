@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { calibratedPct } from '@/lib/calibration'
+import { loadLineupMap, lineupBadgeFor } from '@/lib/lineups'
+import { LineupBadge } from '@/components/LineupBadge'
 
 export const dynamic = 'force-dynamic'
 
@@ -148,7 +150,11 @@ function resultBadge(result?: 'hit' | 'miss' | 'void' | null) {
 }
 
 export default async function FeedPage() {
-  const { parlays, streakState, announcements } = await getFeedData()
+  const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const [{ parlays, streakState, announcements }, lineupMap] = await Promise.all([
+    getFeedData(),
+    loadLineupMap(supabase, todayET),
+  ])
   const { currentStreak, history, todayPick } = streakState
 
   // Group announcements by game_date
@@ -343,8 +349,9 @@ export default async function FeedPage() {
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-xs font-black text-[var(--text-tertiary)] w-3 shrink-0">{i + 1}</span>
                         <div className="min-w-0">
-                          <p className="text-sm font-bold text-[var(--text-primary)] truncate">
-                            {leg.player_name}
+                          <p className="text-sm font-bold text-[var(--text-primary)] truncate flex items-center gap-1.5">
+                            <span className="truncate">{leg.player_name}</span>
+                            <LineupBadge info={lineupBadgeFor(lineupMap, leg.player_name)} />
                             {leg.team && leg.team !== 'TBD' && (
                               <span className="text-[11px] text-[var(--text-tertiary)] font-normal ml-1.5">{leg.team}</span>
                             )}
