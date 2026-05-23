@@ -126,9 +126,29 @@ export async function GET(req: Request) {
     logByKey.set(`${log.player_name}|${log.game_date}`, log)
   }
 
-  // 3. For each (player, stat_type): collect actual vs line
+  // 3. For each (player, stat_type): collect actual vs line, split into
+  //    recent (last 30 days) and historical (all-time) buckets. Each prop
+  //    contributes to both — historical is the full count, recent is a subset.
+  //
+  // Recency decay (added 2026-05-23): the previous version aggregated all
+  // historical props with equal weight. By mid-season the long-term aggregate
+  // gets stale — a player's role changes, they get traded, etc. The earlier
+  // mult=22 counterfactual rebuttal showed amplifying stale signal at high
+  // tier introduces noise. Fix: blend recent (70%) with long-term (30%) so
+  // current state dominates while we keep the larger sample's stability for
+  // cold-start protection.
+  const RECENT_WINDOW_DAYS = 30
+  const RECENT_WEIGHT = 0.70
+  const HISTORICAL_WEIGHT = 0.30
+  const recentCutoff = new Date(Date.now() - RECENT_WINDOW_DAYS * 86400000)
+    .toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
   type Key = string  // "player|stat"
-  const hitMap    = new Map<Key, { hits: number; total: number; ratios: number[] }>()
+  interface BiasAccumulator {
+    hits: number; total: number; ratios: number[]
+    recentHits: number; recentTotal: number
+  }
+  const hitMap = new Map<Key, BiasAccumulator>()
 
   for (const prop of props) {
     const col = STAT_COL[prop.stat_type]
@@ -140,11 +160,18 @@ export async function GET(req: Request) {
     if (actual == null || prop.line <= 0) continue
 
     const key = `${prop.player_name}|${prop.stat_type}`
-    if (!hitMap.has(key)) hitMap.set(key, { hits: 0, total: 0, ratios: [] })
+    if (!hitMap.has(key)) {
+      hitMap.set(key, { hits: 0, total: 0, ratios: [], recentHits: 0, recentTotal: 0 })
+    }
     const entry = hitMap.get(key)!
+    const hit = actual > prop.line
     entry.total++
-    if (actual > prop.line) entry.hits++
+    if (hit) entry.hits++
     entry.ratios.push(actual / prop.line)
+    if (prop.game_date >= recentCutoff) {
+      entry.recentTotal++
+      if (hit) entry.recentHits++
+    }
   }
 
   // 4. Build bias rows — only for entries with enough samples
@@ -160,10 +187,20 @@ export async function GET(req: Request) {
   for (const [key, data] of hitMap) {
     if (data.total < MIN_SAMPLES) continue
     const [player_name, stat_type] = key.split('|')
+    const historicalRate = data.hits / data.total
+    let blendedRate: number
+    if (data.recentTotal >= 3) {
+      // Enough recent data to blend
+      const recentRate = data.recentHits / data.recentTotal
+      blendedRate = RECENT_WEIGHT * recentRate + HISTORICAL_WEIGHT * historicalRate
+    } else {
+      // Cold-start fallback: not enough recent data, use historical only
+      blendedRate = historicalRate
+    }
     biasRows.push({
       player_name,
       stat_type,
-      hit_rate:     Math.round((data.hits / data.total) * 1000) / 1000,
+      hit_rate:     Math.round(blendedRate * 1000) / 1000,
       median_ratio: Math.round(median(data.ratios) * 1000) / 1000,
       sample_count: data.total,
       updated_at:   new Date().toISOString(),

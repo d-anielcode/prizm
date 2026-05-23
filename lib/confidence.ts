@@ -953,12 +953,29 @@ export function computeAdditives(
     if (direction === 'under') biasAdj = -biasAdj
   }
 
-  // Opponent leak (mult=15, cap=±6 — see a815182)
+  // Opponent leak (mult=8, cap=±4 — REVERTED 2026-05-23 from mult=15/cap=6).
+  //
+  // The a815182 retune bumped mult 8 -> 15 based on the player_line_bias
+  // audit's "we're under-applying signal" hypothesis. Today's counterfactual
+  // on 84,820 graded props rebutted it:
+  //
+  //   config                  LOCK n  LOCK hr   PLAY n  PLAY hr
+  //   OFF (no leak)              92    68.5%      325    60.6%
+  //   OLD (mult=8, cap=4)        80    68.8%      291    59.8%   <- restored
+  //   NEW (mult=15, cap=6)       90    67.8%      288    61.1%   <- reverted
+  //
+  // The mult=15 version trades 1pt LOCK hit rate for 0.5pt PLAY — net
+  // negative weighted toward LOCK quality, which is what users trust most.
+  // OFF was best at LOCK but mult=8 is essentially tied (within noise at
+  // n=80-90), so we keep some signal in PLAY rather than going to zero.
+  //
+  // Same lesson as the player_line_bias mult=22 -> 10 revert (4c668fe):
+  // amplifying long-term aggregated signal at high tier introduces noise.
   let leakAdj = 0
   if (ctx.opponentLeak && ctx.opponentLeak.sample_count >= 10) {
     const cs = Math.min(ctx.opponentLeak.sample_count / 40, 1.0)
-    const raw = (ctx.opponentLeak.over_hit_rate - 0.50) * cs * 15
-    leakAdj = Math.max(-6, Math.min(6, raw))
+    const raw = (ctx.opponentLeak.over_hit_rate - 0.50) * cs * 8
+    leakAdj = Math.max(-4, Math.min(4, raw))
     if (direction === 'under') leakAdj = -leakAdj
   }
 

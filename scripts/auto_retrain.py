@@ -292,13 +292,19 @@ def bias_adj_for(bias_row, direction):
     return adj if direction == 'over' else -adj
 
 def leak_adj_for(leak_row, direction):
-    """mult=15, cap=±6 — matches lib/confidence.ts (after a815182)."""
+    """mult=8, cap=±4 — REVERTED 2026-05-23 from mult=15/cap=6.
+
+    Counterfactual showed mult=15 cost ~1pt LOCK hit rate on 84k props
+    with no compensating gain (PLAY +0.5pt at best). Matches the
+    player_line_bias revert lesson: amplifying long-term aggregated
+    signal at high tier introduces noise. See lib/confidence.ts:leakAdj
+    block for the data table."""
     if not leak_row: return 0
     sample = leak_row.get('sample_count', 0) or 0
     if sample < 10: return 0
     cs = min(sample / 40, 1.0)
-    raw = (leak_row.get('over_hit_rate', 0.5) - 0.50) * cs * 15
-    adj = max(-6, min(6, raw))
+    raw = (leak_row.get('over_hit_rate', 0.5) - 0.50) * cs * 8
+    adj = max(-4, min(4, raw))
     return adj if direction == 'over' else -adj
 
 def over_bias_adj(direction, stat, trailing_over_rate):
