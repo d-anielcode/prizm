@@ -442,9 +442,11 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
       ? last20.reduce((sum, g) => sum + Number(g.minutes ?? 0), 0) / last20.length
       : null
     // EV per unit stake — calibrated probability × decimal odds − 1.
-    // Falls back to 0 (neutral) if either input is missing so the prop stays
-    // in the pool but never gets favored over a real +EV pick.
-    const propEv = computeEv(prop.confidence_score, prop.odds) ?? 0
+    // Pass stat_type so we use the per-stat calibration curve — rebounds/3PM
+    // diverge enough from the global curve that global-fallback EV is noisy
+    // for those stats. Falls back to 0 (neutral) if either input is missing
+    // so the prop stays in the pool but never gets favored over a real +EV pick.
+    const propEv = computeEv(prop.confidence_score, prop.odds, prop.stat_type) ?? 0
     return {
       player_name:      prop.player_name,
       team:             prop.team,
