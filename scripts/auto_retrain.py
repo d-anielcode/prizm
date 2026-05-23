@@ -166,10 +166,32 @@ def factor_rest_days(prior_logs, game_date):
 # These default to 0 — acceptable since they primarily affect *today's* picks
 # and the optimizer trains on historical data where they were also ~zero.
 
-OVER_BIAS_DEFAULTS = {'points': -3, 'rebounds': -4, 'assists': -4, 'pra': -4,
-                      'steals': -10, 'blocks': -8, 'three_pointers': -7}
-UNDER_BIAS_DEFAULTS = {'blocks': 8, 'steals': 6, 'assists': 4, 'pra': 3,
-                       'rebounds': 3, 'points': 2, 'three_pointers': 2}
+# Hardcoded fallbacks ONLY — _load_bias_defaults reads the live JSON first.
+# Audit M1d 2026-05-23: the previous setup hardcoded these in Python which
+# silently drifted from confidence-weights.json whenever the JSON was hand-
+# edited (e.g. the v11.1 manual retune). Now we read JSON first, fall back to
+# these constants only if the file is missing/malformed.
+_OVER_BIAS_FALLBACK = {'points': -3, 'rebounds': -4, 'assists': -4, 'pra': -4,
+                       'steals': -10, 'blocks': -8, 'three_pointers': -7}
+_UNDER_BIAS_FALLBACK = {'blocks': 8, 'steals': 6, 'assists': 4, 'pra': 3,
+                        'rebounds': 3, 'points': 2, 'three_pointers': 2}
+
+def _load_bias_defaults():
+    """Read confidence-weights.json once, return (over_bias, under_bias) maps.
+    Falls back to hardcoded values if file missing/malformed."""
+    try:
+        with open(JSON_PATH) as f:
+            cfg = json.load(f)
+        ob = {**_OVER_BIAS_FALLBACK,  **(cfg.get('over_bias')  or {})}
+        ub = {**_UNDER_BIAS_FALLBACK, **(cfg.get('under_bias') or {})}
+        return ob, ub
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return dict(_OVER_BIAS_FALLBACK), dict(_UNDER_BIAS_FALLBACK)
+
+# Loaded once at module level — same lifetime as the rest of the script's
+# module-level constants. If the JSON changes mid-run we don't see it, which
+# is fine: a fresh process run picks it up.
+OVER_BIAS_DEFAULTS, UNDER_BIAS_DEFAULTS = _load_bias_defaults()
 
 def consistency_cv(prior, stat_type):
     """CV on L10 stat outcomes — mirrors lib/confidence.ts:consistencyCV."""
@@ -502,12 +524,38 @@ def calibrate_thresholds(cases, stat, weights_dict):
     return best_combo
 
 
-def recalibrate_over_bias(grades):
-    """Compute stat-specific over bias from over/under hit rate gap."""
+def recalibrate_over_bias(grades, trailing_over_rates=None):
+    """Compute stat-specific over_bias magnitude from over/under hit rate gap.
+
+    Audit M1b 2026-05-23: previously computed gap across the FULL window,
+    but in production the bias only fires when trailing 30d over-rate < 0.50
+    (gate at lib/confidence.ts:overBiasAdj). The optimizer was therefore
+    training as if bias always fires, and writing magnitudes calibrated to
+    the broad window's gap — which under-states the actual gated-window gap.
+
+    Fix: when trailing_over_rates is provided, restrict the magnitude
+    calibration to the gated subset (props where trailing < 0.50 OR
+    rate has no data — matching the production gate). The resulting bias
+    magnitude is what's actually needed when the bias fires.
+
+    Backward compatible: if trailing_over_rates is None, falls back to the
+    full-window gap (legacy behavior).
+    """
     bias = {}
+    use_gate = trailing_over_rates is not None
     for stat in STAT_TYPES:
-        overs = [g for g in grades if g['stat_type'] == stat and g.get('direction') == 'over' and g.get('hit') is not None]
-        unders = [g for g in grades if g['stat_type'] == stat and g.get('direction') == 'under' and g.get('hit') is not None]
+        def keep(g):
+            # Always require the stat + hit-graded
+            if g['stat_type'] != stat or g.get('hit') is None:
+                return False
+            if not use_gate:
+                return True
+            tr = trailing_over_rates.get((stat, g.get('game_date')))
+            # Gate-firing window: trailing < 0.50 OR no data
+            return tr is None or tr < 0.50
+
+        overs  = [g for g in grades if keep(g) and g.get('direction') == 'over']
+        unders = [g for g in grades if keep(g) and g.get('direction') == 'under']
         if len(overs) < 20 or len(unders) < 10:
             bias[stat] = -3
             continue
@@ -790,7 +838,10 @@ if __name__ == '__main__':
     base_lock = best_base_lock
     base_play = base_lock - 6
 
-    new_over_bias = recalibrate_over_bias(grades)
+    # Audit M1b: pass trailing_over_rates so magnitude calibration restricts
+    # to the SUBSET of windows where the gate would actually fire — mirrors
+    # production scoring instead of training against an ungated phantom.
+    new_over_bias = recalibrate_over_bias(grades, trailing_over_rates=trailing_over_rates)
     print(f"  Base thresholds: LOCK={base_lock} PLAY={base_play}")
     print(f"  Over bias: {new_over_bias}")
 
