@@ -99,18 +99,55 @@ def main():
         print("  Need scikit-learn + numpy. pip install scikit-learn numpy")
         sys.exit(1)
 
-    def fit_table(scores_arr, hits_arr):
+    # Sparse-tail ceiling: the highest raw score with at least MIN_SAMPLES_FOR_CEILING
+    # data points within a ±SUPPORT_WINDOW around it. Above that, the isotonic curve
+    # is extrapolating from <20 points and pmax'd to whatever 1-2 hits happened to
+    # produce — typically 100%. Display chips showing "100%" to users on rebounds
+    # at raw 90 are noise, not signal.
+    MIN_SAMPLES_FOR_CEILING = 20  # need 20 props in the ±5 raw-score window
+    SUPPORT_WINDOW = 5
+    GLOBAL_HONESTY_CAP = 80.0  # absolute upper bound — no real NBA prop hits 80%+ reliably
+
+    def fit_table(scores_arr, hits_arr, label='?'):
         iso = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds='clip')
         iso.fit(scores_arr, hits_arr)
         grid = np.arange(0, 101, 1)
-        return [float(v) for v in (iso.predict(grid) * 100).round(2)], iso
+        raw_lookup = (iso.predict(grid) * 100).round(2)
+
+        # Find the highest raw score still backed by enough samples.
+        # Walk down from 100 until we find a window with >= MIN_SAMPLES_FOR_CEILING.
+        last_supported_raw = 100
+        for raw in range(100, 0, -1):
+            n_in_window = int(((scores_arr >= raw - SUPPORT_WINDOW) &
+                               (scores_arr <= raw + SUPPORT_WINDOW)).sum())
+            if n_in_window >= MIN_SAMPLES_FOR_CEILING:
+                last_supported_raw = raw
+                break
+
+        # Cap the lookup: anything above last_supported_raw is forced to the value
+        # at last_supported_raw (no extrapolation past where we have data). Also
+        # apply the absolute honesty cap to prevent display showing "100%".
+        ceiling_value = float(raw_lookup[last_supported_raw])
+        capped = []
+        for i, v in enumerate(raw_lookup):
+            if i > last_supported_raw:
+                v = ceiling_value
+            v = min(v, GLOBAL_HONESTY_CAP)
+            capped.append(float(round(v, 2)))
+
+        clipped_count = sum(1 for i, raw_v in enumerate(raw_lookup)
+                            if (i > last_supported_raw) or (raw_v > GLOBAL_HONESTY_CAP))
+        if clipped_count > 0:
+            print(f"    [{label}] capped at raw>{last_supported_raw} ({clipped_count} entries clipped, "
+                  f"ceiling={ceiling_value:.1f}, honesty_cap={GLOBAL_HONESTY_CAP:.0f})")
+        return capped, iso
 
     scores = np.array([float(g['confidence_score']) for g in grades])
     hits   = np.array([1 if g['hit'] else 0 for g in grades])
     stat_types = np.array([g.get('stat_type', '') for g in grades])
 
     # Global fit (fallback for missing stat type)
-    global_lookup, iso_global = fit_table(scores, hits)
+    global_lookup, iso_global = fit_table(scores, hits, label='global')
     print(f"  global:        n={len(scores):,}  ", end='')
     for raw in [50, 65, 75]:
         cal = float(iso_global.predict([raw])[0]) * 100
@@ -129,7 +166,7 @@ def main():
         if n < STAT_MIN_N:
             print(f'  {stat:<14} n={n:>5} -- under {STAT_MIN_N} threshold, falling back to global')
             continue
-        lookup, iso_s = fit_table(scores[mask], hits[mask])
+        lookup, iso_s = fit_table(scores[mask], hits[mask], label=stat)
         per_stat[stat] = lookup
         # Print key points for sanity
         print(f'  {stat:<14} n={n:>5,}  ', end='')
