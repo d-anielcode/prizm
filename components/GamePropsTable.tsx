@@ -5,7 +5,9 @@ import Link from 'next/link'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import AltLinesPanel from './AltLinesPanel'
 import { PropReasonChips } from './PropReasonChips'
+import { LineupBadge } from './LineupBadge'
 import { calibratedPct } from '@/lib/calibration'
+import { lineupBadgeFor } from '@/lib/lineups'
 import type { AltLine, OpponentCtx, PropWithAlts, StatType } from '@/types'
 import type { PropResult } from '@/app/game/[id]/page'
 
@@ -129,10 +131,12 @@ export default function GamePropsTable({
   props,
   oppCtx,
   propResults,
+  lineupMap,
 }: {
   props:        PropWithAlts[]
   oppCtx?:      Map<string, OpponentCtx>
   propResults?: Map<string, PropResult>
+  lineupMap?:   Map<string, import('@/lib/lineups').LineupBadgeInfo>
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -143,10 +147,13 @@ export default function GamePropsTable({
         {props.map((prop, i) => (
           <div key={prop.id ?? i} className="px-4 py-3 bg-white/[0.02]">
             <div className="flex items-center justify-between gap-2 mb-1">
-              <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
-                className="font-medium text-white text-sm leading-tight hover:text-primary transition-colors">
-                {prop.player_name}
-              </Link>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
+                  className="font-medium text-white text-sm leading-tight hover:text-primary transition-colors truncate">
+                  {prop.player_name}
+                </Link>
+                {lineupMap && <LineupBadge info={lineupBadgeFor(lineupMap, prop.player_name)} />}
+              </div>
               <div className="flex items-center gap-2 shrink-0">
                 {prop.id && propResults?.get(prop.id) != null && (() => {
                   const r = propResults!.get(prop.id!)!
@@ -212,11 +219,14 @@ export default function GamePropsTable({
                     onClick={hasAlts ? () => setExpandedId(isOpen ? null : rowKey) : undefined}
                   >
                     <td className="px-4 py-3 font-medium text-white">
-                      <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
-                        className="hover:text-blue-400 transition-colors"
-                        onClick={(e) => e.stopPropagation()}>
-                        {prop.player_name}
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
+                          className="hover:text-blue-400 transition-colors"
+                          onClick={(e) => e.stopPropagation()}>
+                          {prop.player_name}
+                        </Link>
+                        {lineupMap && <LineupBadge info={lineupBadgeFor(lineupMap, prop.player_name)} />}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-white/60">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</div>

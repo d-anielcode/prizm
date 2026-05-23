@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { TEAM_ABBR } from '@/lib/team-abbr'
 import GamePropsTable from '@/components/GamePropsTable'
+import { loadLineupMap } from '@/lib/lineups'
 import Link from 'next/link'
 import type { AltLine, OpponentCtx, Prop, PropWithAlts, StatType } from '@/types'
 
@@ -240,10 +241,14 @@ export default async function GamePage({
   const gameId = decodeURIComponent(id)
   const props = await getGameProps(gameId)
   const uniquePropPlayers = [...new Set(props.map((p) => p.player_name))]
-  const [oppCtx, injuries, propResults] = await Promise.all([
+  // Pull today's lineup map alongside the other async loads. Same date logic
+  // as the lineup cron (ET game date). Falls back to empty Map on error.
+  const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const [oppCtx, injuries, propResults, lineupMap] = await Promise.all([
     buildOppCtx(props),
     fetchInjuriesForGame(uniquePropPlayers),
     gradeGameProps(props, props[0]?.commence_time ?? null),
+    loadLineupMap(supabase, todayET),
   ])
 
   // Extract team names and game time from props (any prop will do)
@@ -357,7 +362,7 @@ export default async function GamePage({
           No props found for this game.
         </div>
       ) : (
-        <GamePropsTable props={props} oppCtx={oppCtx} propResults={propResults} />
+        <GamePropsTable props={props} oppCtx={oppCtx} propResults={propResults} lineupMap={lineupMap} />
       )}
     </div>
   )

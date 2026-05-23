@@ -9,6 +9,8 @@ import { getEspnVariants } from '@/lib/player-aliases'
 import { TEAM_ABBR } from '@/lib/team-abbr'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { calibratedPct } from '@/lib/calibration'
+import { loadLineupMap, lineupBadgeFor } from '@/lib/lineups'
+import { LineupBadge } from '@/components/LineupBadge'
 
 export const revalidate = 0
 
@@ -337,6 +339,11 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
     .order('game_date', { ascending: false })
     .limit(20)
 
+  // Today's lineup status for the header badge. ET date matches the cron.
+  const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const lineupMap = await loadLineupMap(supabase, todayET)
+  const playerLineupInfo = lineupBadgeFor(lineupMap, playerName)
+
   // ── 4. Season stats ───────────────────────────────────────────────────────────
   const { data: seasonRows } = await supabase
     .from('player_season_stats')
@@ -421,7 +428,10 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
 
       {/* ── Player header ── */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-white">{playerName}</h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-3xl font-bold text-white">{playerName}</h1>
+          {playerLineupInfo && <LineupBadge info={playerLineupInfo} />}
+        </div>
         <div className="flex items-center gap-2 flex-wrap text-sm">
           {team && <span className="text-white/50 font-medium">{team}</span>}
           {opponent && (
