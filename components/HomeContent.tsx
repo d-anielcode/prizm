@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { ConfidenceBadge } from './ConfidenceBadge'
+import { LineupBadge } from './LineupBadge'
+import { lineupBadgeFor } from '@/lib/lineups'
 import type { ConfidenceLabel } from '@/types'
 
 interface GameInfo {
@@ -59,11 +61,13 @@ export function HomeContent({
   allProps,
   stale,
   gameDay,
+  lineupMap,
 }: {
   games: GameInfo[]
   allProps: PropSummary[]
   stale: boolean
   gameDay: string
+  lineupMap?: Map<string, import('@/lib/lineups').LineupBadgeInfo>
 }) {
   const [selectedGameId, setSelectedGameId] = useState<string | null>(games[0]?.game_id ?? null)
 
@@ -154,9 +158,10 @@ export function HomeContent({
                   i < gameProps.length - 1 ? 'border-b border-[var(--border-subtle)]' : '',
                 ].join(' ')}
               >
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm text-foreground">{prop.player_name}</span>
-                  <span className="text-xs text-[var(--text-secondary)] font-mono">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-semibold text-sm text-foreground truncate">{prop.player_name}</span>
+                  {lineupMap && <LineupBadge info={lineupBadgeFor(lineupMap, prop.player_name)} />}
+                  <span className="text-xs text-[var(--text-secondary)] font-mono shrink-0">
                     {prop.direction === 'over' ? 'O' : 'U'} {prop.line} {STAT_LABELS[prop.stat_type] ?? prop.stat_type}
                   </span>
                 </div>

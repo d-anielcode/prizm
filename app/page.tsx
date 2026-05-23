@@ -3,6 +3,7 @@ import type { Prop } from '@/types'
 import ResultsHistory from '@/components/ResultsHistory'
 import { ConfidenceExplainer } from '@/components/ConfidenceExplainer'
 import { HomeContent } from '@/components/HomeContent'
+import { loadLineupMap } from '@/lib/lineups'
 
 export const revalidate = 0
 
@@ -230,7 +231,12 @@ function getGameDay(games: GameInfo[]): string {
 }
 
 export default async function HomePage() {
-  const [{ games, allProps, stale }, results] = await Promise.all([getData(), getResults()])
+  const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const [{ games, allProps, stale }, results, lineupMap] = await Promise.all([
+    getData(),
+    getResults(),
+    loadLineupMap(supabase, todayET),
+  ])
   const gameDay = getGameDay(games)
 
   const propSummaries = allProps.map((p) => ({
@@ -246,7 +252,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <HomeContent games={games} allProps={propSummaries} stale={stale} gameDay={gameDay} />
+      <HomeContent games={games} allProps={propSummaries} stale={stale} gameDay={gameDay} lineupMap={lineupMap} />
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-10 flex flex-col gap-8">
         <ConfidenceExplainer />
         {results.length > 0 && <ResultsHistory results={results} />}
