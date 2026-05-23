@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { PropsTable } from '@/components/PropsTable'
+import { loadLineupMap } from '@/lib/lineups'
 import type { AltLine, Prop, PropWithAlts } from '@/types'
 
 export const dynamic = 'force-dynamic'
@@ -78,7 +79,11 @@ export default async function PropsPage({
   searchParams: Promise<{ search?: string }>
 }) {
   const { search } = await searchParams
-  const props = await getProps()
+  const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const [props, lineupMap] = await Promise.all([
+    getProps(),
+    loadLineupMap(supabase, todayET),
+  ])
 
   const lock = props.filter((p) => p.confidence_label === 'LOCK').length
   const play = props.filter((p) => p.confidence_label === 'PLAY').length
@@ -113,7 +118,7 @@ export default async function PropsPage({
         </div>
       </div>
 
-      <PropsTable props={props} initialSearch={search ?? ''} />
+      <PropsTable props={props} initialSearch={search ?? ''} lineupMap={lineupMap} />
     </div>
   )
 }

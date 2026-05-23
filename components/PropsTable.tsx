@@ -5,7 +5,9 @@ import Link from 'next/link'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import AltLinesPanel from './AltLinesPanel'
 import { PropReasonChips } from './PropReasonChips'
+import { LineupBadge } from './LineupBadge'
 import { calibratedPct } from '@/lib/calibration'
+import { lineupBadgeFor } from '@/lib/lineups'
 import type { AltLine, PropWithAlts, StatType, ConfidenceLabel } from '@/types'
 
 const STAT_LABELS: Record<StatType, string> = {
@@ -148,9 +150,14 @@ function ConfidencePill({ label, active, onClick }: { label: ConfidenceLabel; ac
 export function PropsTable({
   props,
   initialSearch = '',
+  lineupMap,
 }: {
   props: PropWithAlts[]
   initialSearch?: string
+  /** Optional name→{role, status} map for the "STARTER" / "OUT" chip beside
+   *  player names. When provided, renders a LineupBadge per prop. Undefined
+   *  = no badges (e.g. on /trends where lineup context is less relevant). */
+  lineupMap?: Map<string, import('@/lib/lineups').LineupBadgeInfo>
 }) {
   const [search, setSearch] = useState(initialSearch)
   const [statFilter, setStatFilter] = useState<StatType | 'all'>('all')
@@ -272,10 +279,13 @@ export function PropsTable({
         ) : filtered.map((prop, i) => (
           <div key={`${prop.id}-${prop.stat_type}-${prop.line}-${i}`} className={`min-h-[44px] px-4 py-3 hover:bg-[var(--bg-surface-2)] border-b border-[var(--border-subtle)] transition-colors ${i % 2 === 0 ? '' : 'bg-[var(--bg-surface)]/50'}`}>
             <div className="flex items-center justify-between gap-2 mb-1">
-              <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
-                className="font-semibold text-sm text-foreground leading-tight hover:text-primary transition-colors">
-                {prop.player_name}
-              </Link>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Link href={`/player/${encodeURIComponent(prop.player_name)}`}
+                  className="font-semibold text-sm text-foreground leading-tight hover:text-primary transition-colors truncate">
+                  {prop.player_name}
+                </Link>
+                {lineupMap && <LineupBadge info={lineupBadgeFor(lineupMap, prop.player_name)} />}
+              </div>
               <div className="flex items-center gap-1.5">
                 <TrendArrow score={prop.confidence_score} prev={prop.prev_confidence_score} />
                 {prop.confidence_label && prop.confidence_score != null ? (
@@ -330,13 +340,16 @@ export function PropsTable({
                     onClick={hasAlts ? () => setExpandedId(expandedId === rowKey ? null : rowKey) : undefined}
                   >
                     <td className="px-4 py-3 font-semibold text-sm text-foreground">
-                      <Link
-                        href={`/player/${encodeURIComponent(prop.player_name)}`}
-                        className="hover:text-primary transition-colors"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {prop.player_name}
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Link
+                          href={`/player/${encodeURIComponent(prop.player_name)}`}
+                          className="hover:text-primary transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {prop.player_name}
+                        </Link>
+                        {lineupMap && <LineupBadge info={lineupBadgeFor(lineupMap, prop.player_name)} />}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-xs text-[var(--text-secondary)] font-mono">{STAT_LABELS[prop.stat_type] ?? prop.stat_type}</td>
                     <td className="px-4 py-3">

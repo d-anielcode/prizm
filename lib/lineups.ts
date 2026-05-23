@@ -207,3 +207,54 @@ export function normalizePlayerName(s: string): string {
 function sameName(a: string, b: string): boolean {
   return normalizePlayerName(a) === normalizePlayerName(b)
 }
+
+// ── Server-side lineup map loader ────────────────────────────────────────────
+// Used by UI pages to display a "STARTER" / "OUT" chip next to each prop.
+// Same shape and normalization as /api/enrich's loader (app/api/enrich/route.ts).
+// Returns a Map keyed by normalized player name -> { role, status }, where
+// role is 'starter' if the player is in confirmed_lineups.starters, 'out' if
+// in may_not_play, and unset for everyone else.
+
+export type LineupRole = 'starter' | 'out'
+
+export interface LineupBadgeInfo {
+  role:   LineupRole
+  status: LineupStatus      // 'confirmed' | 'expected' | 'projected' | 'unknown'
+}
+
+/** Load today's lineup map for UI rendering. ET date string YYYY-MM-DD.
+ *  Returns empty Map on error (graceful degradation — page renders without badges).
+ *  Accepts the Supabase client as `any` because typing it precisely fights with
+ *  the supabase-js builder pattern; the call shape is simple. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function loadLineupMap(supabase: any, gameDate: string): Promise<Map<string, LineupBadgeInfo>> {
+  const map = new Map<string, LineupBadgeInfo>()
+  try {
+    const { data, error } = await supabase
+      .from('confirmed_lineups')
+      .select('status, starters, may_not_play')
+      .eq('game_date', gameDate)
+    if (error || !data) return map
+    for (const row of data as Array<{ status: string; starters: Array<{ name: string }>; may_not_play: string[] }>) {
+      const status = (row.status === 'confirmed' || row.status === 'expected' || row.status === 'projected')
+        ? row.status as LineupStatus : 'unknown'
+      for (const s of row.starters ?? []) {
+        map.set(normalizePlayerName(s.name), { role: 'starter', status })
+      }
+      for (const n of row.may_not_play ?? []) {
+        map.set(normalizePlayerName(n), { role: 'out', status })
+      }
+    }
+  } catch {
+    // Table missing or permission denied — return empty. Page renders fine.
+  }
+  return map
+}
+
+/** Convenience lookup. */
+export function lineupBadgeFor(
+  map:        Map<string, LineupBadgeInfo>,
+  playerName: string,
+): LineupBadgeInfo | null {
+  return map.get(normalizePlayerName(playerName)) ?? null
+}
