@@ -30,3 +30,20 @@ def test_last20_hit_rate_minutes_filter():
              "is_home": True, "matchup": "LAL vs. BOS"}]
     rate = last20_hit_rate(logs, stat_type="points", line=10, direction="over")
     assert rate is None  # no qualifying games
+
+from confidence_features import trend
+from tests.fixtures.sample_logs import upward_trend_pts_logs
+
+def test_trend_upward():
+    # Last 5 = 30 ppg, prior 15 = 22 ppg → strong positive trend
+    t = trend(upward_trend_pts_logs(), stat_type="points")
+    assert t > 0.10  # at least 10% lift
+
+def test_trend_flat():
+    # All games at 25 ppg → trend should be ~0
+    t = trend(basic_pts_logs(), stat_type="points")
+    assert abs(t) < 0.05
+
+def test_trend_insufficient_data():
+    # Need at least 5 recent + 5 prior — sparse_logs has 3
+    assert trend(sparse_logs(), stat_type="points") is None

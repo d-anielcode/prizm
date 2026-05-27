@@ -49,3 +49,24 @@ def last20_hit_rate(
             if actual > line:
                 hits += 1
     return hits / len(qualifying)
+
+def trend(logs: List[Dict[str, Any]], stat_type: str) -> Optional[float]:
+    """Relative trend = (last5_avg - prior15_avg) / prior15_avg.
+
+    Mirrors trendScore() in lib/confidence.ts:747. Returns None if fewer
+    than 5 recent OR 5 prior qualifying games available. Caps at +/- 0.5.
+    """
+    field = STAT_TO_LOG_KEY.get(stat_type, stat_type)
+    qualifying = _qualifying_logs(logs)
+    if len(qualifying) < 10:
+        return None
+    recent = qualifying[:5]
+    prior  = qualifying[5:20]
+    if len(prior) < 5:
+        return None
+    r_avg = sum(float(g.get(field) or 0) for g in recent) / len(recent)
+    p_avg = sum(float(g.get(field) or 0) for g in prior) / len(prior)
+    if p_avg <= 0:
+        return None
+    raw = (r_avg - p_avg) / p_avg
+    return max(-0.5, min(0.5, raw))
