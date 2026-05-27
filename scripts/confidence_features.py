@@ -70,3 +70,26 @@ def trend(logs: List[Dict[str, Any]], stat_type: str) -> Optional[float]:
         return None
     raw = (r_avg - p_avg) / p_avg
     return max(-0.5, min(0.5, raw))
+
+def season_cushion(
+    logs: List[Dict[str, Any]],
+    stat_type: str,
+    line: float,
+    direction: str,
+) -> Optional[float]:
+    """Relative gap between season average and the line.
+
+    Mirrors cushionScore() in lib/confidence.ts. Direction-aware:
+      over  → (avg - line) / line
+      under → (line - avg) / line
+    Clamped to [-0.5, 0.5]. Returns None if no qualifying logs or line <= 0.
+    """
+    if line <= 0:
+        return None
+    field = STAT_TO_LOG_KEY.get(stat_type, stat_type)
+    qualifying = _qualifying_logs(logs)
+    if not qualifying:
+        return None
+    avg = sum(float(g.get(field) or 0) for g in qualifying) / len(qualifying)
+    raw = (avg - line) / line if direction == "over" else (line - avg) / line
+    return max(-0.5, min(0.5, raw))

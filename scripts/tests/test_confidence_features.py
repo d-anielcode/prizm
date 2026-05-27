@@ -47,3 +47,20 @@ def test_trend_flat():
 def test_trend_insufficient_data():
     # Need at least 5 recent + 5 prior — sparse_logs has 3
     assert trend(sparse_logs(), stat_type="points") is None
+
+from confidence_features import season_cushion
+
+def test_season_cushion_positive():
+    # avg 25 vs line 20 over → cushion = (25-20)/20 = 0.25
+    logs = basic_pts_logs()
+    c = season_cushion(logs, stat_type="points", line=20.0, direction="over")
+    assert c == pytest.approx(0.25, abs=0.02)
+
+def test_season_cushion_under_flipped():
+    # For under: cushion = (line - avg) / line
+    logs = basic_pts_logs()  # avg 25
+    c = season_cushion(logs, stat_type="points", line=30.0, direction="under")
+    assert c == pytest.approx((30-25)/30, abs=0.02)
+
+def test_season_cushion_no_logs():
+    assert season_cushion([], stat_type="points", line=20.0, direction="over") is None
