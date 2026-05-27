@@ -497,3 +497,44 @@ describe('U8: over_bias / under_bias gates', () => {
     expect(noMap.confidence_score).toBeLessThan(safeMap.confidence_score)
   })
 })
+
+// ── U12: score_factors breakdown ─────────────────────────────────────────────
+
+describe('U12: scoreProps emits score_factors breakdown', () => {
+  const EXPECTED_KEYS = [
+    'lineValue', 'matchupEdge', 'last20HitRate', 'trend', 'seasonCushion',
+    'pace', 'restDays', 'blowout', 'homeAway', 'vsOpponent',
+    'opponentLeak', 'playerBias', 'newsInjury', 'lineupAdj', 'lineMovement',
+  ] as const
+
+  it('returns score_factors on a fully-logged prop', () => {
+    const prop = makeProp({ line: 20.5, stat_type: 'points', direction: 'over' })
+    const logs = makeGameLogSeries(20, 25)
+    const ctx: ScoringContext = {
+      defStats: makeDefStats(),
+      isHome: true,
+      opponentAbbr: 'OPP',
+      spread: -4,
+      gameTotal: 220,
+    }
+    const result = scoreProps(prop, logs, null, ctx)
+
+    expect(result.score_factors).toBeDefined()
+    const keys = Object.keys(result.score_factors)
+    for (const k of EXPECTED_KEYS) {
+      expect(keys).toContain(k)
+    }
+    expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort())
+  })
+
+  it('score_factors keys are all present even with null context', () => {
+    const prop = makeProp()
+    const result = scoreProps(prop, [], null, null)
+
+    expect(result.score_factors).toBeDefined()
+    const keys = Object.keys(result.score_factors)
+    for (const k of EXPECTED_KEYS) {
+      expect(keys).toContain(k)
+    }
+  })
+})

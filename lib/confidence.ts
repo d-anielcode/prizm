@@ -218,11 +218,30 @@ export interface ScoringContext {
   lineupStatus?:      'confirmed' | 'expected' | 'projected' | 'unknown' | null
 }
 
+export interface ScoreFactors {
+  lineValue:     number | null
+  matchupEdge:   number | null
+  last20HitRate: number | null
+  trend:         number | null
+  seasonCushion: number | null
+  pace:          number | null
+  homeAway:      number | null
+  vsOpponent:    number | null
+  restDays:      number | null
+  blowout:       number | null
+  opponentLeak:  number | null
+  playerBias:    number | null
+  newsInjury:    number | null
+  lineupAdj:     number | null
+  lineMovement:  number | null
+}
+
 export interface ScoredProp extends Prop {
   confidence_score:  number
   confidence_label:  ConfidenceLabel
   risk_tier:         RiskTier
   confidence_reason: string
+  score_factors:     ScoreFactors
 }
 
 // ── Factor weights ────────────────────────────────────────────────────────────
@@ -1427,7 +1446,24 @@ export function scoreProps(
   // confidence_score is the RAW score (used for tier mapping, sorting, dedup).
   // For honest user-facing probabilities, render via applyCalibration() at
   // display time — see lib/calibration.ts and components/ConfidenceBadge.tsx.
-  return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason }
+  const scoreFactors: ScoreFactors = {
+    lineValue:     fLineValue     ?? null,
+    matchupEdge:   f2             ?? null,
+    last20HitRate: f7             ?? null,
+    trend:         f6             ?? null,
+    seasonCushion: f3             ?? null,
+    pace:          fPace          ?? null,
+    homeAway:      f5             ?? null,
+    vsOpponent:    f4             ?? null,
+    restDays:      f12            ?? null,
+    blowout:       f10            ?? null,
+    opponentLeak:  adds.leakAdj   ?? null,
+    playerBias:    adds.biasAdj   ?? null,
+    newsInjury:    f11            ?? null,
+    lineupAdj:     adds.lineupAdj ?? null,
+    lineMovement:  adds.lineMovAdj ?? null,
+  }
+  return { ...prop, confidence_score: score, confidence_label: label, risk_tier: tier, confidence_reason: reason, score_factors: scoreFactors }
 }
 
 // ── Label thresholds ──────────────────────────────────────────────────────────
