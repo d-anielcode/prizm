@@ -98,3 +98,18 @@ def test_home_away_home_better_for_home_prop():
                      "rebounds":5,"assists":5,"fg3m":1,"blocks":0,"steals":1,"pra":pts+11})
     c = home_away(logs, stat_type="points", line=22, direction="over", prop_is_home=True)
     assert c > 0.05  # measurable positive
+
+from confidence_features import vs_opponent
+
+def test_vs_opponent_no_history():
+    logs = [{"game_date": "2026-05-20", "minutes": 30, "points": 25, "is_home": True,
+             "matchup": "LAL vs. NYK", "rebounds":5,"assists":5,"fg3m":1,
+             "blocks":0,"steals":1,"pra":35}]
+    assert vs_opponent(logs, stat_type="points", line=20, direction="over", opponent="BOS") is None
+
+def test_vs_opponent_strong_history():
+    logs = [{"game_date": "2026-05-20", "minutes": 30, "points": 35, "is_home": True,
+             "matchup": "LAL vs. BOS", "rebounds":5,"assists":5,"fg3m":1,
+             "blocks":0,"steals":1,"pra":45} for _ in range(3)]
+    c = vs_opponent(logs, stat_type="points", line=25, direction="over", opponent="BOS")
+    assert c is not None and c > 0

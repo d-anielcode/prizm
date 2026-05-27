@@ -141,3 +141,36 @@ def home_away(
         return None
     raw = (avg - line) / line if direction == "over" else (line - avg) / line
     return max(-0.25, min(0.25, raw))
+
+def _extract_opponent(matchup: str) -> Optional[str]:
+    """Mirrors extractOpponent() in lib/confidence.ts:474."""
+    if not matchup:
+        return None
+    if " @ " in matchup:
+        return matchup.split(" @ ")[1].strip()
+    if " vs. " in matchup:
+        return matchup.split(" vs. ")[1].strip()
+    return None
+
+def vs_opponent(
+    logs: List[Dict[str, Any]],
+    stat_type: str,
+    line: float,
+    direction: str,
+    opponent: str,
+) -> Optional[float]:
+    """Performance vs this specific opponent across all available games.
+
+    Mirrors vsOpponentScore() in lib/confidence.ts:700. Requires at least
+    one historical game vs opponent. Clamped to [-0.3, 0.3].
+    """
+    if not opponent or line <= 0:
+        return None
+    field = STAT_TO_LOG_KEY.get(stat_type, stat_type)
+    matching = [g for g in _qualifying_logs(logs)
+                if _extract_opponent(g.get("matchup", "")) == opponent]
+    if not matching:
+        return None
+    avg = sum(float(g.get(field) or 0) for g in matching) / len(matching)
+    raw = (avg - line) / line if direction == "over" else (line - avg) / line
+    return max(-0.3, min(0.3, raw))
