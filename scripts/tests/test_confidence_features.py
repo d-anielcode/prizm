@@ -113,3 +113,25 @@ def test_vs_opponent_strong_history():
              "blocks":0,"steals":1,"pra":45} for _ in range(3)]
     c = vs_opponent(logs, stat_type="points", line=25, direction="over", opponent="BOS")
     assert c is not None and c > 0
+
+from confidence_features import rest_days
+from datetime import date, timedelta
+
+def test_rest_days_b2b():
+    # Last game yesterday → b2b → negative
+    yesterday = (date(2026, 5, 22) - timedelta(days=1)).isoformat()
+    logs = [{"game_date": yesterday, "minutes": 30, "points": 25, "is_home": True,
+             "matchup": "LAL vs. BOS", "rebounds":5,"assists":5,"fg3m":1,
+             "blocks":0,"steals":1,"pra":35}]
+    c = rest_days(logs, prop_game_date="2026-05-22")
+    assert c < 0
+
+def test_rest_days_3day_rest():
+    logs = [{"game_date": "2026-05-19", "minutes": 30, "points": 25, "is_home": True,
+             "matchup": "LAL vs. BOS", "rebounds":5,"assists":5,"fg3m":1,
+             "blocks":0,"steals":1,"pra":35}]
+    c = rest_days(logs, prop_game_date="2026-05-22")
+    assert c is not None and c >= 0
+
+def test_rest_days_no_logs():
+    assert rest_days([], prop_game_date="2026-05-22") is None

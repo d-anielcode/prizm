@@ -174,3 +174,32 @@ def vs_opponent(
     avg = sum(float(g.get(field) or 0) for g in matching) / len(matching)
     raw = (avg - line) / line if direction == "over" else (line - avg) / line
     return max(-0.3, min(0.3, raw))
+
+from datetime import date as _date
+
+def rest_days(logs: List[Dict[str, Any]], prop_game_date: str) -> Optional[float]:
+    """Score based on days since last qualifying game.
+
+    Mirrors restDaysScore() in lib/confidence.ts:836.
+      0 days (b2b): -0.08
+      1 day:        -0.03
+      2 days:        0.00
+      3 days:       +0.04
+      4+ days:      +0.06
+    """
+    if not logs or not prop_game_date:
+        return None
+    qualifying = _qualifying_logs(logs)
+    if not qualifying:
+        return None
+    last_date_str = qualifying[0].get("game_date")
+    if not last_date_str:
+        return None
+    pgd = _date.fromisoformat(prop_game_date)
+    lgd = _date.fromisoformat(str(last_date_str)[:10])
+    delta = (pgd - lgd).days
+    if delta <= 0:    return -0.08
+    if delta == 1:    return -0.03
+    if delta == 2:    return 0.00
+    if delta == 3:    return 0.04
+    return 0.06
