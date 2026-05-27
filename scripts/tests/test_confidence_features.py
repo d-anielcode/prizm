@@ -164,3 +164,26 @@ def test_matchup_edge_top_defense():
 def test_matchup_edge_bottom_defense():
     c = matchup_edge(def_rank=30, dvp_value=15.0, direction="over", league_avg=10.0)
     assert c > 0
+
+from confidence_features import opponent_leak, player_bias
+
+def test_opponent_leak_positive():
+    c = opponent_leak(leak_value=0.10, direction="over")
+    assert c is not None and 0 < c <= 4.0
+
+def test_opponent_leak_cap():
+    c = opponent_leak(leak_value=10.0, direction="over")
+    assert c == 4.0
+
+def test_opponent_leak_under_flipped():
+    c = opponent_leak(leak_value=0.10, direction="under")
+    assert c < 0
+
+def test_player_bias_blends_with_sample_size():
+    c = player_bias(hit_rate=0.60, sample_count=50, direction="over")
+    assert c is not None and c > 0
+
+def test_player_bias_small_sample_dampened():
+    c_big   = player_bias(hit_rate=0.70, sample_count=100, direction="over")
+    c_small = player_bias(hit_rate=0.70, sample_count=5,   direction="over")
+    assert c_big > c_small

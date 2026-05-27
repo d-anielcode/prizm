@@ -249,3 +249,35 @@ def matchup_edge(
     if direction == "under":
         raw = -raw
     return max(-0.2, min(0.2, raw))
+
+def opponent_leak(leak_value: Optional[float], direction: str) -> Optional[float]:
+    """Opponent-vs-position leak adjustment.
+
+    Mirrors leakAdj in lib/confidence.ts computeAdditives. mult=8, cap=±4
+    (matches the 2026-05-23 revert from mult=15/cap=6).
+    """
+    if leak_value is None:
+        return None
+    raw = leak_value * 8
+    if direction == "under":
+        raw = -raw
+    return max(-4.0, min(4.0, raw))
+
+def player_bias(
+    hit_rate: Optional[float],
+    sample_count: Optional[int],
+    direction: str,
+) -> Optional[float]:
+    """Player-specific historical line-bias adjustment.
+
+    hit_rate comes from player_line_bias.hit_rate (now 70/30 recency-blended).
+    Confidence-shrinkage by sample size: factor = min(n/30, 1.0).
+    Final = (hit_rate - 0.5) * 20 * shrinkage. Clamped to ±5.
+    """
+    if hit_rate is None or sample_count is None or sample_count <= 0:
+        return None
+    shrinkage = min(sample_count / 30.0, 1.0)
+    raw = (hit_rate - 0.5) * 20 * shrinkage
+    if direction == "under":
+        raw = -raw
+    return max(-5.0, min(5.0, raw))
