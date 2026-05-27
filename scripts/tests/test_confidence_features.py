@@ -187,3 +187,19 @@ def test_player_bias_small_sample_dampened():
     c_big   = player_bias(hit_rate=0.70, sample_count=100, direction="over")
     c_small = player_bias(hit_rate=0.70, sample_count=5,   direction="over")
     assert c_big > c_small
+
+from confidence_features import compute_all_features
+
+def test_compute_all_features_returns_dict():
+    logs = basic_pts_logs()
+    prop = {"stat_type": "points", "line": 22.0, "direction": "over",
+            "game_date": "2026-05-22"}
+    ctx = {"prop_is_home": True, "opponent": "BOS",
+           "opponent_pace": 102.0, "def_rank": 15, "dvp_value": 28.0,
+           "league_avg_dvp": 26.0, "spread": -3.0,
+           "leak_value": 0.05, "bias_hit_rate": 0.55, "bias_sample_count": 25}
+    features = compute_all_features(prop, logs, ctx)
+    expected_keys = {"line_value", "matchup_edge", "last20_hit_rate", "trend",
+                     "season_cushion", "pace", "rest_days", "blowout",
+                     "home_away", "vs_opponent", "opponent_leak", "player_bias"}
+    assert set(features.keys()) == expected_keys

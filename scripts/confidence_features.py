@@ -281,3 +281,33 @@ def player_bias(
     if direction == "under":
         raw = -raw
     return max(-5.0, min(5.0, raw))
+
+def compute_all_features(
+    prop: Dict[str, Any],
+    logs: List[Dict[str, Any]],
+    ctx: Dict[str, Any],
+) -> Dict[str, Optional[float]]:
+    """Orchestrator. Returns dict with all 12 reconstructable factors.
+
+    Required prop fields: stat_type, line, direction, game_date
+    Required ctx fields: prop_is_home, opponent, opponent_pace, def_rank,
+                          dvp_value, league_avg_dvp, spread, leak_value,
+                          bias_hit_rate, bias_sample_count
+    Missing ctx fields → that factor returns None.
+    """
+    s, l, d = prop["stat_type"], float(prop["line"]), prop["direction"]
+    return {
+        "line_value":       line_value(logs, s, l, d),
+        "matchup_edge":     matchup_edge(ctx.get("def_rank"), ctx.get("dvp_value"),
+                                          d, ctx.get("league_avg_dvp", 0)),
+        "last20_hit_rate":  last20_hit_rate(logs, s, l, d),
+        "trend":            trend(logs, s),
+        "season_cushion":   season_cushion(logs, s, l, d),
+        "pace":             pace(ctx.get("opponent_pace")),
+        "rest_days":        rest_days(logs, prop.get("game_date")),
+        "blowout":          blowout(ctx.get("spread")),
+        "home_away":        home_away(logs, s, l, d, ctx.get("prop_is_home", False)),
+        "vs_opponent":      vs_opponent(logs, s, l, d, ctx.get("opponent", "")),
+        "opponent_leak":    opponent_leak(ctx.get("leak_value"), d),
+        "player_bias":      player_bias(ctx.get("bias_hit_rate"), ctx.get("bias_sample_count"), d),
+    }
