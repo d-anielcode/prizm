@@ -93,3 +93,27 @@ def season_cushion(
     avg = sum(float(g.get(field) or 0) for g in qualifying) / len(qualifying)
     raw = (avg - line) / line if direction == "over" else (line - avg) / line
     return max(-0.5, min(0.5, raw))
+
+def line_value(
+    logs: List[Dict[str, Any]],
+    stat_type: str,
+    line: float,
+    direction: str,
+) -> Optional[float]:
+    """How favorable the line is vs the player's median.
+
+    Mirrors lineValueScore() in lib/confidence.ts. Uses median over last 20
+    qualifying games. Direction-aware sign: positive = favorable.
+    Clamped to [-0.3, 0.3].
+    """
+    if line <= 0:
+        return None
+    field = STAT_TO_LOG_KEY.get(stat_type, stat_type)
+    qualifying = _qualifying_logs(logs)[:20]
+    if not qualifying:
+        return None
+    vals = sorted(float(g.get(field) or 0) for g in qualifying)
+    n = len(vals)
+    median = vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2
+    raw = (median - line) / line if direction == "over" else (line - median) / line
+    return max(-0.3, min(0.3, raw))

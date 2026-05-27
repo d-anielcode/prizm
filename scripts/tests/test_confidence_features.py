@@ -64,3 +64,15 @@ def test_season_cushion_under_flipped():
 
 def test_season_cushion_no_logs():
     assert season_cushion([], stat_type="points", line=20.0, direction="over") is None
+
+from confidence_features import line_value
+
+def test_line_value_soft_line():
+    # avg 25, line 22 → "soft" (line below avg by 12%)
+    c = line_value(basic_pts_logs(), stat_type="points", line=22.0, direction="over")
+    assert c > 0  # positive = favorable for over
+
+def test_line_value_tight_line():
+    # avg 25, line 28 → tight for over
+    c = line_value(basic_pts_logs(), stat_type="points", line=28.0, direction="over")
+    assert c < 0
