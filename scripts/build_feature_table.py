@@ -98,41 +98,58 @@ def main():
     logs_by_player = build_logs_by_player_then_date(all_logs)
     print(f"  {len(all_logs)} log rows for {len(logs_by_player)} players")
 
-    # 4a. Load team_pace (one row per team)
-    pace_rows = fetch_all("team_pace", "select=team,pace", allow_missing=True)
-    pace_by_team = {r["team"]: float(r["pace"]) for r in pace_rows if r.get("pace") is not None}
-    if pace_rows:
-        print(f"  {len(pace_by_team)} team_pace rows")
+    # 4a-b. team_defense_stats holds pace AND per-stat season+L15 ranks
+    tds_rows = fetch_all("team_defense_stats",
+        "select=team_abbreviation,pace,pts_rank,reb_rank,ast_rank,blk_rank,stl_rank,fg3m_rank,pts_rank_l15,reb_rank_l15,ast_rank_l15,blk_rank_l15,stl_rank_l15,fg3m_rank_l15",
+        allow_missing=True)
+    pace_by_team = {r["team_abbreviation"]: float(r["pace"]) for r in tds_rows if r.get("pace") is not None}
+    # Rank lookup: rank_by_team_stat[(team, stat_type)] = (season_rank, l15_rank)
+    STAT_TO_RANK_KEY = {"points":"pts_rank","rebounds":"reb_rank","assists":"ast_rank",
+                        "blocks":"blk_rank","steals":"stl_rank","three_pointers":"fg3m_rank",
+                        "pra":"pts_rank"}
+    rank_by_team_stat: Dict[tuple, tuple] = {}
+    for r in tds_rows:
+        team = r["team_abbreviation"]
+        for stat, key in STAT_TO_RANK_KEY.items():
+            s_rank = r.get(key)
+            l15_rank = r.get(f"{key}_l15")
+            if s_rank is not None:
+                rank_by_team_stat[(team, stat)] = (
+                    int(s_rank),
+                    int(l15_rank) if l15_rank is not None else None,
+                )
+    if tds_rows:
+        print(f"  {len(pace_by_team)} team_defense_stats pace rows, {len(rank_by_team_stat)} rank rows")
 
-    # 4b. Load team_defense (def_rank per team per stat_type)
-    def_rows = fetch_all("team_defense", "select=team,stat_type,def_rank", allow_missing=True)
-    def_by_team_stat: Dict[tuple, int] = {}
-    for r in def_rows:
-        if r.get("def_rank") is not None:
-            def_by_team_stat[(r["team"], r["stat_type"])] = int(r["def_rank"])
-    if def_rows:
-        print(f"  {len(def_by_team_stat)} team_defense rows")
-
-    # 4c. Load dvp_stats (defense-vs-position, by team/stat/position)
-    dvp_rows = fetch_all("dvp_stats", "select=team,stat_type,position,value", allow_missing=True)
+    # 4c. team_defense_vs_position — per-position rank per stat
+    dvp_rows = fetch_all("team_defense_vs_position",
+        "select=team_abbreviation,position_group,pts_rank,reb_rank,ast_rank,blk_rank,stl_rank,fg3m_rank",
+        allow_missing=True)
+    # Map (team, stat, position_group) → rank. Position resolution happens at scoring time;
+    # for backfill we don't have player position, so we average across positions per team/stat
+    # as a reasonable proxy.
     dvp_by_team_stat: Dict[tuple, float] = {}
-    league_avg_by_stat: Dict[str, float] = {}
+    dvp_buckets: Dict[tuple, list] = {}
     for r in dvp_rows:
-        if r.get("value") is None: continue
-        key = (r["team"], r["stat_type"])
-        dvp_by_team_stat[key] = float(r["value"])
-        league_avg_by_stat.setdefault(r["stat_type"], 0.0)
-    for stat in list(league_avg_by_stat.keys()):
-        vals = [v for (t,s), v in dvp_by_team_stat.items() if s == stat]
-        league_avg_by_stat[stat] = sum(vals)/len(vals) if vals else 0.0
+        team = r["team_abbreviation"]
+        for stat, key in STAT_TO_RANK_KEY.items():
+            v = r.get(key)
+            if v is not None:
+                dvp_buckets.setdefault((team, stat), []).append(int(v))
+    for k, lst in dvp_buckets.items():
+        dvp_by_team_stat[k] = sum(lst) / len(lst)
     if dvp_rows:
-        print(f"  {len(dvp_by_team_stat)} dvp_stats rows")
+        print(f"  {len(dvp_by_team_stat)} team_defense_vs_position rows")
 
-    # 4d. Load opponent_leaks
-    leak_rows = fetch_all("opponent_leaks", "select=team,stat_type,leak", allow_missing=True)
-    leak_map = {(r["team"], r["stat_type"]): float(r["leak"]) for r in leak_rows if r.get("leak") is not None}
+    # 4d. opponent_stat_leaks (correct table name)
+    leak_rows = fetch_all("opponent_stat_leaks",
+        "select=opponent_team,stat_type,over_hit_rate,sample_count",
+        allow_missing=True)
+    leak_map = {(r["opponent_team"], r["stat_type"]):
+                (float(r["over_hit_rate"]), int(r["sample_count"]))
+                for r in leak_rows if r.get("over_hit_rate") is not None}
     if leak_rows:
-        print(f"  {len(leak_map)} opponent_leak rows")
+        print(f"  {len(leak_map)} opponent_stat_leaks rows")
 
     # 4e. Load player_line_bias
     bias_rows = fetch_all("player_line_bias", "select=player_name,stat_type,hit_rate,sample_count", allow_missing=True)
@@ -140,7 +157,7 @@ def main():
     if bias_rows:
         print(f"  {len(bias_map)} player_line_bias rows")
 
-    spread_map: Dict[tuple, float] = {}  # populated only if games table available
+    spread_map: Dict[tuple, float] = {}  # unchanged
 
     out_rows: List[Dict[str, Any]] = []
     for g in grades:
@@ -158,17 +175,20 @@ def main():
 
         stat = g["stat_type"]
         bias_row = bias_map.get((g["player_name"], stat))
+        season_l15 = rank_by_team_stat.get((opp, stat)) if opp else None
+        leak_pair = leak_map.get((opp, stat)) if opp else None
         ctx = {
-            "prop_is_home":      prop_is_home,
-            "opponent":          opp,
-            "opponent_pace":     pace_by_team.get(opp) if opp else None,
-            "def_rank":          def_by_team_stat.get((opp, stat)) if opp else None,
-            "dvp_value":         dvp_by_team_stat.get((opp, stat)) if opp else None,
-            "league_avg_dvp":    league_avg_by_stat.get(stat, 0.0),
-            "spread":            spread_map.get((g["game_date"], opp)) if opp else None,
-            "leak_value":        leak_map.get((opp, stat)) if opp else None,
-            "bias_hit_rate":     float(bias_row["hit_rate"]) if bias_row else None,
-            "bias_sample_count": int(bias_row["sample_count"]) if bias_row else None,
+            "prop_is_home":       prop_is_home,
+            "opponent":           opp,
+            "opponent_pace":      pace_by_team.get(opp) if opp else None,
+            "season_rank":        season_l15[0] if season_l15 else None,
+            "l15_rank":           season_l15[1] if season_l15 else None,
+            "dvp_rank":           int(round(dvp_by_team_stat[(opp, stat)])) if opp and (opp, stat) in dvp_by_team_stat else None,
+            "spread":             spread_map.get((g["game_date"], opp)) if opp else None,
+            "leak_over_hit_rate": leak_pair[0] if leak_pair else None,
+            "leak_sample_count":  leak_pair[1] if leak_pair else None,
+            "bias_hit_rate":      float(bias_row["hit_rate"]) if bias_row else None,
+            "bias_sample_count":  int(bias_row["sample_count"]) if bias_row else None,
         }
         prop = {"stat_type": g["stat_type"], "line": g["line"],
                 "direction": g["direction"], "game_date": g["game_date"]}
