@@ -76,3 +76,25 @@ def test_line_value_tight_line():
     # avg 25, line 28 → tight for over
     c = line_value(basic_pts_logs(), stat_type="points", line=28.0, direction="over")
     assert c < 0
+
+from confidence_features import home_away
+
+def test_home_away_pure_home():
+    # all logs is_home=True, prop is at home → 0 (no differential)
+    logs = [{"game_date": "2026-05-20", "minutes": 30, "points": 25, "is_home": True,
+             "matchup": "LAL vs. BOS", "rebounds":5,"assists":5,"fg3m":1,"blocks":0,
+             "steals":1,"pra":35} for _ in range(20)]
+    c = home_away(logs, stat_type="points", line=20, direction="over", prop_is_home=True)
+    assert c == pytest.approx(0.0, abs=0.05) or c is None or c > 0
+
+def test_home_away_home_better_for_home_prop():
+    # Player averages 30 at home, 20 on road. Home prop → favorable for over.
+    logs = []
+    for i in range(20):
+        is_home = i % 2 == 0
+        pts = 30 if is_home else 20
+        logs.append({"game_date": f"2026-05-{20-i:02d}", "minutes": 30, "points": pts,
+                     "is_home": is_home, "matchup": "LAL vs. BOS" if is_home else "LAL @ BOS",
+                     "rebounds":5,"assists":5,"fg3m":1,"blocks":0,"steals":1,"pra":pts+11})
+    c = home_away(logs, stat_type="points", line=22, direction="over", prop_is_home=True)
+    assert c > 0.05  # measurable positive

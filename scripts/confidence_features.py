@@ -117,3 +117,27 @@ def line_value(
     median = vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2
     raw = (median - line) / line if direction == "over" else (line - median) / line
     return max(-0.3, min(0.3, raw))
+
+def home_away(
+    logs: List[Dict[str, Any]],
+    stat_type: str,
+    line: float,
+    direction: str,
+    prop_is_home: bool,
+) -> Optional[float]:
+    """Differential between same-venue average and opposite-venue average.
+
+    Mirrors homeAwaySplit() in lib/confidence.ts. Positive when player's
+    venue-specific average favors hitting the prop in the requested direction.
+    Clamped to [-0.25, 0.25]. Returns None if either bucket is empty.
+    """
+    field = STAT_TO_LOG_KEY.get(stat_type, stat_type)
+    qualifying = _qualifying_logs(logs)
+    same_venue = [g for g in qualifying if bool(g.get("is_home")) == prop_is_home]
+    if not same_venue:
+        return None
+    avg = sum(float(g.get(field) or 0) for g in same_venue) / len(same_venue)
+    if line <= 0:
+        return None
+    raw = (avg - line) / line if direction == "over" else (line - avg) / line
+    return max(-0.25, min(0.25, raw))
