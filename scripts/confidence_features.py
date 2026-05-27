@@ -203,3 +203,49 @@ def rest_days(logs: List[Dict[str, Any]], prop_game_date: str) -> Optional[float
     if delta == 2:    return 0.00
     if delta == 3:    return 0.04
     return 0.06
+
+def pace(opponent_pace: Optional[float], league_avg_pace: float = 100.0) -> Optional[float]:
+    """Pace differential vs league average, normalized.
+
+    Mirrors paceScore() in lib/confidence.ts:585. Clamped to [-0.15, 0.15].
+    """
+    if opponent_pace is None or league_avg_pace <= 0:
+        return None
+    raw = (opponent_pace - league_avg_pace) / league_avg_pace
+    return max(-0.15, min(0.15, raw))
+
+def blowout(spread: Optional[float]) -> Optional[float]:
+    """Adjustment for projected blowout risk.
+
+    Mirrors blowoutScore() in lib/confidence.ts:770. Larger absolute
+    spreads pull score down (starter minutes get cut). Capped at -0.12.
+    """
+    if spread is None:
+        return None
+    abs_sp = abs(spread)
+    if abs_sp < 6:    return 0.0
+    if abs_sp < 9:    return -0.04
+    if abs_sp < 12:   return -0.08
+    return -0.12
+
+def matchup_edge(
+    def_rank: Optional[int],
+    dvp_value: Optional[float],
+    direction: str,
+    league_avg: float,
+) -> Optional[float]:
+    """Matchup quality vs opponent defense.
+
+    Mirrors matchupScore() in lib/confidence.ts:623. Combines def_rank
+    (1-30, lower = stronger) with DVP (defense-vs-position) value.
+    Returns positive when matchup favors the prop direction.
+    """
+    if def_rank is None or dvp_value is None or league_avg <= 0:
+        return None
+    rank_score = ((def_rank - 15.5) / 14.5) * 0.15
+    dvp_delta = (dvp_value - league_avg) / league_avg
+    dvp_score = max(-0.15, min(0.15, dvp_delta))
+    raw = (rank_score + dvp_score) / 2
+    if direction == "under":
+        raw = -raw
+    return max(-0.2, min(0.2, raw))

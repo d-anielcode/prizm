@@ -135,3 +135,32 @@ def test_rest_days_3day_rest():
 
 def test_rest_days_no_logs():
     assert rest_days([], prop_game_date="2026-05-22") is None
+
+from confidence_features import pace, blowout, matchup_edge
+
+def test_pace_above_average():
+    c = pace(opponent_pace=102.0, league_avg_pace=100.0)
+    assert c is not None and c > 0
+
+def test_pace_below_average():
+    c = pace(opponent_pace=96.0, league_avg_pace=100.0)
+    assert c < 0
+
+def test_blowout_no_spread():
+    assert blowout(spread=None) is None
+
+def test_blowout_competitive():
+    c = blowout(spread=-3.0)
+    assert abs(c) < 0.05
+
+def test_blowout_lopsided():
+    c = blowout(spread=-12.0)
+    assert c < 0
+
+def test_matchup_edge_top_defense():
+    c = matchup_edge(def_rank=1, dvp_value=2.5, direction="over", league_avg=10.0)
+    assert c < 0
+
+def test_matchup_edge_bottom_defense():
+    c = matchup_edge(def_rank=30, dvp_value=15.0, direction="over", league_avg=10.0)
+    assert c > 0
