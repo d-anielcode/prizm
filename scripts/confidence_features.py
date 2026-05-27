@@ -229,36 +229,53 @@ def blowout(spread: Optional[float]) -> Optional[float]:
     return -0.12
 
 def matchup_edge(
-    def_rank: Optional[int],
-    dvp_value: Optional[float],
+    season_rank: Optional[int],    # 1-30, lower = stronger defense
+    l15_rank: Optional[int],       # 1-30 or None
+    dvp_rank: Optional[int],       # 1-30 or None, for player's position
     direction: str,
-    league_avg: float,
 ) -> Optional[float]:
-    """Matchup quality vs opponent defense.
+    """Matchup quality vs opponent defense, encoded as deviation from 0.
 
-    Mirrors matchupScore() in lib/confidence.ts:623. Combines def_rank
-    (1-30, lower = stronger) with DVP (defense-vs-position) value.
-    Returns positive when matchup favors the prop direction.
+    Mirrors matchupScore() in lib/confidence.ts:642. Blends season rank with
+    L15 rank (60/40 weighted to L15), then 50/50 with positional DVP rank.
+    Returns a centered value in [-0.5, 0.5] (positive = favorable for direction).
+
+    A rank of 15.5 = average → returns 0. Rank 1 (best defense) → -0.5 for over,
+    +0.5 for under. Rank 30 (worst defense) → +0.5 for over, -0.5 for under.
     """
-    if def_rank is None or dvp_value is None or league_avg <= 0:
+    if season_rank is None or season_rank < 1 or season_rank > 30:
         return None
-    rank_score = ((def_rank - 15.5) / 14.5) * 0.15
-    dvp_delta = (dvp_value - league_avg) / league_avg
-    dvp_score = max(-0.15, min(0.15, dvp_delta))
-    raw = (rank_score + dvp_score) / 2
+    # 60/40 blend with L15 if available
+    if l15_rank is not None and 1 <= l15_rank <= 30:
+        blended = season_rank * 0.40 + l15_rank * 0.60
+    else:
+        blended = float(season_rank)
+    # 50/50 blend with DVP if available
+    if dvp_rank is not None and 1 <= dvp_rank <= 30:
+        final = blended * 0.50 + dvp_rank * 0.50
+    else:
+        final = blended
+    # Center around 15.5, scale to [-0.5, 0.5]
+    raw = (final - 15.5) / 14.5 * 0.5
     if direction == "under":
         raw = -raw
-    return max(-0.2, min(0.2, raw))
+    return max(-0.5, min(0.5, raw))
 
-def opponent_leak(leak_value: Optional[float], direction: str) -> Optional[float]:
+def opponent_leak(
+    over_hit_rate: Optional[float],
+    sample_count: Optional[int],
+    direction: str,
+) -> Optional[float]:
     """Opponent-vs-position leak adjustment.
 
-    Mirrors leakAdj in lib/confidence.ts computeAdditives. mult=8, cap=±4
-    (matches the 2026-05-23 revert from mult=15/cap=6).
+    Mirrors leakAdj in lib/confidence.ts:993. Requires sample_count >= 10.
+    Confidence-shrinkage: cs = min(sample_count / 40, 1.0).
+    raw = (over_hit_rate - 0.50) * cs * 8. Cap ±4. Under flips sign.
     """
-    if leak_value is None:
+    if over_hit_rate is None or sample_count is None or sample_count < 10:
         return None
-    raw = leak_value * 8
+    cs = min(sample_count / 40.0, 1.0)
+    raw = (over_hit_rate - 0.50) * cs * 8
     if direction == "under":
         raw = -raw
     return max(-4.0, min(4.0, raw))
@@ -270,14 +287,14 @@ def player_bias(
 ) -> Optional[float]:
     """Player-specific historical line-bias adjustment.
 
-    hit_rate comes from player_line_bias.hit_rate (now 70/30 recency-blended).
-    Confidence-shrinkage by sample size: factor = min(n/30, 1.0).
-    Final = (hit_rate - 0.5) * 20 * shrinkage. Clamped to ±5.
+    Mirrors biasAdj in lib/confidence.ts:966. Requires sample_count >= 6.
+    cs = min(sample_count / 20, 1.0). raw = (hit_rate - 0.50) * cs * 10.
+    Cap ±5. Under flips sign.
     """
-    if hit_rate is None or sample_count is None or sample_count <= 0:
+    if hit_rate is None or sample_count is None or sample_count < 6:
         return None
-    shrinkage = min(sample_count / 30.0, 1.0)
-    raw = (hit_rate - 0.5) * 20 * shrinkage
+    cs = min(sample_count / 20.0, 1.0)
+    raw = (hit_rate - 0.50) * cs * 10
     if direction == "under":
         raw = -raw
     return max(-5.0, min(5.0, raw))
@@ -290,16 +307,16 @@ def compute_all_features(
     """Orchestrator. Returns dict with all 12 reconstructable factors.
 
     Required prop fields: stat_type, line, direction, game_date
-    Required ctx fields: prop_is_home, opponent, opponent_pace, def_rank,
-                          dvp_value, league_avg_dvp, spread, leak_value,
-                          bias_hit_rate, bias_sample_count
+    Required ctx fields: prop_is_home, opponent, opponent_pace, season_rank,
+                          l15_rank, dvp_rank, spread, leak_over_hit_rate,
+                          leak_sample_count, bias_hit_rate, bias_sample_count
     Missing ctx fields → that factor returns None.
     """
     s, l, d = prop["stat_type"], float(prop["line"]), prop["direction"]
     return {
         "line_value":       line_value(logs, s, l, d),
-        "matchup_edge":     matchup_edge(ctx.get("def_rank"), ctx.get("dvp_value"),
-                                          d, ctx.get("league_avg_dvp", 0)),
+        "matchup_edge":     matchup_edge(ctx.get("season_rank"), ctx.get("l15_rank"),
+                                          ctx.get("dvp_rank"), d),
         "last20_hit_rate":  last20_hit_rate(logs, s, l, d),
         "trend":            trend(logs, s),
         "season_cushion":   season_cushion(logs, s, l, d),
@@ -308,6 +325,8 @@ def compute_all_features(
         "blowout":          blowout(ctx.get("spread")),
         "home_away":        home_away(logs, s, l, d, ctx.get("prop_is_home", False)),
         "vs_opponent":      vs_opponent(logs, s, l, d, ctx.get("opponent", "")),
-        "opponent_leak":    opponent_leak(ctx.get("leak_value"), d),
-        "player_bias":      player_bias(ctx.get("bias_hit_rate"), ctx.get("bias_sample_count"), d),
+        "opponent_leak":    opponent_leak(ctx.get("leak_over_hit_rate"),
+                                           ctx.get("leak_sample_count"), d),
+        "player_bias":      player_bias(ctx.get("bias_hit_rate"),
+                                         ctx.get("bias_sample_count"), d),
     }

@@ -158,35 +158,73 @@ def test_blowout_lopsided():
     assert c < 0
 
 def test_matchup_edge_top_defense():
-    c = matchup_edge(def_rank=1, dvp_value=2.5, direction="over", league_avg=10.0)
-    assert c < 0
+    # rank 1 = best defense → unfavorable for over
+    c = matchup_edge(season_rank=1, l15_rank=None, dvp_rank=None, direction="over")
+    assert c is not None and c < 0
 
 def test_matchup_edge_bottom_defense():
-    c = matchup_edge(def_rank=30, dvp_value=15.0, direction="over", league_avg=10.0)
+    c = matchup_edge(season_rank=30, l15_rank=None, dvp_rank=None, direction="over")
     assert c > 0
+
+def test_matchup_edge_average():
+    c = matchup_edge(season_rank=16, l15_rank=None, dvp_rank=None, direction="over")
+    assert abs(c) < 0.05
+
+def test_matchup_edge_l15_blend():
+    # season 10, l15 20 → blended = 10*0.4 + 20*0.6 = 16 ≈ average
+    c = matchup_edge(season_rank=10, l15_rank=20, dvp_rank=None, direction="over")
+    assert abs(c) < 0.05
+
+def test_matchup_edge_dvp_blend():
+    # season 30, dvp 1 → blended=30, final=(30+1)/2=15.5 → 0
+    c = matchup_edge(season_rank=30, l15_rank=None, dvp_rank=1, direction="over")
+    assert abs(c) < 0.05
+
+def test_matchup_edge_under_flipped():
+    c_over  = matchup_edge(season_rank=1, l15_rank=None, dvp_rank=None, direction="over")
+    c_under = matchup_edge(season_rank=1, l15_rank=None, dvp_rank=None, direction="under")
+    assert c_over == -c_under
 
 from confidence_features import opponent_leak, player_bias
 
-def test_opponent_leak_positive():
-    c = opponent_leak(leak_value=0.10, direction="over")
-    assert c is not None and 0 < c <= 4.0
+def test_opponent_leak_below_min_sample():
+    assert opponent_leak(over_hit_rate=0.60, sample_count=5, direction="over") is None
+
+def test_opponent_leak_positive_over():
+    # 30 samples, over_hit_rate 0.60 → cs=0.75, raw=(0.10)*0.75*8=0.60
+    c = opponent_leak(over_hit_rate=0.60, sample_count=30, direction="over")
+    assert c == pytest.approx(0.60, abs=0.001)
 
 def test_opponent_leak_cap():
-    c = opponent_leak(leak_value=10.0, direction="over")
-    assert c == 4.0
+    # Extreme value: cs=1.0 since 100/40>1, raw=(1.0-0.50)*1*8=4.0 → capped at 4.0
+    c = opponent_leak(over_hit_rate=1.0, sample_count=100, direction="over")
+    assert c == pytest.approx(4.0, abs=0.01)
 
 def test_opponent_leak_under_flipped():
-    c = opponent_leak(leak_value=0.10, direction="under")
-    assert c < 0
+    c_over  = opponent_leak(over_hit_rate=0.60, sample_count=30, direction="over")
+    c_under = opponent_leak(over_hit_rate=0.60, sample_count=30, direction="under")
+    assert c_over == -c_under
 
-def test_player_bias_blends_with_sample_size():
-    c = player_bias(hit_rate=0.60, sample_count=50, direction="over")
-    assert c is not None and c > 0
+def test_player_bias_below_min_sample():
+    assert player_bias(hit_rate=0.70, sample_count=5, direction="over") is None
 
-def test_player_bias_small_sample_dampened():
-    c_big   = player_bias(hit_rate=0.70, sample_count=100, direction="over")
-    c_small = player_bias(hit_rate=0.70, sample_count=5,   direction="over")
-    assert c_big > c_small
+def test_player_bias_at_min_sample():
+    # sample 6: cs=0.30, raw=(0.20)*0.30*10=0.60
+    c = player_bias(hit_rate=0.70, sample_count=6, direction="over")
+    assert c == pytest.approx(0.60, abs=0.01)
+
+def test_player_bias_saturated():
+    # sample 30+ → cs=1.0, raw=(0.20)*1.0*10=2.0
+    c = player_bias(hit_rate=0.70, sample_count=30, direction="over")
+    assert c == pytest.approx(2.0, abs=0.01)
+
+def test_player_bias_cap():
+    c = player_bias(hit_rate=1.0, sample_count=100, direction="over")
+    assert c == 5.0  # exactly capped
+
+def test_player_bias_under_flipped():
+    c = player_bias(hit_rate=0.70, sample_count=30, direction="under")
+    assert c == pytest.approx(-2.0, abs=0.01)
 
 from confidence_features import compute_all_features
 
@@ -195,9 +233,10 @@ def test_compute_all_features_returns_dict():
     prop = {"stat_type": "points", "line": 22.0, "direction": "over",
             "game_date": "2026-05-22"}
     ctx = {"prop_is_home": True, "opponent": "BOS",
-           "opponent_pace": 102.0, "def_rank": 15, "dvp_value": 28.0,
-           "league_avg_dvp": 26.0, "spread": -3.0,
-           "leak_value": 0.05, "bias_hit_rate": 0.55, "bias_sample_count": 25}
+           "opponent_pace": 102.0, "season_rank": 15, "l15_rank": 14, "dvp_rank": 16,
+           "spread": -3.0,
+           "leak_over_hit_rate": 0.55, "leak_sample_count": 20,
+           "bias_hit_rate": 0.55, "bias_sample_count": 25}
     features = compute_all_features(prop, logs, ctx)
     expected_keys = {"line_value", "matchup_edge", "last20_hit_rate", "trend",
                      "season_cushion", "pace", "rest_days", "blowout",
