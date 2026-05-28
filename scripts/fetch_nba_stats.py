@@ -55,10 +55,16 @@ def supabase_get(table, params=''):
     r.raise_for_status()
     return r.json()
 
-def supabase_upsert(table, rows):
+def supabase_upsert(table, rows, on_conflict=None):
     if not rows:
         return
     url = f'{SUPABASE_URL}/rest/v1/{table}'
+    # PostgREST resolves merge-duplicates against the PRIMARY KEY by default.
+    # These tables key data on a secondary unique constraint (e.g.
+    # team_abbreviation), so we must name the conflict target explicitly or
+    # every row inserts a fresh id and 409s on the unique constraint.
+    if on_conflict:
+        url += f'?on_conflict={on_conflict}'
     # Batch in chunks of 200
     for i in range(0, len(rows), 200):
         chunk = rows[i:i+200]
@@ -70,8 +76,13 @@ def supabase_upsert(table, rows):
 import argparse
 from datetime import date, timedelta
 
-# stats.nba.com blocks requests from cloud IPs without browser-like headers
-from nba_api.library.http import STATS_HEADERS
+# stats.nba.com blocks requests from cloud IPs without browser-like headers.
+# nba_api >=1.3 moved STATS_HEADERS to nba_api.stats.library.http; fall back to
+# the legacy location for older installs.
+try:
+    from nba_api.stats.library.http import STATS_HEADERS
+except ImportError:  # pragma: no cover - legacy nba_api
+    from nba_api.library.http import STATS_HEADERS
 STATS_HEADERS.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Referer': 'https://www.nba.com/',
@@ -87,6 +98,9 @@ parser.add_argument('--today', action='store_true',
                     help='Fetch stats for players who played today (use at night after games finish ~11pm ET)')
 parser.add_argument('--date', type=str, default=None,
                     help='Specific date to pull box scores from (YYYY-MM-DD)')
+parser.add_argument('--defense-only', action='store_true',
+                    help='Skip game-log fetch (steps 1-3); only refresh team defense + DVP. '
+                         'Used in CI where /api/gamelogs handles game logs separately.')
 args = parser.parse_args()
 
 from nba_api.stats.static import players as nba_players_static
@@ -135,7 +149,10 @@ PREV_SEASON = '2024-25'
 # ── Step 1: Get player names ──────────────────────────────────────────────────
 use_history_mode = args.yesterday or args.today or args.date is not None
 
-if use_history_mode:
+if args.defense_only:
+    print("\n[defense-only] Skipping game-log fetch (steps 1-3)")
+    player_names = []
+elif use_history_mode:
     if args.date:
         target_date = args.date
     elif args.today:
@@ -296,27 +313,35 @@ for i, (prop_name, player) in enumerate(resolved.items()):
         time.sleep(1)
 
 print(f"\n      Total game log rows: {len(all_log_rows)}")
-supabase_upsert('player_game_logs', all_log_rows)
+supabase_upsert('player_game_logs', all_log_rows, on_conflict='player_name,game_date')
 print("      Saved to Supabase OK")
 
 # ── Step 4: Fetch team defensive rankings ─────────────────────────────────────
 print("\n[4/4] Fetching team defensive rankings (season + L15 + pace)...")
 
-STAT_COLS = {
-    'pts_rank':  'OPP_PTS',
-    'reb_rank':  'OPP_REB',
-    'ast_rank':  'OPP_AST',
-    'blk_rank':  'OPP_BLK',
-    'stl_rank':  'OPP_STL',
-    'fg3m_rank': 'OPP_FG3M',
+# The Opponent/Base dataframes expose TEAM_ID + native OPP_*_RANK columns but
+# NOT TEAM_ABBREVIATION, so we map TEAM_ID -> abbr and read NBA's own ranks
+# (1 = fewest allowed = toughest defense), matching fetch_defense_dvp.py.
+from nba_api.stats.static import teams as nba_teams_static
+TEAM_ID_TO_ABBR = {t['id']: t['abbreviation'] for t in nba_teams_static.get_teams()}
+
+# rank_col -> native NBA rank column
+RANK_COL_MAP = {
+    'pts_rank':  'OPP_PTS_RANK',
+    'reb_rank':  'OPP_REB_RANK',
+    'ast_rank':  'OPP_AST_RANK',
+    'blk_rank':  'OPP_BLK_RANK',
+    'stl_rank':  'OPP_STL_RANK',
+    'fg3m_rank': 'OPP_FG3M_RANK',
 }
 
 def fetch_opponent_stats(last_n_games=0):
     """Fetch LeagueDashTeamStats in Opponent mode. last_n_games=0 means full season."""
     kwargs = dict(
         season=SEASON,
+        season_type_all_star='Regular Season',
         measure_type_detailed_defense='Opponent',
-        per_mode_simple='PerGame',
+        per_mode_detailed='PerGame',
         timeout=20,
     )
     if last_n_games > 0:
@@ -324,75 +349,76 @@ def fetch_opponent_stats(last_n_games=0):
     try:
         return leaguedashteamstats.LeagueDashTeamStats(**kwargs).get_data_frames()[0]
     except TypeError:
-        # Older nba_api versions don't have per_mode_simple
+        # nba_api version skew on the per_mode kwarg name — retry without it
+        kwargs.pop('per_mode_detailed', None)
         kwargs.pop('per_mode_simple', None)
         return leaguedashteamstats.LeagueDashTeamStats(**kwargs).get_data_frames()[0]
 
-def compute_ranks(rows, stat_cols):
-    """Mutate rows to add rank columns (1=fewest allowed=toughest D)."""
-    for rank_col, raw_col in stat_cols.items():
-        vals = sorted(
-            [(r['team_abbreviation'], r.pop(raw_col, 0) or 0) for r in rows],
-            key=lambda x: x[1]
-        )
-        rank_map = {abbr: rank + 1 for rank, (abbr, _) in enumerate(vals)}
-        for row in rows:
-            row[rank_col] = rank_map.get(row['team_abbreviation'], 15)
+def _abbr_of(row):
+    return TEAM_ID_TO_ABBR.get(int(row['TEAM_ID'])) if row.get('TEAM_ID') is not None else None
 
 try:
-    # 4a. Season-long defense ranks
+    # 4a. Season-long defense ranks (use NBA's native OPP_*_RANK columns)
     df_season = fetch_opponent_stats(last_n_games=0)
     team_rows = []
     for _, row in df_season.iterrows():
-        abbr = str(row.get('TEAM_ABBREVIATION', ''))
+        abbr = _abbr_of(row)
+        if not abbr:
+            continue
         entry = {'team_abbreviation': abbr, 'fetched_at': datetime.utcnow().isoformat()}
-        for rank_col, raw_col in STAT_COLS.items():
-            val = row.get(raw_col)
-            entry[raw_col] = float(val) if val is not None else None
+        for rank_col, nba_col in RANK_COL_MAP.items():
+            val = row.get(nba_col)
+            entry[rank_col] = int(val) if val is not None else 15
         team_rows.append(entry)
-    compute_ranks(team_rows, STAT_COLS)
-    print(f"      Season ranks computed for {len(team_rows)} teams")
+    print(f"      Season ranks read for {len(team_rows)} teams")
 
     # 4b. L15 defense ranks (last 15 games — more responsive to recent form)
     time.sleep(1)
     df_l15 = fetch_opponent_stats(last_n_games=15)
-    l15_rows = []
-    L15_COLS = {k.replace('_rank', '_rank_l15'): v for k, v in STAT_COLS.items()}
+    l15_by_abbr = {}
     for _, row in df_l15.iterrows():
-        abbr = str(row.get('TEAM_ABBREVIATION', ''))
-        entry = {'team_abbreviation': abbr}
-        for rank_col, raw_col in L15_COLS.items():
-            val = row.get(raw_col)
-            entry[raw_col] = float(val) if val is not None else None
-        l15_rows.append(entry)
-    compute_ranks(l15_rows, L15_COLS)
-    # Merge L15 ranks into team_rows
-    l15_by_abbr = {r['team_abbreviation']: r for r in l15_rows}
+        abbr = _abbr_of(row)
+        if not abbr:
+            continue
+        l15_by_abbr[abbr] = {
+            f"{rank_col}_l15": (int(row[nba_col]) if row.get(nba_col) is not None else 15)
+            for rank_col, nba_col in RANK_COL_MAP.items()
+        }
     for row in team_rows:
         l15 = l15_by_abbr.get(row['team_abbreviation'], {})
-        for col in L15_COLS:
-            row[col] = l15.get(col, row.get(col.replace('_l15', ''), 15))
-    print(f"      L15 ranks merged")
+        for rank_col in RANK_COL_MAP:
+            l15_key = f"{rank_col}_l15"
+            row[l15_key] = l15.get(l15_key, row.get(rank_col, 15))
+    print(f"      L15 ranks merged ({len(l15_by_abbr)} teams)")
 
-    # 4c. Team pace (possessions per 48 min) from Base stats
+    # 4c. Team pace (possessions per 48 min) from Base stats, keyed by TEAM_ID
     time.sleep(1)
     try:
+        # PACE is only exposed by the Advanced measure type (not Base).
         pace_df = leaguedashteamstats.LeagueDashTeamStats(
             season=SEASON,
-            measure_type_detailed_defense='Base',
-            per_mode_simple='PerGame',
+            season_type_all_star='Regular Season',
+            measure_type_detailed_defense='Advanced',
+            per_mode_detailed='PerGame',
             timeout=20,
         ).get_data_frames()[0]
-        pace_by_abbr = {str(r.get('TEAM_ABBREVIATION', '')): float(r.get('PACE', 0) or 0)
-                        for _, r in pace_df.iterrows()}
+        pace_by_abbr = {}
+        for _, r in pace_df.iterrows():
+            abbr = _abbr_of(r)
+            if abbr:
+                pace_by_abbr[abbr] = float(r.get('PACE', 0) or 0)
+        merged = 0
         for row in team_rows:
-            row['pace'] = pace_by_abbr.get(row['team_abbreviation'], None)
-        print(f"      Pace data merged")
+            p = pace_by_abbr.get(row['team_abbreviation'])
+            row['pace'] = p
+            if p is not None:
+                merged += 1
+        print(f"      Pace data merged ({merged} teams)")
     except Exception as e:
         print(f"      WARN: pace fetch failed: {e}")
 
-    supabase_upsert('team_defense_stats', team_rows)
-    print(f"      Saved {len(team_rows)} team rows to team_defense_stats ✓")
+    supabase_upsert('team_defense_stats', team_rows, on_conflict='team_abbreviation')
+    print(f"      Saved {len(team_rows)} team rows to team_defense_stats")
 
 except Exception as e:
     print(f"      ERROR fetching team stats: {e}")
@@ -409,7 +435,7 @@ try:
             dvp_df = leaguedashteamstats.LeagueDashTeamStats(
                 season=SEASON,
                 measure_type_detailed_defense='Opponent',
-                per_mode_simple='PerGame',
+                per_mode_detailed='PerGame',
                 player_position_abbreviation_nullable=position_abbr,
                 timeout=20,
             ).get_data_frames()[0]
@@ -419,25 +445,27 @@ try:
 
         pos_rows = []
         for _, row in dvp_df.iterrows():
-            abbr = str(row.get('TEAM_ABBREVIATION', ''))
+            abbr = _abbr_of(row)
+            if not abbr:
+                continue
             entry = {
                 'team_abbreviation': abbr,
                 'position_group': position_label,
                 'fetched_at': datetime.utcnow().isoformat(),
             }
-            for rank_col, raw_col in STAT_COLS.items():
-                val = row.get(raw_col)
-                entry[raw_col] = float(val) if val is not None else None
+            for rank_col, nba_col in RANK_COL_MAP.items():
+                val = row.get(nba_col)
+                entry[rank_col] = int(val) if val is not None else 15
             pos_rows.append(entry)
 
-        # Compute ranks within position (1=fewest allowed to this position type)
-        compute_ranks(pos_rows, STAT_COLS)
         dvp_rows.extend(pos_rows)
         print(f"      {position_label.capitalize()} DVP: {len(pos_rows)} teams")
 
+    dvp_rows = [r for r in dvp_rows if r.get('team_abbreviation')]
     if dvp_rows:
-        supabase_upsert('team_defense_vs_position', dvp_rows)
-        print(f"      Saved {len(dvp_rows)} DVP rows ✓")
+        supabase_upsert('team_defense_vs_position', dvp_rows,
+                        on_conflict='team_abbreviation,position_group')
+        print(f"      Saved {len(dvp_rows)} DVP rows")
 
 except Exception as e:
     print(f"      ERROR fetching DVP: {e}")
