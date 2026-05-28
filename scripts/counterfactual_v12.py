@@ -8,13 +8,23 @@ Usage:
         --proposed '{"line_value":0.4,"trend":0.3,"matchup_edge":0.3}' \
         --holdout-days 7
 """
-import os, sys, argparse, json
+import os, sys, argparse, json, re
 from datetime import date, timedelta
 import requests, pandas as pd, numpy as np
 
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
 KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 HEADERS = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
+
+# prop_features columns are snake_case; production weights (confidence-weights.json)
+# are camelCase. Without this normalization the camelCase keys match no column and
+# every prop scores a flat 50, making CURRENT un-replayable.
+def normalize_weights(weights: dict) -> dict:
+    out = {}
+    for k, v in weights.items():
+        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", k).lower()
+        out[snake] = v
+    return out
 
 def load_holdout(stat: str, since: str) -> pd.DataFrame:
     rows, offset = [], 0
@@ -62,14 +72,14 @@ def main():
     if len(df) == 0:
         print("No data."); return
 
-    proposed = json.loads(args.proposed)
+    proposed = normalize_weights(json.loads(args.proposed))
 
     if args.current is None:
         with open("lib/confidence-weights.json") as f:
             cfg = json.load(f)
-        current = cfg.get(args.stat, {})
+        current = normalize_weights(cfg.get("weights", {}).get(args.stat, {}))
     else:
-        current = json.loads(args.current)
+        current = normalize_weights(json.loads(args.current))
 
     cur_score = synth_score(df, current)
     new_score = synth_score(df, proposed)
