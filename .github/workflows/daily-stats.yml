@@ -19,6 +19,17 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      # Repo files are needed by the Python steps below (fetch_nba_stats.py,
+      # fetch_player_positions.py, sim_3pm.py, check_data_freshness.py).
+      # Without checkout these silently failed with "No such file".
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       # ── Full pipeline only (5 AM ET + manual) ──────────────────────────────
 
       - name: Pull game logs (last 3 days)
@@ -87,30 +98,38 @@ jobs:
           echo ""
 
       # ── Both runs: fetch defense stats + player positions (must run before enrich) ──
+      # NBA stats are pulled directly via nba_api ON THE RUNNER. stats.nba.com
+      # times out from Vercel's serverless IPs — the old /api/defense-stats route
+      # 504'd, which is why team_defense_stats silently froze for ~2 months.
+      # These steps are intentionally NOT continue-on-error: if the defense data
+      # can't refresh, the confidence model runs on stale matchup signal and we
+      # want a loud failure, not a green checkmark.
 
-      - name: Fetch NBA defense stats (DVP, pace, L15 ranks)
-        continue-on-error: true
-        env:
-          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: |
-          echo "Fetching defense stats..."
-          curl -sf --max-time 90 \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            "$VERCEL_APP_URL/api/defense-stats" | head -c 300
-          echo ""
+      - name: Install Python deps
+        run: pip install nba_api requests -q
 
-      - name: Fetch DVP + player positions via Python
-        continue-on-error: true
-        run: |
-          pip install nba_api requests -q
-          echo "Fetching DVP by position..."
-          py -3 scripts/fetch_defense_dvp.py || python3 scripts/fetch_defense_dvp.py
-          echo "Fetching player positions..."
-          py -3 scripts/fetch_player_positions.py || python3 scripts/fetch_player_positions.py
+      - name: Fetch NBA team defense + DVP (ranks, L15, pace)
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "Fetching team defense stats (ranks + L15 + pace) and DVP..."
+          python3 scripts/fetch_nba_stats.py --defense-only
+
+      - name: Fetch player positions
+        continue-on-error: true   # non-critical; positions change slowly
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "Fetching player positions..."
+          python3 scripts/fetch_player_positions.py
+
+      - name: Assert defense data is fresh (fail loudly if stale)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 scripts/check_data_freshness.py
 
       # ── Both runs: refresh today's lines after stats are loaded ────────────
       # Lines shift significantly between morning and tipoff — midday refresh
