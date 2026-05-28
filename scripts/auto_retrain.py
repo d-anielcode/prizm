@@ -573,6 +573,46 @@ def recalibrate_over_bias(grades, trailing_over_rates=None):
     return bias
 
 
+def recalibrate_under_bias(grades, trailing_under_rates=None):
+    """Symmetric counterpart to recalibrate_over_bias.
+
+    over_bias penalizes OVER props; under_bias *rewards* UNDER props by the
+    same over/under asymmetry magnitude. Without this, the output JSON omitted
+    under_bias entirely, so an ADOPTED retrain would silently DELETE a manually
+    tuned under_bias block (e.g. v11.2) and revert production to the Python
+    UNDER_BIAS_DEFAULTS fallback. Recalibrating + writing it keeps the bias
+    pair internally consistent and prevents the silent clobber.
+
+    Magnitude mirrors over_bias: round(gap*30) where gap = u_hr - o_hr, clamped
+    to [0, +10] (positive = bonus). Gated to the trailing-under-rate > 0.50 (or
+    no-data) subset when rates are provided, matching the production gate in
+    lib/confidence.ts:underBiasAdj.
+    """
+    bias = {}
+    use_gate = trailing_under_rates is not None
+    for stat in STAT_TYPES:
+        def keep(g):
+            if g['stat_type'] != stat or g.get('hit') is None:
+                return False
+            if not use_gate:
+                return True
+            tr = trailing_under_rates.get((stat, g.get('game_date')))
+            # Gate-firing window: trailing under-rate > 0.50 OR no data
+            return tr is None or tr > 0.50
+
+        overs  = [g for g in grades if keep(g) and g.get('direction') == 'over']
+        unders = [g for g in grades if keep(g) and g.get('direction') == 'under']
+        if len(unders) < 10 or len(overs) < 20:
+            bias[stat] = 3
+            continue
+        o_hr = sum(1 for g in overs if g['hit']) / len(overs)
+        u_hr = sum(1 for g in unders if g['hit']) / len(unders)
+        gap = u_hr - o_hr
+        raw_bias = round(gap * 30)
+        bias[stat] = min(10, max(0, abs(raw_bias)))
+    return bias
+
+
 def _normalize_previous_weights(prev):
     """`previous_weights` has shipped in two shapes over the project's life:
        legacy:  { points: {...}, rebounds: {...}, ... }
@@ -659,6 +699,7 @@ def check_rollback(config, recent_grades, logs_by_player, def_stats_map):
         config['lock_thresholds']  = prev.get('lock_thresholds', config.get('lock_thresholds', {}))
         config['play_thresholds']  = prev.get('play_thresholds', config.get('play_thresholds', {}))
         config['over_bias']        = prev.get('over_bias', config.get('over_bias', {}))
+        config['under_bias']       = prev.get('under_bias', config.get('under_bias', {}))
         config['previous_weights'] = None
         config['version']          = (config.get('previous_version') or config['version']) + '-rollback'
         config['last_retrained']   = datetime.now(timezone.utc).isoformat()
@@ -848,8 +889,10 @@ if __name__ == '__main__':
     # to the SUBSET of windows where the gate would actually fire — mirrors
     # production scoring instead of training against an ungated phantom.
     new_over_bias = recalibrate_over_bias(grades, trailing_over_rates=trailing_over_rates)
+    new_under_bias = recalibrate_under_bias(grades, trailing_under_rates=trailing_under_rates)
     print(f"  Base thresholds: LOCK={base_lock} PLAY={base_play}")
     print(f"  Over bias: {new_over_bias}")
+    print(f"  Under bias: {new_under_bias}")
 
     # -- Validation ------------------------------------------------------------
     print("\n[5/5] Validating against held-out set...")
@@ -963,11 +1006,13 @@ if __name__ == '__main__':
         'base_lock_threshold': base_lock,
         'base_play_threshold': base_play,
         'over_bias': new_over_bias,
+        'under_bias': new_under_bias,
         'previous_weights': {
             'weights': current_config['weights'],
             'lock_thresholds': current_config.get('lock_thresholds', {}),
             'play_thresholds': current_config.get('play_thresholds', {}),
             'over_bias': current_config.get('over_bias', {}),
+            'under_bias': current_config.get('under_bias', {}),
             'validation_accuracy': current_config.get('validation_accuracy', {}),
         } if current_config else None,
     }
