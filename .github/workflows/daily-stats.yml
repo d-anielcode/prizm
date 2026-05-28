@@ -163,6 +163,12 @@ jobs:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          # pipefail is REQUIRED: without it the pipe's exit code is head's (0),
+          # so a 4xx/5xx from /api/enrich (which curl -f turns into a non-zero
+          # exit) would be silently masked and the step would go green. This
+          # step is intentionally NOT continue-on-error — enrichment failing
+          # means today's confidence scores are stale, which we want loud.
+          set -eo pipefail
           echo "Running AI enrichment..."
           curl -sf --max-time 300 \
             -H "Authorization: Bearer $CRON_SECRET" \
