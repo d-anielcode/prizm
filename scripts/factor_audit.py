@@ -53,17 +53,33 @@ def univariate(df: pd.DataFrame):
 
 def regression(df: pd.DataFrame, min_samples: int):
     print("\n== Logistic regression ==")
-    df = df.dropna(subset=FEATURES + ["hit"])
-    print(f"  n after dropna: {len(df)}")
+    # Exclude factor columns that are absent or have too few non-null values.
+    # A single fully-null column (e.g. blowout, which has no historical spread
+    # source to reconstruct from) would otherwise zero the dataset via dropna.
+    usable, dropped = [], []
+    for feat in FEATURES:
+        nn = df[feat].notna().sum() if feat in df.columns else 0
+        if nn >= min_samples:
+            usable.append(feat)
+        else:
+            dropped.append((feat, int(nn)))
+    if dropped:
+        print("  dropped (insufficient coverage): "
+              + ", ".join(f"{f}(n={n})" for f, n in dropped))
+    if not usable:
+        print("  INSUFFICIENT (no factor column has enough coverage)"); return None
+
+    df = df.dropna(subset=usable + ["hit"])
+    print(f"  n after dropna: {len(df)}  (factors: {len(usable)})")
     if len(df) < min_samples:
         print(f"  INSUFFICIENT (need >= {min_samples})"); return None
-    X = sm.add_constant(df[FEATURES])
+    X = sm.add_constant(df[usable])
     y = df["hit"].astype(int)
     model = sm.Logit(y, X).fit(disp=False)
     print(model.summary().tables[1])
 
     significant = []
-    for feat in FEATURES:
+    for feat in usable:
         coef = model.params[feat]; p = model.pvalues[feat]
         if p < 0.10 and abs(coef) > 0:
             significant.append((feat, coef, p))
