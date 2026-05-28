@@ -1,7 +1,7 @@
 {
-  "version": "v11.1",
+  "version": "v11.2",
   "last_retrained": "2026-04-12T00:00:00Z",
-  "last_manual_retune": "2026-05-05T00:00:00Z",
+  "last_manual_retune": "2026-05-28T00:00:00Z",
   "data_window": {
     "start": "2025-12-01",
     "end": "2026-04-10",
@@ -21,6 +21,16 @@
     "over-bias tightened: three_pointers -3 -> -7 (LOCK 48.9% on n=45 — broken)",
     "over-bias tightened: steals -7 -> -10 (under hits 61.7% vs over 42.7%)",
     "over-bias tightened: blocks -6 -> -8 (under 56.3% vs over 44.0%)"
+  ],
+  "retune_notes_v11_2": [
+    "v11.2 (2026-05-28): bias recalibrated to over/under asymmetry over n=85,511 graded props (model_diagnostic Module 3).",
+    "three_pointers over_bias -7 -> -4: asymmetry only +5.2pp (2nd smallest) but was 3rd-largest penalty; 3PM LOCK was inverted (48.0% < PLAY 61.9%, n=50).",
+    "blocks over_bias -8 -> -10 and under_bias +8 -> +9: largest asymmetry (+17.5pp) was the most underpenalized (net swing ratio 0.91).",
+    "steals under_bias +6 -> +7: asymmetry +12.8pp (net 16 -> 18).",
+    "assists over_bias -4 -> -5: asymmetry +7.2pp (net 8 -> 9).",
+    "under_bias block made explicit (previously fell back to UNDER_BIAS_DEFAULTS in lib/confidence.ts).",
+    "thresholds intentionally NOT changed: LOCK samples tiny (14-50) and polluted by the Mar-May stale-defense window; revisit on fresh-data history.",
+    "note: scores remain overconfident above 55 (Module 4) — ranking monotonic but absolute calibration off; separate recalibration follow-up."
   ],
   "weights": {
     "points":         { "lineValue": 0.07, "matchupEdge": 0.02, "last20HitRate": 0.28, "trend": 0.00, "seasonCushion": 0.10, "pace": 0.17, "newsInjury": 0.13, "restDays": 0.00, "blowout": 0.08, "homeAway": 0.13, "vsOpponent": 0.02 },
@@ -42,8 +52,12 @@
   "base_lock_threshold": 74,
   "base_play_threshold": 68,
   "over_bias": {
-    "points": -3, "rebounds": -4, "assists": -4,
-    "steals": -10, "blocks": -8, "three_pointers": -7, "pra": -4
+    "points": -3, "rebounds": -4, "assists": -5,
+    "steals": -10, "blocks": -10, "three_pointers": -4, "pra": -4
+  },
+  "under_bias": {
+    "points": 2, "rebounds": 3, "assists": 4,
+    "steals": 7, "blocks": 9, "three_pointers": 2, "pra": 3
   },
   "previous_weights": {
     "points":         { "lineValue": 0.07, "matchupEdge": 0.02, "last20HitRate": 0.24, "trend": 0.03, "seasonCushion": 0.10, "pace": 0.17, "newsInjury": 0.13, "restDays": 0.01, "blowout": 0.08, "homeAway": 0.13, "vsOpponent": 0.02 },
