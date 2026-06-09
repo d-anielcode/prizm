@@ -1,9 +1,28 @@
-"""Kalshi public market-data reader + prop-title parser. No auth required for reads."""
+"""Kalshi public market-data reader + prop-title parser. No auth required for reads.
+
+Schema reconciliation (Task 7, verified against live api.elections.kalshi.com on
+2026-06-08): Kalshi market dicts expose prices as decimal STRINGS in
+`yes_ask_dollars` / `yes_bid_dollars` (e.g. "0.6500"), volume in `volume_fp`, and
+the milestone strike as a STRUCTURED field (`strike_type` + `floor_strike` /
+`cap_strike`) rather than only in the title. We use those structured fields.
+
+STILL PENDING (could not finalize on 2026-06-08 — no single-game NBA player-prop
+markets were open during the Finals off-day): the exact single-game prop title
+format and the per-game series tickers. Kalshi has no single umbrella "NBA props"
+series; props are listed per game-day under per-player/per-stat series tickers,
+typically only a few hours before tip. `fetch_props` therefore scans an explicit
+list of series tickers (`PROP_SERIES`), to be populated on an NBA game day. The
+player/stat title heuristic below is the one piece awaiting live confirmation.
+"""
 import re
 import requests
 from dataclasses import dataclass
 
 KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2"
+
+# Per-game-day NBA player-prop series tickers to scan. Empty until reconciled on a
+# game day (see module docstring). Populate, e.g., ["KXNBAPTSLEBRON", ...].
+PROP_SERIES: list[str] = []
 
 # Order matters: 'point' is generic, so it is checked last. PRA before points.
 STAT_KEYWORDS = [
@@ -41,33 +60,50 @@ def _extract_player(title):
     name = (t[:m.start()] if m else t).strip(" ?:-")
     return name if len(name.split()) >= 2 else None
 
-def _cents(v):
-    return None if v is None else float(v) / 100.0
+def _dollars(v):
+    """Parse a Kalshi '_dollars' price string ('0.6500') to float in [0,1], or None."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+def _strike_from(raw):
+    """Milestone strike: prefer the structured floor/cap strike, fall back to '<n>+'."""
+    if raw.get("floor_strike") is not None:
+        return int(float(raw["floor_strike"]))
+    if raw.get("cap_strike") is not None:
+        return int(float(raw["cap_strike"]))
+    text = f"{raw.get('yes_sub_title') or ''} {raw.get('title') or ''}"
+    m = STRIKE_RE.search(text)
+    return int(m.group(1)) if m else None
 
 def parse_market(raw):
     """Parse one Kalshi market dict into a KalshiProp, or None if not an NBA prop."""
-    text = f"{raw.get('title') or ''} {raw.get('subtitle') or ''}"
+    text = f"{raw.get('title') or ''} {raw.get('yes_sub_title') or ''}"
     stat = _classify_stat(text)
     if stat is None:
         return None
-    m = STRIKE_RE.search(text)
-    if not m:
+    strike = _strike_from(raw)
+    if strike is None:
         return None
     player = _extract_player(raw.get("title") or "")
     if not player:
         return None
-    ask = _cents(raw.get("yes_ask"))
+    ask = _dollars(raw.get("yes_ask_dollars"))
     if ask is None:
         return None
-    return KalshiProp(raw.get("ticker", ""), player, stat, int(m.group(1)),
-                      _cents(raw.get("yes_bid")) or 0.0, ask, int(raw.get("volume") or 0))
+    bid = _dollars(raw.get("yes_bid_dollars")) or 0.0
+    volume = int(float(raw.get("volume_fp") or 0))
+    return KalshiProp(raw.get("ticker", ""), player, stat, strike, bid, ask, volume)
 
-def fetch_markets(limit_pages=10, session=None):
-    """Page through open Kalshi markets. Returns raw market dicts."""
+def fetch_markets(series_ticker, session=None):
+    """Page through open markets for one series ticker. Returns raw market dicts."""
     sess = session or requests.Session()
     out, cursor = [], None
-    for _ in range(limit_pages):
-        params = {"limit": 1000, "status": "open"}
+    while True:
+        params = {"limit": 1000, "status": "open", "series_ticker": series_ticker}
         if cursor:
             params["cursor"] = cursor
         r = sess.get(f"{KALSHI_BASE}/markets", params=params, timeout=30)
@@ -79,6 +115,14 @@ def fetch_markets(limit_pages=10, session=None):
             break
     return out
 
-def fetch_props(session=None):
-    """Convenience: fetch + parse, dropping non-props."""
-    return [kp for raw in fetch_markets(session=session) if (kp := parse_market(raw))]
+def fetch_props(series_tickers=None, session=None):
+    """Fetch + parse props across the given series tickers (default: PROP_SERIES)."""
+    sess = session or requests.Session()
+    series = PROP_SERIES if series_tickers is None else series_tickers
+    out = []
+    for st in series:
+        for raw in fetch_markets(st, session=sess):
+            kp = parse_market(raw)
+            if kp:
+                out.append(kp)
+    return out

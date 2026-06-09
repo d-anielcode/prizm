@@ -84,7 +84,8 @@ def main():
     ap.add_argument("--min-edge", type=float, default=0.03)
     ap.add_argument("--min-volume", type=int, default=0)
     ap.add_argument("--stat", default=None, help="filter to one stat_type")
-    ap.add_argument("--calibration", default="lib/calibration-table.json")
+    ap.add_argument("--calibration", default=None,
+                    help="path to calibration-table.json (default: repo lib/)")
     args = ap.parse_args()
 
     kalshi = market_data.fetch_props()
