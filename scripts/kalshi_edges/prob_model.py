@@ -3,7 +3,12 @@
 Pure functions, no I/O. See the design spec for the calibrated mean-shift bridge.
 """
 from __future__ import annotations
+import math
 from dataclasses import dataclass
+from statistics import mean, pvariance
+
+from scipy import stats
+from scipy.optimize import brentq
 
 # Canonical stat_type -> player_game_logs column key.
 STAT_LOG_KEY = {
@@ -11,7 +16,7 @@ STAT_LOG_KEY = {
     "pra": "pra", "steals": "steals", "blocks": "blocks",
     "three_pointers": "fg3m",
 }
-COUNT_STATS = {"rebounds", "assists", "three_pointers", "steals", "blocks"}
+# Normal family stats; everything else in STAT_LOG_KEY is modeled as a count.
 NORMAL_STATS = {"points", "pra"}
 MIN_MINUTES = 5
 MIN_GAMES = 10
@@ -28,9 +33,6 @@ def stat_values(logs, stat):
             continue
         out.append(float(v))
     return out
-
-import math
-from statistics import mean, pvariance
 
 @dataclass
 class Distribution:
@@ -57,11 +59,17 @@ def fit_distribution(logs, stat):
     r = mu0 * mu0 / (var - mu0)              # NB size from moments
     return Distribution("nbinom", mu0, math.sqrt(var), r)
 
-from scipy import stats
-from scipy.optimize import brentq
-
 def _sf_at(dist, mu, x):
-    """P(X > x) for `dist` shifted to mean `mu`. x may be fractional."""
+    """P(X > x) for `dist` shifted to mean `mu`. x may be fractional.
+
+    Normal family: sigma is held fixed across the mean shift (the design is an
+    additive mean shift, not a location-scale change). A continuity correction
+    of +0.5 is applied only when x is an INTEGER threshold; sportsbook .5 lines
+    get none. So `prob_over_line(dist, mu, 25)` returns P(X > 25.5), not the
+    strict continuous P(X > 25) -- callers wanting the strict value must pass a
+    fractional x. `prob_at_strike` relies on this: it passes integer strike-1 so
+    P(X >= strike) is continuity-corrected.
+    """
     if dist.family == "normal":
         bump = 0.5 if float(x).is_integer() else 0.0
         return float(stats.norm.sf((x + bump - mu) / dist.sigma))
@@ -86,7 +94,11 @@ def solve_shift(dist, book_line, target_p, max_shift=None):
     target probability is unreachable within +/- max_shift.
     """
     if max_shift is None:
-        max_shift = 4.0 * dist.sigma
+        # Always bracket the book line plus tail room. A flat 4*sigma window can
+        # be too narrow for overdispersed NB fits (variance grows superlinearly
+        # with the shifted mean), producing false `clamped` returns when the
+        # target is actually reachable.
+        max_shift = abs(book_line - dist.mu0) + 4.0 * dist.sigma
     target_p = min(max(target_p, 1e-6), 1 - 1e-6)
     f = lambda d: prob_over_line(dist, dist.mu0 + d, book_line) - target_p
     lo, hi = -max_shift, max_shift

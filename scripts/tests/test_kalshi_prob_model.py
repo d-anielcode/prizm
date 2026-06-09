@@ -89,3 +89,19 @@ def test_prob_at_strike_nbinom_discrete():
     d = Distribution("nbinom", 6.0, 3.0, 4.0)
     p = prob_at_strike(d, 0.0, 6)
     assert 0.0 < p < 1.0
+
+def test_prob_at_strike_1_poisson_boundary():
+    # "1+ steal" is the most common milestone; strike-1 = 0 boundary.
+    import math
+    d = Distribution("poisson", 1.5, math.sqrt(1.5), None)
+    # P(X >= 1) = 1 - P(X = 0) = 1 - e^{-1.5}
+    assert prob_at_strike(d, 0.0, 1) == pytest.approx(1 - math.exp(-1.5), abs=1e-6)
+
+def test_solve_shift_round_trip_nbinom():
+    # Exercise the NB code path in the solver (asymmetric f, recomputed p).
+    d = Distribution("nbinom", 6.0, 3.0, 4.0)
+    true_delta = 2.0
+    target = prob_over_line(d, d.mu0 + true_delta, 7.5)
+    delta, clamped = solve_shift(d, 7.5, target)
+    assert not clamped
+    assert delta == pytest.approx(true_delta, abs=0.3)
