@@ -56,3 +56,45 @@ def fit_distribution(logs, stat):
         return Distribution("poisson", m, math.sqrt(m), None)
     r = mu0 * mu0 / (var - mu0)              # NB size from moments
     return Distribution("nbinom", mu0, math.sqrt(var), r)
+
+from scipy import stats
+from scipy.optimize import brentq
+
+def _sf_at(dist, mu, x):
+    """P(X > x) for `dist` shifted to mean `mu`. x may be fractional."""
+    if dist.family == "normal":
+        bump = 0.5 if float(x).is_integer() else 0.0
+        return float(stats.norm.sf((x + bump - mu) / dist.sigma))
+    if dist.family == "poisson":
+        return float(stats.poisson.sf(math.floor(x), max(mu, 1e-9)))
+    r = dist.r
+    p = r / (r + max(mu, 1e-9))
+    return float(stats.nbinom.sf(math.floor(x), r, p))
+
+def prob_over_line(dist, mu, line):
+    """P(X > line) at mean `mu`. For sportsbook .5 lines this is unambiguous."""
+    return _sf_at(dist, mu, line)
+
+def prob_at_strike(dist, delta, strike):
+    """P(X >= strike) at shifted mean mu0+delta. `strike` is an integer milestone."""
+    return _sf_at(dist, dist.mu0 + delta, strike - 1)
+
+def solve_shift(dist, book_line, target_p, max_shift=None):
+    """Find delta so P(X > book_line | mu0+delta) == target_p.
+
+    Returns (delta, clamped). Clamps to the search bound (and flags it) when the
+    target probability is unreachable within +/- max_shift.
+    """
+    if max_shift is None:
+        max_shift = 4.0 * dist.sigma
+    target_p = min(max(target_p, 1e-6), 1 - 1e-6)
+    f = lambda d: prob_over_line(dist, dist.mu0 + d, book_line) - target_p
+    lo, hi = -max_shift, max_shift
+    flo, fhi = f(lo), f(hi)
+    if flo == 0.0:
+        return (lo, False)
+    if fhi == 0.0:
+        return (hi, False)
+    if (flo > 0) == (fhi > 0):                 # no sign change -> unreachable
+        return (hi, True) if abs(fhi) < abs(flo) else (lo, True)
+    return (float(brentq(f, lo, hi, xtol=1e-4)), False)

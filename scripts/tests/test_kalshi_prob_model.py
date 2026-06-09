@@ -44,3 +44,48 @@ def test_fit_poisson_when_not_overdispersed():
 def test_fit_raises_on_thin_sample():
     with pytest.raises(ValueError):
         fit_distribution(_logs([20, 22, 18]), "points")
+
+from kalshi_edges.prob_model import prob_over_line, prob_at_strike, solve_shift
+
+def _normal(mu=20.0, sigma=5.0):
+    return Distribution("normal", mu, sigma, None)
+
+def test_prob_over_line_fractional_line_no_continuity():
+    # Sportsbook lines are .5 values, which get NO continuity bump. The
+    # distribution is symmetric about its mean, so P(X>mu-0.5) and P(X>mu+0.5)
+    # are mirror images that sum to 1, and the lower line is the more likely over.
+    d = _normal(20, 5)
+    p_low = prob_over_line(d, 20.0, 19.5)
+    p_high = prob_over_line(d, 20.0, 20.5)
+    assert p_low > 0.5 > p_high
+    assert p_low + p_high == pytest.approx(1.0, abs=1e-9)
+
+def test_prob_at_strike_monotonic_in_strike():
+    d = _normal(25, 6)
+    p25 = prob_at_strike(d, 0.0, 25)
+    p30 = prob_at_strike(d, 0.0, 30)
+    assert p30 < p25
+
+def test_solve_shift_round_trip():
+    d = _normal(20, 5)
+    true_delta = 3.0
+    target = prob_over_line(d, d.mu0 + true_delta, 22.5)
+    delta, clamped = solve_shift(d, 22.5, target)
+    assert not clamped
+    assert delta == pytest.approx(true_delta, abs=0.05)
+
+def test_solve_shift_higher_target_gives_higher_delta():
+    d = _normal(20, 5)
+    lo, _ = solve_shift(d, 20.5, 0.45)
+    hi, _ = solve_shift(d, 20.5, 0.65)
+    assert hi > lo
+
+def test_solve_shift_clamps_unreachable_target():
+    d = _normal(20, 5)
+    delta, clamped = solve_shift(d, 20.5, 0.999999)
+    assert clamped is True
+
+def test_prob_at_strike_nbinom_discrete():
+    d = Distribution("nbinom", 6.0, 3.0, 4.0)
+    p = prob_at_strike(d, 0.0, 6)
+    assert 0.0 < p < 1.0
