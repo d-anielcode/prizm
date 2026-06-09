@@ -28,3 +28,31 @@ def stat_values(logs, stat):
             continue
         out.append(float(v))
     return out
+
+import math
+from statistics import mean, pvariance
+
+@dataclass
+class Distribution:
+    family: str          # "normal" | "nbinom" | "poisson"
+    mu0: float           # baseline mean from logs
+    sigma: float         # std (used by normal; informational for counts)
+    r: float | None      # negative-binomial size param (None otherwise)
+
+def fit_distribution(logs, stat):
+    """Fit a stat distribution to game logs via method-of-moments.
+
+    Raises ValueError when fewer than MIN_GAMES qualifying games exist.
+    """
+    vals = stat_values(logs, stat)
+    if len(vals) < MIN_GAMES:
+        raise ValueError(f"insufficient games: {len(vals)} < {MIN_GAMES}")
+    mu0 = mean(vals)
+    var = pvariance(vals) if len(vals) > 1 else mu0
+    if stat in NORMAL_STATS:
+        return Distribution("normal", mu0, max(math.sqrt(var), 1e-6), None)
+    if mu0 <= 0 or var <= mu0:               # degenerate or not overdispersed
+        m = max(mu0, 1e-6)
+        return Distribution("poisson", m, math.sqrt(m), None)
+    r = mu0 * mu0 / (var - mu0)              # NB size from moments
+    return Distribution("nbinom", mu0, math.sqrt(var), r)
