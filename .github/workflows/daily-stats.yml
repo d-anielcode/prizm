@@ -97,18 +97,20 @@ jobs:
             "$VERCEL_APP_URL/api/grade" | head -c 300
           echo ""
 
-      # ── Both runs: fetch defense stats + player positions (must run before enrich) ──
+      # ── Both runs: fetch defense stats + player positions (best-effort) ──
       # NBA stats are pulled directly via nba_api ON THE RUNNER. stats.nba.com
       # times out from Vercel's serverless IPs — the old /api/defense-stats route
       # 504'd, which is why team_defense_stats silently froze for ~2 months.
-      # These steps are intentionally NOT continue-on-error: if the defense data
-      # can't refresh, the confidence model runs on stale matchup signal and we
-      # want a loud failure, not a green checkmark.
+      # These fetches are continue-on-error: a stats.nba.com outage must NOT abort
+      # the run before enrichment/grading. The end-of-run freshness check (below)
+      # is what surfaces a stale-defense problem loudly (and only during the
+      # regular season, when the data is actually supposed to be refreshing).
 
       - name: Install Python deps
         run: pip install nba_api requests -q
 
       - name: Fetch NBA team defense + DVP (ranks, L15, pace)
+        continue-on-error: true   # best-effort; freshness check at end is the signal
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -124,12 +126,6 @@ jobs:
         run: |
           echo "Fetching player positions..."
           python3 scripts/fetch_player_positions.py
-
-      - name: Assert defense data is fresh (fail loudly if stale)
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python3 scripts/check_data_freshness.py
 
       # ── Both runs: refresh today's lines after stats are loaded ────────────
       # Lines shift significantly between morning and tipoff — midday refresh
@@ -217,6 +213,16 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET" \
             "$VERCEL_APP_URL/api/feed/generate/parlay?pass=2" | head -c 500
           echo ""
+
+      # ── End-of-run guard: surface stale defense data WITHOUT having blocked the
+      # pipeline above. Season-aware: hard-fails (red run) only during the NBA
+      # regular season, when team_defense_stats is supposed to refresh daily;
+      # warns-and-passes during the playoffs/offseason when it is final by design.
+      - name: Assert defense data is fresh (season-aware; runs last)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 scripts/check_data_freshness.py
 
       - name: Done
         run: echo "NBA IQ refresh complete"
