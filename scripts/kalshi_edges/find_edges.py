@@ -23,6 +23,13 @@ def build_prop_index(props):
     for p in props:
         key = (normalize_name(p["player_name"]), p["stat_type"])
         raw_seen[key].add(p["player_name"].strip())
+        # A player commonly has BOTH an over and an under row for the same stat.
+        # Prefer the over row as the anchor (Kalshi milestones are over-type);
+        # don't let a later under row clobber an over already chosen.
+        existing = index.get(key)
+        if existing is not None and existing.get("direction") == "over" \
+                and p.get("direction") != "over":
+            continue
         index[key] = p
     for key, names in raw_seen.items():
         if len(names) > 1:
@@ -47,12 +54,17 @@ def compute_edge(kp, prop, logs, calib, ambiguous=False):
         return None
     flags = []
     delta = 0.0
-    if prop is not None and not ambiguous:
+    direction = prop.get("direction") if prop is not None else None
+    if prop is not None and not ambiguous and direction in ("over", "under"):
         p_hit = prizm_data.apply_calibration(calib, kp.stat, prop["confidence_score"])
-        p_over = p_hit if prop["direction"] == "over" else 1.0 - p_hit
+        # apply_calibration returns P(prop hits); that is P(X>line) only for an
+        # over prop, so invert for under to always anchor on the over-probability.
+        p_over = p_hit if direction == "over" else 1.0 - p_hit
         delta, clamped = prob_model.solve_shift(dist, float(prop["line"]), p_over)
         flags.append("clamped" if clamped else "factored")
     else:
+        # No prop, ambiguous name, or an unexpected/NULL direction we can't trust
+        # to orient the anchor -> fall back to the pure log distribution.
         flags.append("ambiguous" if ambiguous else "unfactored")
     model_p = prob_model.prob_at_strike(dist, delta, kp.strike)
     return Edge(kp.player, kp.stat, kp.strike, round(model_p, 4),

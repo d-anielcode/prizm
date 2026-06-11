@@ -27,3 +27,26 @@ def test_parse_three_pointers():
 
 def test_parse_non_prop_returns_none():
     assert parse_market(sample_markets()[3]) is None
+
+def test_parse_no_cue_title_cuts_at_milestone():
+    # No verb cue in the title; player must be cut at the "<n>+" milestone,
+    # not returned as "Luka Doncic 30+ points".
+    raw = dict(sample_markets()[0])
+    raw["title"] = "Luka Doncic 30+ points"
+    kp = parse_market(raw)
+    assert kp.player == "Luka Doncic"
+
+def test_parse_rejects_polluted_player_name():
+    # Has a stat word + structured strike (so it reaches the player check), but
+    # the pre-milestone text is >4 tokens -> reject rather than return garbage.
+    raw = dict(sample_markets()[0])
+    raw["title"] = "Group A Eastern Conference points leader 30+"  # no verb cue
+    raw["yes_sub_title"] = ""
+    # floor_strike is still 30 from the fixture, so the strike resolves fine.
+    assert parse_market(raw) is None
+
+def test_parse_strike_from_cap_strike():
+    raw = dict(sample_markets()[0])
+    raw["floor_strike"] = None
+    raw["cap_strike"] = 22
+    assert parse_market(raw).strike == 22

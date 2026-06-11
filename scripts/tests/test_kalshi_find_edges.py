@@ -22,6 +22,26 @@ def test_build_prop_index_flags_ambiguous_collision():
     index, ambiguous = build_prop_index(props)
     assert ("john smith", "points") in ambiguous
 
+def test_build_prop_index_prefers_over_on_dedup():
+    # Same player has both an over and an under row for the same stat. The over
+    # row must win the (name, stat) slot regardless of input order.
+    over = {"player_name": "Jay Doe", "stat_type": "points", "direction": "over",
+            "line": 20.5, "confidence_score": 70}
+    under = {"player_name": "Jay Doe", "stat_type": "points", "direction": "under",
+             "line": 20.5, "confidence_score": 60}
+    idx_a, amb_a = build_prop_index([over, under])
+    idx_b, amb_b = build_prop_index([under, over])
+    assert idx_a[("jay doe", "points")]["direction"] == "over"
+    assert idx_b[("jay doe", "points")]["direction"] == "over"
+    assert not amb_a and not amb_b   # same raw name -> not ambiguous
+
+def test_compute_edge_unfactored_on_unexpected_direction():
+    kp = KalshiProp("T", "LeBron James", "points", 25, 0.40, 0.45, 1000)
+    prop = {"player_name": "LeBron James", "stat_type": "points", "direction": None,
+            "line": 24.5, "confidence_score": 80}
+    e = compute_edge(kp, prop, _logs([26] * 12), _calib())
+    assert e.flag == "unfactored"   # NULL direction can't orient the anchor
+
 def test_compute_edge_unfactored_when_no_prop():
     kp = KalshiProp("T", "LeBron James", "points", 25, 0.40, 0.45, 1000)
     e = compute_edge(kp, None, _logs([26] * 12), _calib())

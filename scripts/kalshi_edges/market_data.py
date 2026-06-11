@@ -57,8 +57,18 @@ def _classify_stat(text):
 def _extract_player(title):
     t = re.sub(r"^\s*will\s+", "", title, flags=re.I).strip()
     m = _CUE_RE.search(t)
-    name = (t[:m.start()] if m else t).strip(" ?:-")
-    return name if len(name.split()) >= 2 else None
+    if m:
+        name = t[:m.start()]
+    else:
+        # No verb cue: cut at the "<n>+" milestone so we don't return the whole
+        # "<name> 30+ points" tail as the player. If there's no milestone either,
+        # we have nothing reliable to cut on.
+        sm = STRIKE_RE.search(t)
+        name = t[:sm.start()] if sm else t
+    name = name.strip(" ?:-")
+    # A real player name is 2-4 tokens (incl. Jr./III). More than that means the
+    # cut failed and we'd return a polluted string that matches no Prizm prop.
+    return name if 2 <= len(name.split()) <= 4 else None
 
 def _dollars(v):
     """Parse a Kalshi '_dollars' price string ('0.6500') to float in [0,1], or None."""

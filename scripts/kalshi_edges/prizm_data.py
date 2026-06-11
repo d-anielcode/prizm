@@ -44,8 +44,11 @@ def todays_props(game_date=None):
     params = ("select=player_name,stat_type,direction,line,confidence_score,commence_time"
               "&confidence_score=not.is.null")
     if game_date:
+        # commence_time is UTC: a late West-coast game on `game_date` is stored in
+        # the early hours of the next UTC day, so extend the upper bound to noon
+        # UTC of the following day to avoid silently dropping it.
         nxt = (date.fromisoformat(game_date) + timedelta(days=1)).isoformat()
-        params += f"&commence_time=gte.{game_date}&commence_time=lt.{nxt}"
+        params += f"&commence_time=gte.{game_date}&commence_time=lt.{nxt}T12:00:00"
     return _sb_get("props", params)
 
 def all_logs():
