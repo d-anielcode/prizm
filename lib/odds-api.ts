@@ -94,31 +94,32 @@ export interface NBAEvent {
 
 export type EventWithProps = IOEventWithOdds & { home_team: string; away_team: string; commence_time?: string }
 
-// Step 1: Get today's pending NBA games (1 request)
-// The API returns all future pending events (up to 2 weeks out). We filter to
-// the nearest game date only — prevents processing 100+ events across 14 days,
-// which causes timeouts and incorrect line selection via cross-day dedup collisions.
-export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
-  const url = `${BASE_URL}/events?apiKey=${apiKey()}&sport=basketball&league=usa-nba&status=pending`
-  const res = await fetch(url, { cache: 'no-store' })
-  if (!res.ok) throw new Error(`odds-api.io events failed: ${res.status} ${await res.text()}`)
+// NBA games live under different league slugs by season phase: `usa-nba` during
+// the regular season, `usa-nba-playoffs` during the postseason. Querying only
+// `usa-nba` returned 0 events once the Finals moved to the playoffs slug, which
+// silently froze the props slate. Query both and merge — robust across the
+// boundary with no date-based season detection.
+const NBA_LEAGUES = ['usa-nba', 'usa-nba-playoffs'] as const
 
-  const data = await res.json() as { data?: IOEvent[] } | IOEvent[]
-  const events: IOEvent[] = Array.isArray(data) ? data : (data.data ?? [])
+function toEasternDate(iso: string): string {
+  // NBA games can tip after midnight UTC (8 PM ET = 00:00 UTC next day), so we
+  // group a night's slate by ET date, not UTC date.
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+}
 
+// Pure slate selection: dedupe merged events by id, then keep only the games on
+// the earliest ET date (the next slate). Filtering to the nearest date prevents
+// processing 100+ events across two weeks, which causes timeouts and cross-day
+// dedup collisions. Exported for unit testing.
+export function selectEarliestSlate(events: IOEvent[]): NBAEvent[] {
   if (events.length === 0) return []
 
-  // Convert each event's UTC commence_time to an Eastern date and find the earliest ET date.
-  // NBA games can tip after midnight UTC (e.g. 8 PM ET = 00:00 UTC next day), so we must
-  // use ET dates — not UTC dates — to correctly group a night's slate of games.
-  function toEasternDate(iso: string) {
-    return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-  }
+  const byId = new Map<number, IOEvent>()
+  for (const e of events) if (!byId.has(e.id)) byId.set(e.id, e)
+  const unique = [...byId.values()]
 
-  const earliestDate = events.map((e) => toEasternDate(e.date)).sort()[0]
-  const sameDay = events.filter((e) => toEasternDate(e.date) === earliestDate)
-
-  console.log(`[odds-api] ${events.length} pending events total — filtered to ${sameDay.length} on ${earliestDate} ET`)
+  const earliestDate = unique.map((e) => toEasternDate(e.date)).sort()[0]
+  const sameDay = unique.filter((e) => toEasternDate(e.date) === earliestDate)
 
   return sameDay.map((e) => ({
     id: String(e.id),
@@ -126,6 +127,36 @@ export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
     away_team: e.away,
     commence_time: e.date,
   }))
+}
+
+// Step 1: Get the next pending NBA slate (one request per league slug).
+export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
+  const all: IOEvent[] = []
+  let okCount = 0
+  let lastErr = ''
+
+  for (const league of NBA_LEAGUES) {
+    const url = `${BASE_URL}/events?apiKey=${apiKey()}&sport=basketball&league=${league}&status=pending`
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) {
+      lastErr = `${league}: ${res.status} ${await res.text()}`
+      console.error(`[odds-api] events failed — ${lastErr}`)
+      continue
+    }
+    okCount++
+    const data = await res.json() as { data?: IOEvent[] } | IOEvent[]
+    const events: IOEvent[] = Array.isArray(data) ? data : (data.data ?? [])
+    all.push(...events)
+  }
+
+  // Only throw if EVERY league query failed (a real API/key outage). A single
+  // empty/404 slug — e.g. usa-nba during the playoffs — is normal and tolerated.
+  if (okCount === 0) throw new Error(`odds-api.io events failed for all leagues: ${lastErr}`)
+
+  const slate = selectEarliestSlate(all)
+  const date = slate[0]?.commence_time ? toEasternDate(slate[0].commence_time) : 'n/a'
+  console.log(`[odds-api] ${all.length} pending events across ${okCount} league(s) — filtered to ${slate.length} on ${date} ET`)
+  return slate
 }
 
 // Step 2: Fetch props for ALL events in batches of 10 (ceil(N/10) requests)
