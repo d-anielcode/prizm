@@ -36,6 +36,14 @@ pit_output.csv
 
 # Python cache
 scripts/__pycache__/
+**/__pycache__/
+
+# Auto-generated build artifacts
+next-env.d.ts
+*.tsbuildinfo
+
+# Supabase local temp
+supabase/.temp/
 
 # Local Claude settings
 .claude/settings.local.json
