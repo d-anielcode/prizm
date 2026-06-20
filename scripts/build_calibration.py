@@ -33,6 +33,7 @@ except FileNotFoundError:
     pass
 
 import requests
+from tier_thresholds import derive_tier_thresholds, DEFAULT_TARGETS
 
 SUPABASE_URL = (os.environ.get('NEXT_PUBLIC_SUPABASE_URL') or env.get('NEXT_PUBLIC_SUPABASE_URL', '')).strip('"').strip("'")
 SUPABASE_KEY = (os.environ.get('SUPABASE_SERVICE_KEY') or env.get('SUPABASE_SERVICE_KEY', '')).strip('"').strip("'")
@@ -192,6 +193,22 @@ def main():
 
     # ── 3. Write calibration table ──────────────────────────────────────────
     out_path = os.path.join(os.path.dirname(__file__), '..', args.out)
+
+    # Derive calibration-honest tier thresholds (see scripts/tier_thresholds.py
+    # and the design spec). Per-stat where a per-stat curve exists; _global is the
+    # fallback used by stats without their own curve.
+    tier_thresholds = {
+        '_targets': DEFAULT_TARGETS,
+        '_global': derive_tier_thresholds(global_lookup, DEFAULT_TARGETS),
+    }
+    for stat, lookup in per_stat.items():
+        tier_thresholds[stat] = derive_tier_thresholds(lookup, DEFAULT_TARGETS)
+    print(f"  tier_thresholds (LOCK>={DEFAULT_TARGETS['lock']:.0%}, "
+          f"PLAY>={DEFAULT_TARGETS['play']:.0%}):")
+    for k, v in tier_thresholds.items():
+        if not k.startswith('_'):
+            print(f"    {k:<14} lock={v['lock']}  play={v['play']}")
+
     payload = {
         'version': 'v2-per-stat' if per_stat else 'v1-global',
         'generated_at': datetime.now(timezone.utc).isoformat(),
@@ -214,6 +231,7 @@ def main():
         # New: per-stat lookups. Same 101-entry shape. Missing stats fall back to global.
         'per_stat': per_stat,
         'sample_counts': sample_counts,
+        'tier_thresholds': tier_thresholds,
     }
     with open(out_path, 'w') as f:
         json.dump(payload, f, indent=2)
