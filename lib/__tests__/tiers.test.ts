@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { pickTierThresholds } from '../calibration'
+import { assignTier } from '../confidence'
 
 const TABLE = {
   tier_thresholds: {
@@ -22,5 +23,25 @@ describe('pickTierThresholds', () => {
   })
   it('returns null when the table has no tier_thresholds block', () => {
     expect(pickTierThresholds({}, 'points')).toBeNull()
+  })
+})
+
+describe('assignTier', () => {
+  it('LOCK at/above lock threshold', () => {
+    expect(assignTier(80, 78, 73)).toEqual({ label: 'LOCK', tier: 'PRIME' })
+  })
+  it('PLAY between play and lock', () => {
+    expect(assignTier(75, 78, 73)).toEqual({ label: 'PLAY', tier: 'LOW_RISK' })
+  })
+  it('FADE below play', () => {
+    expect(assignTier(60, 78, 73)).toEqual({ label: 'FADE', tier: 'HIGH_RISK' })
+  })
+  it('never returns LEAN', () => {
+    for (const s of [0, 50, 60, 73, 78, 90]) {
+      expect(assignTier(s, 78, 73).label).not.toBe('LEAN')
+    }
+  })
+  it('null lock falls through to PLAY (stat cannot earn LOCK)', () => {
+    expect(assignTier(95, null, 77)).toEqual({ label: 'PLAY', tier: 'LOW_RISK' })
   })
 })

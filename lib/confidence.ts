@@ -101,6 +101,7 @@ function loadWeightConfig(): WeightConfig | null {
 // Calibration helpers — see lib/calibration.ts. Re-exported here so existing
 // imports keep working.
 export { applyCalibration } from '@/lib/calibration'
+import { tierThresholds } from '@/lib/calibration'
 
 export interface GameLog {
   game_date:  string
@@ -1495,14 +1496,32 @@ const PLAY_THRESHOLD_BY_STAT: Partial<Record<StatType, number>> = {
   points:         70,  // v10: keep at 70
 }
 
-function getLabel(score: number, statType?: StatType): { label: ConfidenceLabel; tier: RiskTier } {
+/**
+ * Pure tier assignment from raw score + raw-score thresholds. LOCK/PLAY/FADE
+ * only — the LEAN tier was removed (its ~52% edge loses to -110 juice). A null
+ * threshold means "this stat cannot earn that tier"; skip it. Exported for tests.
+ */
+export function assignTier(
+  score: number,
+  lock: number | null,
+  play: number | null,
+): { label: ConfidenceLabel; tier: RiskTier } {
+  if (lock != null && score >= lock) return { label: 'LOCK', tier: 'PRIME'     }
+  if (play != null && score >= play) return { label: 'PLAY', tier: 'LOW_RISK'  }
+  return                                    { label: 'FADE', tier: 'HIGH_RISK' }
+}
+
+export function getLabel(score: number, statType?: StatType): { label: ConfidenceLabel; tier: RiskTier } {
+  // 1. Calibration-derived thresholds win when present (authoritative, incl.
+  //    deliberate nulls). 2. Else fall back to confidence-weights config. 3. Else
+  //    code defaults. Sorting/dedup still use raw scores elsewhere — unchanged.
+  const ct = statType ? tierThresholds(statType) : tierThresholds()
+  if (ct) return assignTier(score, ct.lock, ct.play)
+
   const config = loadWeightConfig()
-  const lockThreshold = (statType && (config?.lock_thresholds[statType] ?? LOCK_THRESHOLD_BY_STAT[statType])) ?? (config?.base_lock_threshold ?? 74)
-  const playThreshold = (statType && (config?.play_thresholds[statType] ?? PLAY_THRESHOLD_BY_STAT[statType])) ?? (config?.base_play_threshold ?? 68)
-  if (score >= lockThreshold) return { label: 'LOCK', tier: 'PRIME'    }
-  if (score >= playThreshold) return { label: 'PLAY', tier: 'LOW_RISK' }
-  if (score >= 50)            return { label: 'LEAN', tier: 'MED_RISK' }
-  return                             { label: 'FADE', tier: 'HIGH_RISK' }
+  const lock = (statType && (config?.lock_thresholds[statType] ?? LOCK_THRESHOLD_BY_STAT[statType])) ?? (config?.base_lock_threshold ?? 74)
+  const play = (statType && (config?.play_thresholds[statType] ?? PLAY_THRESHOLD_BY_STAT[statType])) ?? (config?.base_play_threshold ?? 68)
+  return assignTier(score, lock, play)
 }
 
 const STAT_WORD: Record<StatType, string> = {
