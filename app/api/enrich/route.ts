@@ -18,6 +18,7 @@ import { normalizePlayerName } from '@/lib/lineups'
 export const maxDuration = 300
 import {
   scoreProps,
+  getLabel,
   inferPlayerPosition,
   type GameLog,
   type HistoricalLine,
@@ -764,16 +765,6 @@ async function runEnrichment(force = false) {
   const ALT_STEP: Record<string, number> = {
     points: 2, pra: 2, rebounds: 1, assists: 1, steals: 1, blocks: 1, three_pointers: 1,
   }
-  const ALT_LOCK_T: Partial<Record<string, number>> = {
-    assists: 74, pra: 78, steals: 72, blocks: 72, three_pointers: 72,
-  }
-  const ALT_PLAY_T: Partial<Record<string, number>> = { assists: 70, pra: 68 }
-  function adjAltLabel(score: number, statType: string): ConfidenceLabel {
-    if (score >= (ALT_LOCK_T[statType] ?? 68)) return 'LOCK'
-    if (score >= (ALT_PLAY_T[statType] ?? 60)) return 'PLAY'
-    if (score >= 50) return 'LEAN'
-    return 'FADE'
-  }
 
   let enrichedAlts = 0
   if (altRows.length > 0) {
@@ -852,7 +843,7 @@ async function runEnrichment(force = false) {
         }
       }
 
-      return { ...alt, confidence_score: adjScore, confidence_label: adjAltLabel(adjScore, pseudoProp.stat_type) }
+      return { ...alt, confidence_score: adjScore, confidence_label: getLabel(adjScore, pseudoProp.stat_type).label }
     })
 
     for (let i = 0; i < altUpdates.length; i += BATCH) {
