@@ -129,13 +129,15 @@ export function selectEarliestSlate(events: IOEvent[]): NBAEvent[] {
   }))
 }
 
-// Step 1: Get the next pending NBA slate (one request per league slug).
-export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
+const WNBA_LEAGUES = ['usa-wnba'] as const
+
+// Step 1: Get the next pending slate for the given league slugs (one request per slug).
+export async function fetchEventsForLeagues(leagues: readonly string[]): Promise<NBAEvent[]> {
   const all: IOEvent[] = []
   let okCount = 0
   let lastErr = ''
 
-  for (const league of NBA_LEAGUES) {
+  for (const league of leagues) {
     const url = `${BASE_URL}/events?apiKey=${apiKey()}&sport=basketball&league=${league}&status=pending`
     const res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) {
@@ -149,8 +151,8 @@ export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
     all.push(...events)
   }
 
-  // Only throw if EVERY league query failed (a real API/key outage). A single
-  // empty/404 slug — e.g. usa-nba during the playoffs — is normal and tolerated.
+  // Throw only if EVERY league query failed (a real API/key outage). A single
+  // empty/404 slug (e.g. usa-nba during the playoffs) is normal and tolerated.
   if (okCount === 0) throw new Error(`odds-api.io events failed for all leagues: ${lastErr}`)
 
   const slate = selectEarliestSlate(all)
@@ -158,6 +160,9 @@ export async function fetchTodaysNBAEvents(): Promise<NBAEvent[]> {
   console.log(`[odds-api] ${all.length} pending events across ${okCount} league(s) — filtered to ${slate.length} on ${date} ET`)
   return slate
 }
+
+export const fetchTodaysNBAEvents = (): Promise<NBAEvent[]> => fetchEventsForLeagues(NBA_LEAGUES)
+export const fetchTodaysWNBAEvents = (): Promise<NBAEvent[]> => fetchEventsForLeagues(WNBA_LEAGUES)
 
 // Step 2: Fetch props for ALL events in batches of 10 (ceil(N/10) requests)
 export async function fetchAllPropsForEvents(events: NBAEvent[]): Promise<Prop[]> {

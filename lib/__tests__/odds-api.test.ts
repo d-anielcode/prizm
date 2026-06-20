@@ -8,6 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { selectEarliestSlate } from '../odds-api'
+import { fetchEventsForLeagues, fetchTodaysWNBAEvents } from '../odds-api'
 
 type RawEvent = { id: number; home: string; away: string; date: string; status: string }
 
@@ -43,5 +44,14 @@ describe('selectEarliestSlate', () => {
       { id: 3, home: 'E', away: 'F', date: '2026-06-17T00:30:00Z', status: 'pending' }, // Jun 16 ET
     ]
     expect(selectEarliestSlate(events).map((e) => e.id).sort()).toEqual(['1', '2'])
+  })
+})
+
+describe('fetchEventsForLeagues', () => {
+  it('throws when given no leagues (all-leagues-failed guard)', async () => {
+    await expect(fetchEventsForLeagues([])).rejects.toThrow(/failed for all leagues/i)
+  })
+  it('exposes a WNBA convenience wrapper', () => {
+    expect(typeof fetchTodaysWNBAEvents).toBe('function')
   })
 })
