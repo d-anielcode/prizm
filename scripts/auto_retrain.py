@@ -1001,10 +1001,13 @@ if __name__ == '__main__':
         },
         'previous_version': current_config.get('version') if current_config else None,
         'weights': new_weights,
-        'lock_thresholds': new_lock_thresholds,
-        'play_thresholds': new_play_thresholds,
-        'base_lock_threshold': base_lock,
-        'base_play_threshold': base_play,
+        # Thresholds are owned by build_calibration.py (calibration-table.json
+        # tier_thresholds). Carry the current config's values forward unchanged as
+        # an inert fallback — do NOT search/overwrite them here.
+        'lock_thresholds': current_config.get('lock_thresholds', {}) if current_config else {},
+        'play_thresholds': current_config.get('play_thresholds', {}) if current_config else {},
+        'base_lock_threshold': current_config.get('base_lock_threshold', 74) if current_config else 74,
+        'base_play_threshold': current_config.get('base_play_threshold', 68) if current_config else 68,
         'over_bias': new_over_bias,
         'under_bias': new_under_bias,
         'previous_weights': {
