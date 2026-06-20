@@ -7,7 +7,7 @@ so the NBA path is untouched. Run daily before WNBA enrichment (future SP3).
 
 Usage:  python scripts/fetch_wnba_stats.py
 """
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ── Pure helpers (no I/O — unit-tested) ──────────────────────────────────────
 def _num(v):
@@ -138,7 +138,7 @@ def main():
         ab = abbr_of(row)
         if not ab:
             continue
-        e = {'team_abbreviation': ab, 'fetched_at': datetime.utcnow().isoformat()}
+        e = {'team_abbreviation': ab, 'fetched_at': datetime.now(timezone.utc).isoformat()}
         for rc, nc in RANK_COL_MAP.items():
             v = row.get(nc)
             e[rc] = int(v) if v is not None else 15

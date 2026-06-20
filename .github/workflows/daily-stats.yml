@@ -127,6 +127,15 @@ jobs:
           echo "Fetching player positions..."
           python3 scripts/fetch_player_positions.py
 
+      - name: Fetch WNBA stats (game logs + team defense)
+        continue-on-error: true   # WNBA is isolated — must never disturb the NBA pipeline
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "Fetching WNBA game logs + team defense..."
+          python3 scripts/fetch_wnba_stats.py
+
       # ── Both runs: refresh today's lines after stats are loaded ────────────
       # Lines shift significantly between morning and tipoff — midday refresh
       # catches these movements so the re-enrich uses current lines.
