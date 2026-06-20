@@ -31,7 +31,7 @@ import {
   type OpponentStatLeak,
   type SimThreePm,
 } from '@/lib/confidence'
-import type { Prop, StatType, Direction, ConfidenceLabel } from '@/types'
+import type { Prop, StatType, Direction } from '@/types'
 
 // ── ESPN free APIs ─────────────────────────────────────────────────────────────
 // Both are undocumented but widely stable — wrapped in try/catch so failures
