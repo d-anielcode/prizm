@@ -96,7 +96,7 @@ export default async function EdgePage() {
   ])
 
   // Group for quick stats: tier distribution, EV histogram bins
-  const byTier: Record<string, number> = { LOCK: 0, PLAY: 0, LEAN: 0, FADE: 0 }
+  const byTier: Record<string, number> = { LOCK: 0, PLAY: 0, FADE: 0 }
   for (const p of picks) byTier[p.confidence_label ?? 'FADE'] = (byTier[p.confidence_label ?? 'FADE'] ?? 0) + 1
 
   const top = picks.slice(0, 30)
@@ -116,7 +116,7 @@ export default async function EdgePage() {
 
       {/* Tier mix */}
       <div className="grid grid-cols-4 gap-2 mb-8 text-xs">
-        {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as const).map((tier) => (
+        {(['LOCK', 'PLAY', 'FADE'] as const).map((tier) => (
           <div key={tier} className={`rounded-md border px-3 py-2 ${TIER_COLORS[tier]}`}>
             <div className="font-mono font-semibold">{byTier[tier] ?? 0}</div>
             <div className="opacity-70">{tier}</div>

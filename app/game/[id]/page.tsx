@@ -54,7 +54,7 @@ async function getGameProps(gameId: string): Promise<PropWithAlts[]> {
     return []
   }
 
-  const TIER_ORDER: Record<string, number> = { LOCK: 0, PLAY: 1, LEAN: 2, FADE: 3 }
+  const TIER_ORDER: Record<string, number> = { LOCK: 0, PLAY: 1, FADE: 2 }
   const props = ((data ?? []) as Prop[]).sort((a, b) => {
     const ta = TIER_ORDER[a.confidence_label ?? ''] ?? 4
     const tb = TIER_ORDER[b.confidence_label ?? ''] ?? 4
@@ -264,7 +264,6 @@ export default async function GamePage({
 
   const lock = props.filter((p) => p.confidence_label === 'LOCK').length
   const play = props.filter((p) => p.confidence_label === 'PLAY').length
-  const lean = props.filter((p) => p.confidence_label === 'LEAN').length
   const fade = props.filter((p) => p.confidence_label === 'FADE').length
 
   return (
@@ -298,10 +297,6 @@ export default async function GamePage({
           <div className="px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-sm">
             <span className="text-emerald-400 font-semibold">{play}</span>
             <span className="text-white/40 ml-1.5">Play</span>
-          </div>
-          <div className="px-4 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-sm">
-            <span className="text-yellow-400 font-semibold">{lean}</span>
-            <span className="text-white/40 ml-1.5">Lean</span>
           </div>
           <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-sm">
             <span className="text-red-400 font-semibold">{fade}</span>

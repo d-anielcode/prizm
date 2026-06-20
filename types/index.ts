@@ -25,6 +25,8 @@ export type StatType =
   | 'blocks'
   | 'three_pointers'
 
+// 'LEAN'/'MED_RISK' are LEGACY: no longer emitted by getLabel (removed 2026-06,
+// sub-vig tier). Kept in the union so historical rows + analytics still typecheck.
 export type ConfidenceLabel = 'LOCK' | 'PLAY' | 'LEAN' | 'FADE'
 export type RiskTier = 'PRIME' | 'LOW_RISK' | 'MED_RISK' | 'HIGH_RISK'
 export type Direction = 'over' | 'under'
