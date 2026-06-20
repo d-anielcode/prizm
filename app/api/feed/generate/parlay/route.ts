@@ -609,7 +609,7 @@ async function handlePass2(gameDate: string) {
     supabase
       .from('props')
       .select('player_name, stat_type, line, direction, confidence_label, confidence_score, odds, game_id, home_team, away_team, commence_time')
-      .in('confidence_label', ['LOCK', 'PLAY', 'LEAN', 'FADE']),
+      .in('confidence_label', ['LOCK', 'PLAY', 'FADE']),
     'pass2: load re-enriched props'
   )
 

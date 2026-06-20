@@ -93,8 +93,9 @@ describe('U1: scoreProps with all-null context', () => {
 
     expect(result.confidence_score).toBeGreaterThanOrEqual(18)
     expect(result.confidence_score).toBeLessThanOrEqual(65) // no-log cap
-    expect(['LOCK', 'PLAY', 'LEAN', 'FADE']).toContain(result.confidence_label)
-    expect(['PRIME', 'LOW_RISK', 'MED_RISK', 'HIGH_RISK']).toContain(result.risk_tier)
+    // LEAN/MED_RISK removed — getLabel only emits LOCK/PLAY/FADE now.
+    expect(['LOCK', 'PLAY', 'FADE']).toContain(result.confidence_label)
+    expect(['PRIME', 'LOW_RISK', 'HIGH_RISK']).toContain(result.risk_tier)
     expect(result.confidence_reason).toBeTruthy()
   })
 

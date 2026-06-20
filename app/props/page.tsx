@@ -39,8 +39,8 @@ async function getProps(): Promise<PropWithAlts[]> {
   }
   const deduped = [...bestMap.values()]
 
-  // Sort by tier first (LOCK > PLAY > LEAN > FADE), then by score within tier
-  const TIER_ORDER: Record<string, number> = { LOCK: 0, PLAY: 1, LEAN: 2, FADE: 3 }
+  // Sort by tier first (LOCK > PLAY > FADE), then by score within tier
+  const TIER_ORDER: Record<string, number> = { LOCK: 0, PLAY: 1, FADE: 2 }
   deduped.sort((a, b) => {
     const ta = TIER_ORDER[a.confidence_label ?? ''] ?? 4
     const tb = TIER_ORDER[b.confidence_label ?? ''] ?? 4
@@ -87,7 +87,6 @@ export default async function PropsPage({
 
   const lock = props.filter((p) => p.confidence_label === 'LOCK').length
   const play = props.filter((p) => p.confidence_label === 'PLAY').length
-  const lean = props.filter((p) => p.confidence_label === 'LEAN').length
   const fade = props.filter((p) => p.confidence_label === 'FADE').length
 
   return (
@@ -99,7 +98,7 @@ export default async function PropsPage({
         </p>
       </div>
 
-      <div className="grid grid-cols-4 sm:flex gap-3">
+      <div className="grid grid-cols-3 sm:flex gap-3">
         <div className="px-3 sm:px-4 py-2 rounded-lg bg-[#00D68F]/10 border border-[#00D68F]/20 text-sm text-center sm:text-left">
           <span className="text-[#00D68F] font-semibold">{lock}</span>
           <span className="text-[var(--text-secondary)] ml-1 sm:ml-1.5 text-xs sm:text-sm">Lock</span>
@@ -107,10 +106,6 @@ export default async function PropsPage({
         <div className="px-3 sm:px-4 py-2 rounded-lg bg-[#FFB800]/10 border border-[#FFB800]/20 text-sm text-center sm:text-left">
           <span className="text-[#FFB800] font-semibold">{play}</span>
           <span className="text-[var(--text-secondary)] ml-1 sm:ml-1.5 text-xs sm:text-sm">Play</span>
-        </div>
-        <div className="px-3 sm:px-4 py-2 rounded-lg bg-[#3B82F6]/10 border border-[#3B82F6]/20 text-sm text-center sm:text-left">
-          <span className="text-[#3B82F6] font-semibold">{lean}</span>
-          <span className="text-[var(--text-secondary)] ml-1 sm:ml-1.5 text-xs sm:text-sm">Lean</span>
         </div>
         <div className="px-3 sm:px-4 py-2 rounded-lg bg-[#FF4757]/10 border border-[#FF4757]/20 text-sm text-center sm:text-left">
           <span className="text-[#FF4757] font-semibold">{fade}</span>

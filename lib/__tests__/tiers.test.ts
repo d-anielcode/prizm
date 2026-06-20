@@ -24,6 +24,10 @@ describe('pickTierThresholds', () => {
   it('returns null when the table has no tier_thresholds block', () => {
     expect(pickTierThresholds({}, 'points')).toBeNull()
   })
+  it('never resolves an underscore metadata key (_targets) as a stat lookup', () => {
+    // Guards against a fractional target (0.6) leaking in as a raw threshold.
+    expect(pickTierThresholds(TABLE, '_targets')).toEqual({ lock: 78, play: 73 }) // falls back to _global
+  })
 })
 
 describe('assignTier', () => {

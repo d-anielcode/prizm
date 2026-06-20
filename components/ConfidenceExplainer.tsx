@@ -16,12 +16,6 @@ const TIERS = [
     description: 'Strong pick. Most factors align but not as dominant \u2014 55%+ hit rate.',
   },
   {
-    label: 'LEAN',
-    color: 'text-[#3B82F6]',
-    dot: 'bg-[#3B82F6]',
-    description: 'Slight edge. Around 50% hit rate \u2014 useful for research, not for betting alone.',
-  },
-  {
     label: 'FADE',
     color: 'text-red-400',
     dot: 'bg-red-400',

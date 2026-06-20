@@ -242,7 +242,7 @@ export function PropsTable({
           <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider font-semibold">Confidence</span>
           <div className="flex flex-wrap gap-1.5">
             <Pill active={labelFilter === 'all'} onClick={() => setLabelFilter('all')}>All</Pill>
-            {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as ConfidenceLabel[]).map((l) => (
+            {(['LOCK', 'PLAY', 'FADE'] as ConfidenceLabel[]).map((l) => (
               <ConfidencePill key={l} label={l} active={labelFilter === l} onClick={() => setLabelFilter(l)} />
             ))}
           </div>

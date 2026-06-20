@@ -10,7 +10,7 @@
  *
  * Stored `confidence_score` in the DB is ALWAYS RAW. This file's
  * `applyCalibration()` is used only at *display* time (UI components, API
- * response shaping, performance bucketing). Tier label (LOCK/PLAY/LEAN/FADE),
+ * response shaping, performance bucketing). Tier label (LOCK/PLAY/FADE),
  * sorting, dedup, and parlay pool selection still operate on raw scores.
  *
  * Why raw-stored + calibrated-displayed:
@@ -121,7 +121,11 @@ export interface TierThresholds { lock: number | null; play: number | null }
 export function pickTierThresholds(table: unknown, statType?: string): TierThresholds | null {
   const tt = (table as CalibrationTable)?.tier_thresholds
   if (!tt) return null
-  const src = (statType && tt[statType]) || tt._global
+  // Underscore keys (_targets, _global) are metadata, not stat entries — never
+  // resolve a stat lookup to them (e.g. statType '_targets' would yield the 0.6
+  // fractional target as a raw threshold). _global is reached only as the
+  // explicit fallback below.
+  const src = (statType && !statType.startsWith('_') && tt[statType]) || tt._global
   if (!src || !('lock' in src)) return null
   return { lock: src.lock ?? null, play: src.play ?? null }
 }

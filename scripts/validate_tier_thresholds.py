@@ -105,5 +105,11 @@ def main():
     print(f"\n  ADOPTION CHECK: LOCK {lock_hr:.1%} (target 60%), PLAY {play_hr:.1%} (target 55%)")
     print("  Adopt if both clear breakeven (52.4%) with margin and volumes are non-trivial.")
 
+    # Non-zero exit if BOTH actionable tiers fail to clear -110 breakeven on
+    # held-out data — so this can gate a CI/cron job, not just be eyeballed.
+    if lock_hr < BREAKEVEN and play_hr < BREAKEVEN:
+        print("  FAIL: neither LOCK nor PLAY clears breakeven out-of-sample.")
+        sys.exit(1)
+
 if __name__ == '__main__':
     main()

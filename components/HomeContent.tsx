@@ -73,7 +73,6 @@ export function HomeContent({
 
   const lock = allProps.filter((p) => p.confidence_label === 'LOCK').length
   const play = allProps.filter((p) => p.confidence_label === 'PLAY').length
-  const lean = allProps.filter((p) => p.confidence_label === 'LEAN').length
   const fade = allProps.filter((p) => p.confidence_label === 'FADE').length
 
   const selectedGame = games.find((g) => g.game_id === selectedGameId)
@@ -128,7 +127,6 @@ export function HomeContent({
         {[
           { count: lock, label: 'LOCK', color: '#00D68F' },
           { count: play, label: 'PLAY', color: '#FFB800' },
-          { count: lean, label: 'LEAN', color: '#3B82F6' },
           { count: fade, label: 'FADE', color: '#FF4757' },
         ].map(({ count, label, color }) => (
           <div
