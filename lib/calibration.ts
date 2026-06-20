@@ -42,6 +42,11 @@ interface CalibrationTable {
   per_stat?:    Record<string, number[]>
   /** Sample counts behind each per-stat fit (for QA / "data window" UX). */
   sample_counts?: Record<string, number>
+  /** Per-stat LOCK/PLAY raw-score thresholds derived from the calibration curve. */
+  tier_thresholds?: {
+    _targets?: { lock: number; play: number }
+    [key: string]: { lock: number | null; play: number | null } | { lock: number; play: number } | undefined
+  }
 }
 
 const TABLE = calibrationTable as CalibrationTable
@@ -102,4 +107,25 @@ export function calibrationMeta() {
 /** True when a per-stat lookup is available for this stat type. */
 export function hasPerStatCalibration(statType: string): boolean {
   return PER_STAT[statType]?.length === 101
+}
+
+export interface TierThresholds { lock: number | null; play: number | null }
+
+/**
+ * Calibration-derived LOCK/PLAY raw-score thresholds for a stat. Per-stat entry
+ * preferred, `_global` as fallback. Returns null when the table has no
+ * tier_thresholds block (caller then falls back to config/defaults). A null
+ * `lock`/`play` inside a returned object is deliberate — that stat's curve never
+ * reaches the target, so it earns no picks at that tier.
+ */
+export function pickTierThresholds(table: unknown, statType?: string): TierThresholds | null {
+  const tt = (table as CalibrationTable)?.tier_thresholds
+  if (!tt) return null
+  const src = (statType && tt[statType]) || tt._global
+  if (!src || !('lock' in src)) return null
+  return { lock: src.lock ?? null, play: src.play ?? null }
+}
+
+export function tierThresholds(statType?: string): TierThresholds | null {
+  return pickTierThresholds(TABLE, statType)
 }
