@@ -143,6 +143,18 @@ jobs:
             "$VERCEL_APP_URL/api/props?refresh=true" | head -c 300
           echo ""
 
+      - name: Refresh today's WNBA props from odds API
+        continue-on-error: true   # WNBA is isolated — must never disturb the NBA pipeline
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Refreshing WNBA props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/props/wnba?refresh=true" | head -c 300
+          echo ""
+
       - name: Run 3PM zone simulations
         continue-on-error: true
         run: |
