@@ -24,3 +24,31 @@ yarn-error.log*
 
 # Vercel
 .vercel
+
+.vercel
+.env*.local
+diagnostic_report.json
+
+# Backtest output files
+backtest_out.txt
+parlay_backtest_out.txt
+pit_output.csv
+
+# Python cache
+scripts/__pycache__/
+**/__pycache__/
+
+# Auto-generated build artifacts
+next-env.d.ts
+*.tsbuildinfo
+
+# Supabase local temp
+supabase/.temp/
+
+# Local Claude settings
+.claude/settings.local.json
+
+# graphify outputs (generated, not source)
+graphify-out/
+.graphify_*
+.superpowers/

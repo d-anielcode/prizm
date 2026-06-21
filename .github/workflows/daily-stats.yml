@@ -1,54 +1,262 @@
 name: Daily NBA Stats Refresh
 
-# Runs automatically every day at 11:00 AM Eastern (16:00 UTC)
-# This is before most NBA games tip off, so stats are fresh for the day.
-# Also runs at 7:00 AM Eastern (12:00 UTC) to catch any late-night game completions
-# and pull the next day's props.
+# Two runs per day (EDT, UTC-4):
+#   09:00 UTC = 5:00 AM EDT — full pipeline: grade, stats, defense, props, enrich, streak, parlay
+#   15:00 UTC = 11:00 AM EDT — defense stats + re-enrich only (lines shift midday)
+#
+# All Vercel API calls pass Authorization: Bearer CRON_SECRET so they pass requireCronAuth.
+# Add CRON_SECRET to GitHub repo secrets (same value as the Vercel CRON_SECRET env var).
 
 on:
   schedule:
-    - cron: '0 12 * * *'   # 7:00 AM ET — pull next day's props after overnight games end
-    - cron: '0 16 * * *'   # 11:00 AM ET — refresh stats before tonight's games
-  workflow_dispatch:        # Allow manual trigger from GitHub Actions tab
+    - cron: '0 9 * * *'    # 5:00 AM EDT — full pipeline
+    - cron: '0 15 * * *'   # 11:00 AM EDT — defense stats + enrich only
+  workflow_dispatch:        # Manual trigger also runs the full pipeline
 
 jobs:
-  refresh-stats:
+  refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout code
+      # Repo files are needed by the Python steps below (fetch_nba_stats.py,
+      # fetch_player_positions.py, sim_3pm.py, check_data_freshness.py).
+      # Without checkout these silently failed with "No such file".
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: '3.12'
 
-      - name: Install Python dependencies
-        run: pip install nba_api requests
+      # ── Full pipeline only (5 AM ET + manual) ──────────────────────────────
 
-      - name: Fetch NBA game logs + team defense stats
+      - name: Pull game logs (last 3 days)
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Pulling game logs..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/gamelogs?days=3" | head -c 300
+          echo ""
+
+      - name: Grade yesterday's feed props
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Grading feed props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/feed/grade" | head -c 300
+          echo ""
+
+      - name: Refresh player season stats
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Refreshing season stats..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/seasonstats" | head -c 300
+          echo ""
+
+      - name: Update prop results
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Updating prop results..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/results?force=true" | head -c 300
+          echo ""
+
+      - name: Grade props
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Grading props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/grade" | head -c 300
+          echo ""
+
+      - name: Grade WNBA props
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true   # WNBA is isolated — must never disturb the NBA pipeline
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Grading WNBA props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/grade/wnba" | head -c 300
+          echo ""
+
+      # ── Both runs: fetch defense stats + player positions (best-effort) ──
+      # NBA stats are pulled directly via nba_api ON THE RUNNER. stats.nba.com
+      # times out from Vercel's serverless IPs — the old /api/defense-stats route
+      # 504'd, which is why team_defense_stats silently froze for ~2 months.
+      # These fetches are continue-on-error: a stats.nba.com outage must NOT abort
+      # the run before enrichment/grading. The end-of-run freshness check (below)
+      # is what surfaces a stale-defense problem loudly (and only during the
+      # regular season, when the data is actually supposed to be refreshing).
+
+      - name: Install Python deps
+        run: pip install nba_api requests -q
+
+      - name: Fetch NBA team defense + DVP (ranks, L15, pace)
+        continue-on-error: true   # best-effort; freshness check at end is the signal
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python scripts/fetch_nba_stats.py
+        run: |
+          echo "Fetching team defense stats (ranks + L15 + pace) and DVP..."
+          python3 scripts/fetch_nba_stats.py --defense-only
 
-      - name: Refresh props + AI enrichment (only if app is deployed)
+      - name: Fetch player positions
+        continue-on-error: true   # non-critical; positions change slowly
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "Fetching player positions..."
+          python3 scripts/fetch_player_positions.py
+
+      - name: Fetch WNBA stats (game logs + team defense)
+        continue-on-error: true   # WNBA is isolated — must never disturb the NBA pipeline
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "Fetching WNBA game logs + team defense..."
+          python3 scripts/fetch_wnba_stats.py
+
+      # ── Both runs: refresh today's lines after stats are loaded ────────────
+      # Lines shift significantly between morning and tipoff — midday refresh
+      # catches these movements so the re-enrich uses current lines.
+
+      - name: Refresh today's props from odds API
+        continue-on-error: true
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$VERCEL_APP_URL" ]; then
-            echo "No VERCEL_APP_URL set — skipping remote API calls (stats saved to Supabase)"
-            echo "When you're ready to deploy, add VERCEL_APP_URL to GitHub Secrets."
-          else
-            echo "Refreshing props at $VERCEL_APP_URL..."
-            curl -s "$VERCEL_APP_URL/api/props?refresh=true" | head -c 200
-            sleep 5
-            echo "Running AI enrichment..."
-            curl -s "$VERCEL_APP_URL/api/enrich?force=true" | head -c 200
-          fi
+          echo "Refreshing props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/props?refresh=true" | head -c 300
+          echo ""
+
+      - name: Refresh today's WNBA props from odds API
+        continue-on-error: true   # WNBA is isolated — must never disturb the NBA pipeline
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Refreshing WNBA props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/props/wnba?refresh=true" | head -c 300
+          echo ""
+
+      - name: Run 3PM zone simulations
+        continue-on-error: true
+        run: |
+          pip install nba_api numpy requests -q
+          python3 scripts/sim_3pm.py || py -3 scripts/sim_3pm.py
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # ── Both runs: enrich with fresh defense stats + current lines ─────────
+
+      - name: Enrich props (AI confidence scoring)
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          # pipefail is REQUIRED: without it the pipe's exit code is head's (0),
+          # so a 4xx/5xx from /api/enrich (which curl -f turns into a non-zero
+          # exit) would be silently masked and the step would go green. This
+          # step is intentionally NOT continue-on-error — enrichment failing
+          # means today's confidence scores are stale, which we want loud.
+          set -eo pipefail
+          echo "Running AI enrichment..."
+          curl -sf --max-time 300 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/enrich?force=true" | head -c 300
+          echo ""
+
+      # ── Full pipeline only: generate streak + parlay once ─────────────────
+
+      - name: Generate daily streak picks
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Generating streak..."
+          curl -sf --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/feed/generate/streak" | head -c 300
+          echo ""
+
+      - name: Generate daily parlay
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Generating parlay..."
+          curl -sf --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/feed/generate/parlay" | head -c 300
+          echo ""
+
+      # ── Midday only: re-evaluate parlays with fresh line movement + injury data ──
+
+      - name: Re-evaluate daily parlays (Pass 2)
+        if: github.event.schedule == '0 15 * * *'
+        continue-on-error: true
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Running Pass 2 parlay re-evaluation..."
+          curl -sf --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/feed/generate/parlay?pass=2" | head -c 500
+          echo ""
+
+      # ── End-of-run guard: surface stale defense data WITHOUT having blocked the
+      # pipeline above. Season-aware: hard-fails (red run) only during the NBA
+      # regular season, when team_defense_stats is supposed to refresh daily;
+      # warns-and-passes during the playoffs/offseason when it is final by design.
+      - name: Assert defense data is fresh (season-aware; runs last)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 scripts/check_data_freshness.py
 
       - name: Done
-        run: echo "NBA IQ daily refresh complete"
+        run: echo "NBA IQ refresh complete"

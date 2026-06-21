@@ -1,0 +1,167 @@
+name: Weekly Model Diagnostic
+
+# Runs the full model_diagnostic.py against prop_grades and uploads the
+# diagnostic_report.json as a workflow artifact. Cadence: Sundays at 07:00 UTC
+# (3 AM ET) — 25 hours before the Monday weight-retrain so the retrain has a
+# fresh diagnostic signal in the same week.
+#
+# Outputs:
+#   - diagnostic-report-<run-id>.json  (artifact, 30-day retention)
+#   - GITHUB_STEP_SUMMARY              (calibration + factor + module-8 highlights)
+#
+# Manual trigger: Actions tab -> "Weekly Model Diagnostic" -> Run workflow.
+
+on:
+  schedule:
+    - cron: '0 7 * * 0'    # Sunday 07:00 UTC = Sat 11 PM PT / Sun 3 AM ET
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests numpy scipy scikit-learn
+
+      - name: Run diagnostic
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:     ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python scripts/model_diagnostic.py
+
+      - name: Build calibration table refresh
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:     ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python scripts/build_calibration.py
+
+      - name: Write step summary
+        if: always()
+        run: |
+          python <<'PY'
+          import json, os
+          from pathlib import Path
+
+          summary = ['# Weekly Model Diagnostic', '']
+          rep_path = Path('diagnostic_report.json')
+          if not rep_path.exists():
+              summary.append('Diagnostic did not produce a report.')
+          else:
+              r = json.loads(rep_path.read_text())
+              dr = r.get('data_range', {})
+              summary.append(f"**Window**: {dr.get('start','?')} -> {dr.get('end','?')} "
+                             f"({dr.get('total_props',0):,} props, {dr.get('game_days',0)} game days)")
+              summary.append('')
+
+              # Tier accuracy snapshot
+              summary.append('## Accuracy by tier')
+              summary.append('| Stat | LOCK | PLAY |')
+              summary.append('|---|---|---|')
+              for stat, tiers in (r.get('accuracy_matrix') or {}).items():
+                  lock = tiers.get('LOCK', {})
+                  play = tiers.get('PLAY', {})
+                  l = f"{lock.get('hit_rate',0)*100:.1f}% (n={lock.get('n',0)})" if lock.get('hit_rate') is not None else '---'
+                  p = f"{play.get('hit_rate',0)*100:.1f}% (n={play.get('n',0)})" if play.get('hit_rate') is not None else '---'
+                  summary.append(f"| {stat} | {l} | {p} |")
+              summary.append('')
+
+              # Calibration curve — flag overconfident buckets
+              summary.append('## Calibration curve')
+              summary.append('| Bucket | Predicted | Actual | n | Gap |')
+              summary.append('|---|---|---|---|---|')
+              for b in (r.get('calibration_curve') or []):
+                  gap = b['actual_rate'] - b['predicted_rate']
+                  flag = '!!' if abs(gap) > 0.10 and b['n'] >= 10 else ''
+                  summary.append(f"| {b['bucket']} | {b['predicted_rate']*100:.1f}% | "
+                                 f"{b['actual_rate']*100:.1f}% | {b['n']:,} | {gap*100:+.1f}% {flag} |")
+              summary.append('')
+
+              # Factor calibration — anti-correlated flags
+              fc = r.get('factor_calibration') or {}
+              if 'factors' in fc:
+                  summary.append('## Factor AUC')
+                  summary.append('| Factor | AUC | Corr | p | Anti-corr |')
+                  summary.append('|---|---|---|---|---|')
+                  for f in fc['factors']:
+                      flag = 'YES' if f.get('anti_correlated') else ''
+                      summary.append(f"| {f['factor']} | {f['auc']:.3f} | {f['correlation']:+.3f} | "
+                                     f"{f['p_value']:.4f} | {flag} |")
+                  summary.append('')
+
+              # Module 8 — logreg ceiling
+              lc = r.get('logreg_ceiling') or {}
+              if 'logreg_auc' in lc:
+                  ws = lc.get('weighted_score_auc')
+                  gap = lc.get('gap')
+                  summary.append('## LogReg ceiling check')
+                  summary.append(f"- LogReg val AUC: **{lc['logreg_auc']:.4f}**")
+                  if ws is not None:
+                      summary.append(f"- Current weighted-score AUC: {ws:.4f}")
+                      summary.append(f"- Gap: **{gap:+.4f}** "
+                                     f"{'(retrain may help)' if gap and gap > 0.02 else '(weights near linear ceiling)'}")
+                  summary.append('')
+
+              # Module 6 — line dispersion
+              ld = r.get('line_dispersion') or {}
+              if 'got_best_line' in ld:
+                  best = ld['got_best_line']
+                  worse = ld['got_worse_line']
+                  if best.get('hit_rate') is not None and worse.get('hit_rate') is not None:
+                      delta = (best['hit_rate'] - worse['hit_rate']) * 100
+                      summary.append('## Line shopping')
+                      summary.append(f"- Scored vs **best** line: {best['hit_rate']*100:.1f}% (n={best['n']:,})")
+                      summary.append(f"- Scored vs **worse** line: {worse['hit_rate']*100:.1f}% (n={worse['n']:,})")
+                      summary.append(f"- Delta: **{delta:+.1f} pts**")
+
+              recs = r.get('recommendations') or []
+              if recs:
+                  summary.append('')
+                  summary.append('## Recommendations')
+                  for rec in recs:
+                      summary.append(f"- {rec}")
+
+          out = os.environ.get('GITHUB_STEP_SUMMARY')
+          if out:
+              with open(out, 'a', encoding='utf-8') as f:
+                  f.write('\n'.join(summary) + '\n')
+          PY
+
+      - name: Check for calibration table changes
+        id: cal_changed
+        run: |
+          if git diff --quiet lib/calibration-table.json 2>/dev/null; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push refreshed calibration table
+        if: steps.cal_changed.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          VERSION=$(python -c "import json; t=json.load(open('lib/calibration-table.json')); print(t.get('version','?'))")
+          GENERATED=$(python -c "import json; t=json.load(open('lib/calibration-table.json')); print(t.get('generated_at','?')[:10])")
+          git add lib/calibration-table.json
+          git commit -m "chore(calibration): weekly refresh ${VERSION} (${GENERATED})"
+          git push origin master
+
+      - name: Upload diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-report-${{ github.run_id }}
+          path: |
+            diagnostic_report.json
+            lib/calibration-table.json
+          retention-days: 30

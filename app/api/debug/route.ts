@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
+import { requireCronAuth } from '@/lib/api-auth'
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authError = requireCronAuth(req)
+  if (authError) return authError
+
   const apiKey = process.env.ODDS_API_IO_KEY
   if (!apiKey) return NextResponse.json({ error: 'ODDS_API_IO_KEY not loaded' }, { status: 500 })
 
