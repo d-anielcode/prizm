@@ -97,6 +97,19 @@ jobs:
             "$VERCEL_APP_URL/api/grade" | head -c 300
           echo ""
 
+      - name: Grade WNBA props
+        if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true   # WNBA is isolated — must never disturb the NBA pipeline
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Grading WNBA props..."
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$VERCEL_APP_URL/api/grade/wnba" | head -c 300
+          echo ""
+
       # ── Both runs: fetch defense stats + player positions (best-effort) ──
       # NBA stats are pulled directly via nba_api ON THE RUNNER. stats.nba.com
       # times out from Vercel's serverless IPs — the old /api/defense-stats route
