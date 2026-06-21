@@ -14,11 +14,13 @@ export interface LeaguePropConfig {
   propsTable: string
   altsTable: string
   historyTable: string
+  /** WNBA props are unscored; snapshot them to history anyway so they can be graded. */
+  snapshotUnscored?: boolean
 }
 
 export const LEAGUE_PROP_CONFIGS: Record<'nba' | 'wnba', LeaguePropConfig> = {
   nba:  { league: 'nba',  fetchEvents: fetchTodaysNBAEvents,  propsTable: 'props',      altsTable: 'prop_alts',      historyTable: 'prop_history' },
-  wnba: { league: 'wnba', fetchEvents: fetchTodaysWNBAEvents, propsTable: 'wnba_props', altsTable: 'wnba_prop_alts', historyTable: 'wnba_prop_history' },
+  wnba: { league: 'wnba', fetchEvents: fetchTodaysWNBAEvents, propsTable: 'wnba_props', altsTable: 'wnba_prop_alts', historyTable: 'wnba_prop_history', snapshotUnscored: true },
 }
 
 function allGamesStarted(props: Prop[]): boolean {
@@ -60,10 +62,12 @@ async function fetchAndCacheFreshProps(cfg: LeaguePropConfig): Promise<Prop[]> {
     const mainProps = dedupedWithAlts.map(({ altLines: _alts, ...p }) => p)
     const now = new Date().toISOString()
 
-    const existing = await safeQuery(
-      supabase.from(cfg.propsTable).select('*').not('confidence_label', 'is', null),
-      'snapshot existing enriched props'
-    )
+    // NBA snapshots only enriched props; WNBA props are unscored, so snapshot all
+    // of them (snapshotUnscored) — grading is score-independent and needs history.
+    const snapQuery = cfg.snapshotUnscored
+      ? supabase.from(cfg.propsTable).select('*')
+      : supabase.from(cfg.propsTable).select('*').not('confidence_label', 'is', null)
+    const existing = await safeQuery(snapQuery, 'snapshot existing props')
     if (existing.length > 0) {
       const fallbackDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
       const historyRows = existing.map((p: Record<string, unknown>) => {

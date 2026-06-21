@@ -32,3 +32,10 @@ describe('LEAGUE_PROP_CONFIGS', () => {
     expect(typeof LEAGUE_PROP_CONFIGS.wnba.fetchEvents).toBe('function')
   })
 })
+
+describe('snapshotUnscored', () => {
+  it('WNBA snapshots unscored props; NBA does not', () => {
+    expect(LEAGUE_PROP_CONFIGS.wnba.snapshotUnscored).toBe(true)
+    expect(LEAGUE_PROP_CONFIGS.nba.snapshotUnscored ?? false).toBe(false)
+  })
+})
