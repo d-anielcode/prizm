@@ -22,6 +22,12 @@ export interface GameLogRow {
   fetched_at:  string
 }
 
+/** ESPN season type 1 = preseason. Those minutes/roles don't reflect real games,
+ *  so they must stay out of player_game_logs (hit rates, trends, season averages). */
+export function isPreseasonEvent(event: EspnRecord): boolean {
+  return Number((event.season as EspnRecord | undefined)?.type) === 1
+}
+
 export async function fetchGameLogsFromESPN(
   targetDate: string,
 ): Promise<{ rows: GameLogRow[]; games: number; total: number; boxScoreFailures?: number }> {
@@ -38,7 +44,7 @@ export async function fetchGameLogsFromESPN(
   const events = (sbData.events as EspnRecord[]) ?? []
   const completed = events.filter((e) => {
     const type = ((e.status as EspnRecord)?.type as EspnRecord)
-    return type?.completed === true
+    return type?.completed === true && !isPreseasonEvent(e)
   })
 
   if (completed.length === 0) return { rows: [], games: 0, total: events.length }
