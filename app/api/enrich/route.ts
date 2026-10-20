@@ -14,6 +14,7 @@ import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 import { isPlayerName } from '@/lib/odds-api'
 import { normalizePlayerName } from '@/lib/lineups'
+import { playerNameVariants } from '@/lib/player-aliases'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { pickSeasonRows } from '@/lib/season'
 
@@ -302,6 +303,8 @@ async function runEnrichment(force = false) {
 
   // ── Pre-compute keys needed for parallel fetches ─────────────────────────
   const uniqueNames = [...new Set(props.map((p) => p.player_name))]
+  // Logs may be stored under another spelling (Jokic/Jokić, CJ/C.J.); load them all.
+  const logLookupNames = [...new Set(uniqueNames.flatMap(playerNameVariants))]
   const gameDates   = [...new Set(
     props.map((p) => p.commence_time
       ? new Date(p.commence_time).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -327,7 +330,7 @@ async function runEnrichment(force = false) {
     while (true) {
       const { data: page, error } = await supabase
         .from('player_game_logs').select('*')
-        .in('player_name', uniqueNames)
+        .in('player_name', logLookupNames)
         .order('game_date', { ascending: false })
         .range(from, from + PAGE - 1)
       if (error) { console.error('[/api/enrich] game log error:', error.message); break }
@@ -493,10 +496,15 @@ async function runEnrichment(force = false) {
   }
 
   // ── Build in-memory maps from raw rows ────────────────────────────────────
+  // Keyed by normalizePlayerName so every spelling of a player shares one log list;
+  // a game stored under two spellings counts once.
   const logsMap = new Map<string, GameLog[]>()
+  const logDates = new Map<string, Set<string>>()
   for (const row of allLogRows) {
-    const name = row.player_name as string
-    if (!logsMap.has(name)) logsMap.set(name, [])
+    const name = normalizePlayerName(row.player_name as string)
+    if (!logsMap.has(name)) { logsMap.set(name, []); logDates.set(name, new Set()) }
+    if (logDates.get(name)!.has(row.game_date as string)) continue
+    logDates.get(name)!.add(row.game_date as string)
     logsMap.get(name)!.push({
       game_date:  row.game_date as string,
       matchup:    row.matchup as string,
@@ -610,7 +618,7 @@ async function runEnrichment(force = false) {
   console.log(`[/api/enrich] Parallel load done — logs: ${allLogRows.length} rows (${playersWithLogs}/${uniqueNames.length} players), hist: ${histRows.length} rows, ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U), injuries: ${injuryMap.size}, morning odds: ${openingOddsMap.size}, DVP teams: ${dvpMap.size}, positions: ${positionMap.size}, yesterday B2B: ${yesterdayTeams.size}`)
 
   // Flag players with no game logs so they show up in Vercel logs for easy backfill
-  const missingLogPlayers = uniqueNames.filter((name) => (logsMap.get(name)?.length ?? 0) < 3)
+  const missingLogPlayers = uniqueNames.filter((name) => (logsMap.get(normalizePlayerName(name))?.length ?? 0) < 3)
   if (missingLogPlayers.length > 0) {
     console.warn(`[/api/enrich] ⚠ Players with no/insufficient game logs (${missingLogPlayers.length}): ${missingLogPlayers.join(', ')}`)
     console.warn(`[/api/enrich] ⚠ Fix with: /api/gamelogs/player?name=<player+name> for each`)
@@ -621,7 +629,7 @@ async function runEnrichment(force = false) {
   // are relevant enough to have their own props set (= meaningful usage).
   const teamToPropPlayers = new Map<string, string[]>()  // teamAbbr → player names
   for (const prop of props) {
-    const logs = logsMap.get(prop.player_name) ?? []
+    const logs = logsMap.get(normalizePlayerName(prop.player_name)) ?? []
     const { playerTeamAbbr } = deriveMatchupContext(prop, logs)
     if (!playerTeamAbbr) continue
     if (!teamToPropPlayers.has(playerTeamAbbr)) teamToPropPlayers.set(playerTeamAbbr, [])
@@ -631,7 +639,7 @@ async function runEnrichment(force = false) {
 
   // ── Score every prop ──────────────────────────────────────────────────────
   const updates = props.map((prop) => {
-    const logs = logsMap.get(prop.player_name) ?? []
+    const logs = logsMap.get(normalizePlayerName(prop.player_name)) ?? []
     const { isHome, opponentAbbr, playerTeamAbbr } = deriveMatchupContext(prop, logs)
     const defStats = opponentAbbr ? (defMap.get(opponentAbbr) ?? null) : null
 
@@ -790,7 +798,7 @@ async function runEnrichment(force = false) {
         away_team:      alt.away_team as string | undefined,
         commence_time:  alt.commence_time as string | undefined,
       }
-      const logs = logsMap.get(pseudoProp.player_name) ?? []
+      const logs = logsMap.get(normalizePlayerName(pseudoProp.player_name)) ?? []
       const { isHome, opponentAbbr, playerTeamAbbr } = deriveMatchupContext(pseudoProp, logs)
       const defStats = opponentAbbr ? (defMap.get(opponentAbbr) ?? null) : null
       const homeAbbr = pseudoProp.home_team ? (TEAM_ABBR[pseudoProp.home_team] ?? null) : null

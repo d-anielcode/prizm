@@ -83,3 +83,35 @@ export function getEspnVariants(oddsName: string): string[] {
   // Return unique values (odds name first, then any ESPN variants)
   return [...new Set([oddsName, ...espnVariants])]
 }
+
+// Read-only equivalences for log lookups (not applied when writing names, unlike
+// ESPN_TO_ODDS): spellings seen in player_game_logs / props that the rules in
+// playerNameVariants can't derive (accents added, capitalization).
+const LOOKUP_EQUIVALENTS: string[][] = [
+  ['Nikola Vucevic', 'Nikola Vučević'],
+  ['Dennis Schroder', 'Dennis Schröder'],
+  ['Jake LaRavia', 'Jake Laravia'],
+]
+
+/**
+ * Every spelling a player's game logs may be stored under: the name itself, its
+ * odds-api/ESPN aliases, accent-stripped forms, "Jr"/"Jr." and "CJ"/"C.J." forms.
+ * Writers disagree ("Nikola Jokic" vs "Nikola Jokić", "RJ Barrett" vs "R.J. Barrett"),
+ * so query logs with all of these and match rows back with normalizePlayerName.
+ */
+export function playerNameVariants(name: string): string[] {
+  const strip = (s: string) => s.normalize('NFKD').replace(/\p{M}/gu, '')
+  const canon = normalizeEspnName(name)
+  const out = new Set([name, canon, ...getEspnVariants(name), ...getEspnVariants(canon)])
+  for (const group of LOOKUP_EQUIVALENTS) if (group.some((g) => out.has(g))) group.forEach((g) => out.add(g))
+  for (const n of [...out]) {
+    out.add(strip(n))
+    // Suffix with and without period: "Jabari Smith Jr" / "Jabari Smith Jr."
+    const suffix = n.match(/^(.*\s(?:Jr|Sr))\.?$/)
+    if (suffix) { out.add(suffix[1]); out.add(`${suffix[1]}.`) }
+    // Two-letter initials with and without periods: "CJ McCollum" / "C.J. McCollum"
+    const initials = n.match(/^([A-Z])\.?([A-Z])\.?(\s.*)$/)
+    if (initials) { out.add(`${initials[1]}${initials[2]}${initials[3]}`); out.add(`${initials[1]}.${initials[2]}.${initials[3]}`) }
+  }
+  return [...out]
+}
