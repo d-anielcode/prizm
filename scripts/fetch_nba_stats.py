@@ -341,10 +341,10 @@ RANK_COL_MAP = {
     'fg3m_rank': 'OPP_FG3M_RANK',
 }
 
-def fetch_opponent_stats(last_n_games=0):
+def fetch_opponent_stats(last_n_games=0, season=None):
     """Fetch LeagueDashTeamStats in Opponent mode. last_n_games=0 means full season."""
     kwargs = dict(
-        season=SEASON,
+        season=season or DEF_SEASON,
         season_type_all_star='Regular Season',
         measure_type_detailed_defense='Opponent',
         per_mode_detailed='PerGame',
@@ -363,9 +363,24 @@ def fetch_opponent_stats(last_n_games=0):
 def _abbr_of(row):
     return TEAM_ID_TO_ABBR.get(int(row['TEAM_ID'])) if row.get('TEAM_ID') is not None else None
 
+# Early in a season the current table covers a few teams over a game or two;
+# keep last season's ranks until every team has a real sample (defense_season.py).
+from defense_season import choose_defense_season
+DEF_SEASON = PREV_SEASON
+df_current = None
+try:
+    df_current = fetch_opponent_stats(season=SEASON)
+    current_gp = list(df_current['GP']) if 'GP' in df_current.columns else []
+except Exception as e:
+    print(f"      WARN: {SEASON} defense fetch failed ({e}); using {PREV_SEASON}")
+    current_gp = []
+DEF_SEASON = choose_defense_season(current_gp, SEASON, PREV_SEASON)
+print(f"      Defense season: {DEF_SEASON} ({SEASON} has {len(current_gp)} teams, "
+      f"min GP {min(current_gp) if current_gp else 0})")
+
 try:
     # 4a. Season-long defense ranks (use NBA's native OPP_*_RANK columns)
-    df_season = fetch_opponent_stats(last_n_games=0)
+    df_season = df_current if DEF_SEASON == SEASON else fetch_opponent_stats(season=DEF_SEASON)
     team_rows = []
     for _, row in df_season.iterrows():
         abbr = _abbr_of(row)
@@ -402,7 +417,7 @@ try:
     try:
         # PACE is only exposed by the Advanced measure type (not Base).
         pace_df = leaguedashteamstats.LeagueDashTeamStats(
-            season=SEASON,
+            season=DEF_SEASON,
             season_type_all_star='Regular Season',
             measure_type_detailed_defense='Advanced',
             per_mode_detailed='PerGame',
@@ -439,7 +454,7 @@ try:
         time.sleep(1)
         try:
             dvp_df = leaguedashteamstats.LeagueDashTeamStats(
-                season=SEASON,
+                season=DEF_SEASON,
                 measure_type_detailed_defense='Opponent',
                 per_mode_detailed='PerGame',
                 player_position_abbreviation_nullable=position_abbr,

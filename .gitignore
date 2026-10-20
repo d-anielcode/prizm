@@ -52,3 +52,4 @@ supabase/.temp/
 graphify-out/
 .graphify_*
 .superpowers/
+.logs/
