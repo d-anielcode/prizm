@@ -16,6 +16,10 @@ on:
     - cron: '0 7 * * 0'    # Sunday 07:00 UTC = Sat 11 PM PT / Sun 3 AM ET
   workflow_dispatch:
 
+# Needed to push the refreshed JSON back to master (repo default token is read-only).
+permissions:
+  contents: write
+
 jobs:
   diagnose:
     runs-on: ubuntu-latest

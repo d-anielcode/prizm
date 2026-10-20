@@ -5,6 +5,10 @@ on:
     - cron: '0 8 * * 1'   # Monday 8:00 UTC = 4:00 AM ET
   workflow_dispatch:        # Manual trigger
 
+# Needed to push the refreshed JSON back to master (repo default token is read-only).
+permissions:
+  contents: write
+
 jobs:
   retrain:
     runs-on: ubuntu-latest
