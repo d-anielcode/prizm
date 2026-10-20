@@ -533,8 +533,8 @@ async function runEnrichment(force = false) {
     (seasonRows ?? []) as { player_name: string; season: string; games_played: number | null }[],
     CURRENT_SEASON,
   )
-  for (const row of seasonPicked.values() as Iterable<Record<string, unknown>>) {
-    seasonMap.set(row.player_name as string, {
+  for (const [nameKey, row] of seasonPicked as Map<string, Record<string, unknown>>) {
+    seasonMap.set(nameKey, {
       avg_points:   row.avg_points   != null ? Number(row.avg_points)   : null,
       avg_rebounds: row.avg_rebounds != null ? Number(row.avg_rebounds) : null,
       avg_assists:  row.avg_assists  != null ? Number(row.avg_assists)  : null,
@@ -681,7 +681,7 @@ async function runEnrichment(force = false) {
       ? currentProb - openingProb
       : null
 
-    const playerSeasonStats = seasonMap.get(prop.player_name) ?? null
+    const playerSeasonStats = seasonMap.get(normalizePlayerName(prop.player_name)) ?? null
     const playerPosition    = positionMap.get(prop.player_name) ?? inferPlayerPosition(playerSeasonStats)
     const dvpStats          = opponentAbbr ? (dvpMap.get(opponentAbbr) ?? null) : null
     const opponentOnB2B     = opponentAbbr ? yesterdayTeams.has(opponentAbbr) : false
@@ -809,7 +809,7 @@ async function runEnrichment(force = false) {
           injuredTeammates.push({ name: tName, status: tInjury.status, impactScore: 1 / Math.max(teammates.length + 1, 1) })
         }
       }
-      const altSeasonStats = seasonMap.get(pseudoProp.player_name) ?? null
+      const altSeasonStats = seasonMap.get(normalizePlayerName(pseudoProp.player_name)) ?? null
       const altPosition    = positionMap.get(pseudoProp.player_name) ?? inferPlayerPosition(altSeasonStats)
       const altDvpStats    = opponentAbbr ? (dvpMap.get(opponentAbbr) ?? null) : null
       const altB2B         = opponentAbbr ? yesterdayTeams.has(opponentAbbr) : false

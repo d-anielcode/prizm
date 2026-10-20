@@ -17,22 +17,27 @@ describe('pickSeasonRows', () => {
 
   it('uses last season until the current season has enough games', () => {
     const m = pickSeasonRows([row('A', '2026-27', 2), row('A', '2025-26', 70)], '2026-27')
-    expect(m.get('A')?.season).toBe('2025-26')
+    expect(m.get('a')?.season).toBe('2025-26')
   })
 
   it('switches to the current season once the sample is big enough', () => {
     const m = pickSeasonRows([row('A', '2026-27', 5), row('A', '2025-26', 70)], '2026-27')
-    expect(m.get('A')?.season).toBe('2026-27')
+    expect(m.get('a')?.season).toBe('2026-27')
   })
 
   it('keeps a small current-season row for rookies with no prior season', () => {
     const m = pickSeasonRows([row('R', '2026-27', 1)], '2026-27')
-    expect(m.get('R')?.season).toBe('2026-27')
+    expect(m.get('r')?.season).toBe('2026-27')
+  })
+
+  it('matches spellings with and without accents', () => {
+    const m = pickSeasonRows([row('Nikola Jokić', '2025-26', 71)], '2026-27')
+    expect(m.get('nikola jokic')?.games_played).toBe(71)
   })
 
   it('ignores seasons older than last season', () => {
     const m = pickSeasonRows([row('A', '2024-25', 80)], '2026-27')
-    expect(m.has('A')).toBe(false)
+    expect(m.has('a')).toBe(false)
   })
 })
 

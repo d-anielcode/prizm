@@ -23,6 +23,7 @@ export const MIN_CURRENT_SEASON_GAMES = 5
  * Pick one season-stats row per player: the current season once it has
  * MIN_CURRENT_SEASON_GAMES games, otherwise the previous season if present,
  * otherwise whatever current-season row exists. Rows from other seasons are ignored.
+ * Keyed by normalizePlayerName, since props spell names both ways ("Jokic" / "Jokić").
  */
 export function pickSeasonRows<T extends { player_name: string; season: string; games_played: number | null }>(
   rows: T[],
@@ -32,8 +33,9 @@ export function pickSeasonRows<T extends { player_name: string; season: string; 
   const cur = new Map<string, T>()
   const prev = new Map<string, T>()
   for (const r of rows) {
-    if (r.season === currentSeason) cur.set(r.player_name, r)
-    else if (r.season === prevSeason) prev.set(r.player_name, r)
+    const key = normalizePlayerName(r.player_name)
+    if (r.season === currentSeason) cur.set(key, r)
+    else if (r.season === prevSeason) prev.set(key, r)
   }
   const out = new Map<string, T>()
   for (const name of new Set([...cur.keys(), ...prev.keys()])) {
