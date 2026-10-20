@@ -42,7 +42,13 @@ SB_HEADERS = {
     'Prefer': 'resolution=merge-duplicates',
 }
 
-CURRENT_SEASON = '2025-26'
+def _nba_season(offset=0):
+    """NBA season id like '2026-27'. Seasons start in October (mirrors lib/constants.ts)."""
+    from datetime import date as _d
+    t = _d.today()
+    start = (t.year if t.month >= 10 else t.year - 1) + offset
+    return f"{start}-{str(start + 1)[-2:]}"
+CURRENT_SEASON = _nba_season()
 
 def map_position(raw):
     """Map raw NBA position string to guard/forward/center."""

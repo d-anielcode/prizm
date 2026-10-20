@@ -143,8 +143,14 @@ def parse_minutes(min_str) -> float:
         return 0.0
 
 # ── Season constants (used in Steps 1 and 3) ─────────────────────────────────
-SEASON      = '2025-26'
-PREV_SEASON = '2024-25'
+def _nba_season(offset=0):
+    """NBA season id like '2026-27'. Seasons start in October (mirrors lib/constants.ts)."""
+    from datetime import date as _d
+    t = _d.today()
+    start = (t.year if t.month >= 10 else t.year - 1) + offset
+    return f"{start}-{str(start + 1)[-2:]}"
+SEASON      = _nba_season()
+PREV_SEASON = _nba_season(-1)
 
 # ── Step 1: Get player names ──────────────────────────────────────────────────
 use_history_mode = args.yesterday or args.today or args.date is not None
