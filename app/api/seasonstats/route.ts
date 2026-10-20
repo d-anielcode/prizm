@@ -156,19 +156,24 @@ export async function GET(req: Request) {
       return NextResponse.json({ message: `No ${season} game logs yet — cleared ${season} season stats`, season, rows: 0 })
     }
 
-    // Aggregate per player
-    const playerMap = new Map<string, PlayerAccum>()
+    // Aggregate per player. Key by nba_id: the same player can appear under two
+    // spellings (e.g. "Nikola Jokic" / "Nikola Jokić"), and (nba_id, season) is the
+    // upsert key — two rows with one nba_id makes Postgres reject the whole batch.
+    const playerMap = new Map<string, PlayerAccum & { names: Map<string, number> }>()
 
     for (const log of logs) {
       const name = log.player_name as string
       if (!name) continue
-      if (!playerMap.has(name)) {
-        playerMap.set(name, {
-          nba_id: (log.nba_id as string | null) ?? null,
+      const key = log.nba_id != null ? String(log.nba_id) : `local_${name}`
+      if (!playerMap.has(key)) {
+        playerMap.set(key, {
+          nba_id: log.nba_id != null ? String(log.nba_id) : null,
+          names: new Map(),
           pts: [], reb: [], ast: [], stl: [], blk: [], fg3m: [], pra: [], min: [],
         })
       }
-      const p = playerMap.get(name)!
+      const p = playerMap.get(key)!
+      p.names.set(name, (p.names.get(name) ?? 0) + 1)
       p.pts.push(Number(log.points   ?? 0))
       p.reb.push(Number(log.rebounds ?? 0))
       p.ast.push(Number(log.assists  ?? 0))
@@ -180,7 +185,9 @@ export async function GET(req: Request) {
     }
 
     const rows = []
-    for (const [player_name, d] of playerMap) {
+    for (const d of playerMap.values()) {
+      // Most-used spelling wins (game logs are normalized to odds-api names going forward).
+      const player_name = [...d.names.entries()].sort((a, b) => b[1] - a[1])[0][0]
       const row = buildRow(player_name, d, now, season)
       if (row) rows.push(row)
     }
