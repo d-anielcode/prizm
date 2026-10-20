@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getEspnVariants } from '@/lib/player-aliases'
 import { CURRENT_SEASON } from '@/lib/constants'
-import { seasonDateRange, SEASON_ID_RE } from '@/lib/season'
+import { seasonDateRange, SEASON_ID_RE, groupSeasonLogs, type SeasonLogGroup } from '@/lib/season'
 import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 
@@ -20,34 +20,31 @@ function avg(arr: number[]): number | null {
   return arr.length ? +(arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1) : null
 }
 
-interface PlayerAccum {
-  nba_id: string | null
-  pts:  number[]; reb:  number[]; ast: number[]
-  stl:  number[]; blk:  number[]; fg3m: number[]
-  pra:  number[]; min:  number[]
+type LogRow = {
+  player_name: string; nba_id: string | number | null; game_date: string
+  points: number | null; rebounds: number | null; assists: number | null; steals: number | null
+  blocks: number | null; fg3m: number | null; pra: number | null; minutes: number | null
 }
 
-function buildRow(
-  player_name: string,
-  d: PlayerAccum,
-  now: string,
-  season: string,
-) {
-  const gp = d.pts.length
+const LOG_COLUMNS = 'player_name, nba_id, game_date, points, rebounds, assists, steals, blocks, fg3m, pra, minutes'
+
+function buildRow(g: SeasonLogGroup<LogRow>, now: string, season: string) {
+  const gp = g.logs.length
   if (gp < 1) return null
+  const col = (k: keyof LogRow) => avg(g.logs.map((l) => Number(l[k] ?? 0)))
   return {
-    nba_id:       d.nba_id ?? `local_${player_name}`,
-    player_name,
+    nba_id:       g.nba_id,
+    player_name:  g.player_name,
     season,
     games_played: gp,
-    avg_points:   avg(d.pts),
-    avg_rebounds: avg(d.reb),
-    avg_assists:  avg(d.ast),
-    avg_steals:   avg(d.stl),
-    avg_blocks:   avg(d.blk),
-    avg_fg3m:     avg(d.fg3m),
-    avg_pra:      avg(d.pra),
-    avg_minutes:  avg(d.min),
+    avg_points:   col('points'),
+    avg_rebounds: col('rebounds'),
+    avg_assists:  col('assists'),
+    avg_steals:   col('steals'),
+    avg_blocks:   col('blocks'),
+    avg_fg3m:     col('fg3m'),
+    avg_pra:      col('pra'),
+    avg_minutes:  col('minutes'),
     fetched_at:   now,
   }
 }
@@ -68,7 +65,7 @@ export async function GET(req: Request) {
 
   try {
     const now  = new Date().toISOString()
-    const logs: Record<string, unknown>[] = []
+    const logs: LogRow[] = []
 
     if (playerArg) {
       // ── Single-player mode: efficient lookup for one player ──────────────────
@@ -78,7 +75,7 @@ export async function GET(req: Request) {
       while (true) {
         const { data: page, error } = await supabase
           .from('player_game_logs')
-          .select('player_name, nba_id, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
+          .select(LOG_COLUMNS)
           .in('player_name', nameVariants)
           .gte('game_date', start)
           .lte('game_date', end)
@@ -98,23 +95,9 @@ export async function GET(req: Request) {
         })
       }
 
-      // Aggregate (all variants counted under the requested name)
-      const accum: PlayerAccum = {
-        nba_id: (logs[0]?.nba_id as string | null) ?? null,
-        pts: [], reb: [], ast: [], stl: [], blk: [], fg3m: [], pra: [], min: [],
-      }
-      for (const log of logs) {
-        accum.pts.push(Number(log.points   ?? 0))
-        accum.reb.push(Number(log.rebounds ?? 0))
-        accum.ast.push(Number(log.assists  ?? 0))
-        accum.stl.push(Number(log.steals   ?? 0))
-        accum.blk.push(Number(log.blocks   ?? 0))
-        accum.fg3m.push(Number(log.fg3m    ?? 0))
-        accum.pra.push(Number(log.pra      ?? 0))
-        accum.min.push(Number(log.minutes  ?? 0))
-      }
-
-      const row = buildRow(playerArg, accum, now, season)
+      // All variants count under the requested name; each game date once.
+      const [group] = groupSeasonLogs(logs.map((l) => ({ ...l, player_name: playerArg })))
+      const row = group ? buildRow(group, now, season) : null
       if (!row) {
         return NextResponse.json({ message: 'Insufficient data', player: playerArg, rows: 0 })
       }
@@ -137,7 +120,7 @@ export async function GET(req: Request) {
     while (true) {
       const { data: page, error: logsError } = await supabase
         .from('player_game_logs')
-        .select('player_name, nba_id, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
+        .select(LOG_COLUMNS)
         .gte('game_date', start)
         .lte('game_date', end)
         .order('id')
@@ -156,41 +139,15 @@ export async function GET(req: Request) {
       return NextResponse.json({ message: `No ${season} game logs yet — cleared ${season} season stats`, season, rows: 0 })
     }
 
-    // Aggregate per player. Key by nba_id: the same player can appear under two
-    // spellings (e.g. "Nikola Jokic" / "Nikola Jokić"), and (nba_id, season) is the
-    // upsert key — two rows with one nba_id makes Postgres reject the whole batch.
-    const playerMap = new Map<string, PlayerAccum & { names: Map<string, number> }>()
-
-    for (const log of logs) {
-      const name = log.player_name as string
-      if (!name) continue
-      const key = log.nba_id != null ? String(log.nba_id) : `local_${name}`
-      if (!playerMap.has(key)) {
-        playerMap.set(key, {
-          nba_id: log.nba_id != null ? String(log.nba_id) : null,
-          names: new Map(),
-          pts: [], reb: [], ast: [], stl: [], blk: [], fg3m: [], pra: [], min: [],
-        })
-      }
-      const p = playerMap.get(key)!
-      p.names.set(name, (p.names.get(name) ?? 0) + 1)
-      p.pts.push(Number(log.points   ?? 0))
-      p.reb.push(Number(log.rebounds ?? 0))
-      p.ast.push(Number(log.assists  ?? 0))
-      p.stl.push(Number(log.steals   ?? 0))
-      p.blk.push(Number(log.blocks   ?? 0))
-      p.fg3m.push(Number(log.fg3m    ?? 0))
-      p.pra.push(Number(log.pra      ?? 0))
-      p.min.push(Number(log.minutes  ?? 0))
+    // One row per player, matched across id systems and spellings (see groupSeasonLogs).
+    // Names that don't normalize together ("Paul Reed" / "Paul Reed Jr") can still share an
+    // nba_id; keep the bigger sample so no batch has a duplicate upsert key.
+    const byId = new Map<string, NonNullable<ReturnType<typeof buildRow>>>()
+    for (const group of groupSeasonLogs(logs)) {
+      const row = buildRow(group, now, season)
+      if (row && row.games_played > (byId.get(row.nba_id)?.games_played ?? 0)) byId.set(row.nba_id, row)
     }
-
-    const rows = []
-    for (const d of playerMap.values()) {
-      // Most-used spelling wins (game logs are normalized to odds-api names going forward).
-      const player_name = [...d.names.entries()].sort((a, b) => b[1] - a[1])[0][0]
-      const row = buildRow(player_name, d, now, season)
-      if (row) rows.push(row)
-    }
+    const rows = [...byId.values()]
 
     console.log(`[/api/seasonstats] Computing averages for ${rows.length} players from ${logs.length} game logs...`)
 
