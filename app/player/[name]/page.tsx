@@ -8,6 +8,7 @@ import type { Prop, StatType } from '@/types'
 import { getEspnVariants } from '@/lib/player-aliases'
 import { TEAM_ABBR } from '@/lib/team-abbr'
 import { CURRENT_SEASON } from '@/lib/constants'
+import { pickSeasonRows, shiftSeason } from '@/lib/season'
 import { calibratedPct } from '@/lib/calibration'
 import { loadLineupMap, lineupBadgeFor } from '@/lib/lineups'
 import { LineupBadge } from '@/components/LineupBadge'
@@ -349,13 +350,17 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
     .from('player_season_stats')
     .select('*')
     .in('player_name', nameVariants)
-    .eq('season', CURRENT_SEASON)
-    .order('games_played', { ascending: false })
-    .limit(1)
+    .in('season', [CURRENT_SEASON, shiftSeason(CURRENT_SEASON, -1)])
+    .order('games_played', { ascending: true })
 
-  const seasonStats: SeasonStats | null = seasonRows?.[0]
-    ? (seasonRows[0] as unknown as SeasonStats)
-    : null
+  // Same rule as enrich: last season until this season has a real sample.
+  // (ascending order → the largest-sample name variant wins per player.)
+  const picked = [...pickSeasonRows(
+    (seasonRows ?? []) as { player_name: string; season: string; games_played: number | null }[],
+    CURRENT_SEASON,
+  ).values()].sort((a, b) => (b.games_played ?? 0) - (a.games_played ?? 0))[0]
+  const seasonStats: SeasonStats | null = picked ? (picked as unknown as SeasonStats) : null
+  const seasonLabel = picked?.season ?? CURRENT_SEASON
 
   // ── 5. Derive team / opponent context ─────────────────────────────────────────
   const latestMatchup   = (logRows?.[0]?.matchup as string) ?? ''
@@ -459,7 +464,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
       {/* ── Season averages ── */}
       {seasonStats ? (
         <StatGrid
-          label={`${CURRENT_SEASON} Season`}
+          label={`${seasonLabel} Season`}
           subLabel={`${seasonStats.games_played} games played`}
           stats={[
             ['PTS',  seasonStats.avg_points],

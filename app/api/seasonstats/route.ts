@@ -8,12 +8,12 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getEspnVariants } from '@/lib/player-aliases'
 import { CURRENT_SEASON } from '@/lib/constants'
+import { seasonDateRange, SEASON_ID_RE } from '@/lib/season'
 import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 
 export const maxDuration = 120
 
-const SEASON = CURRENT_SEASON
 const PAGE   = 1000
 
 function avg(arr: number[]): number | null {
@@ -31,13 +31,14 @@ function buildRow(
   player_name: string,
   d: PlayerAccum,
   now: string,
+  season: string,
 ) {
   const gp = d.pts.length
   if (gp < 1) return null
   return {
     nba_id:       d.nba_id ?? `local_${player_name}`,
     player_name,
-    season:       SEASON,
+    season,
     games_played: gp,
     avg_points:   avg(d.pts),
     avg_rebounds: avg(d.reb),
@@ -57,6 +58,13 @@ export async function GET(req: Request) {
 
   const url       = new URL(req.url)
   const playerArg = url.searchParams.get('player')?.trim()
+  // ?season=2025-26 recomputes a past season; default is the current one.
+  const season    = url.searchParams.get('season') ?? CURRENT_SEASON
+  if (!SEASON_ID_RE.test(season)) {
+    return NextResponse.json({ error: `Invalid season "${season}" (expected e.g. 2026-27)` }, { status: 400 })
+  }
+  // Only this season's games — the table holds several seasons of logs.
+  const { start, end } = seasonDateRange(season)
 
   try {
     const now  = new Date().toISOString()
@@ -72,6 +80,8 @@ export async function GET(req: Request) {
           .from('player_game_logs')
           .select('player_name, nba_id, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
           .in('player_name', nameVariants)
+          .gte('game_date', start)
+          .lte('game_date', end)
           .range(from, from + PAGE - 1)
         if (error) throw new Error(error.message)
         if (!page || page.length === 0) break
@@ -104,7 +114,7 @@ export async function GET(req: Request) {
         accum.min.push(Number(log.minutes  ?? 0))
       }
 
-      const row = buildRow(playerArg, accum, now)
+      const row = buildRow(playerArg, accum, now, season)
       if (!row) {
         return NextResponse.json({ message: 'Insufficient data', player: playerArg, rows: 0 })
       }
@@ -128,6 +138,9 @@ export async function GET(req: Request) {
       const { data: page, error: logsError } = await supabase
         .from('player_game_logs')
         .select('player_name, nba_id, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
+        .gte('game_date', start)
+        .lte('game_date', end)
+        .order('id')
         .range(from, from + PAGE - 1)
       if (logsError) throw new Error(logsError.message)
       if (!page || page.length === 0) break
@@ -137,7 +150,10 @@ export async function GET(req: Request) {
     }
 
     if (logs.length === 0) {
-      return NextResponse.json({ message: 'No game logs found. Run /api/gamelogs first.', rows: 0 })
+      // No games yet this season: drop stale rows so enrich falls back to last season.
+      const { error: clearErr } = await supabase.from('player_season_stats').delete().eq('season', season)
+      if (clearErr) throw new Error(clearErr.message)
+      return NextResponse.json({ message: `No ${season} game logs yet — cleared ${season} season stats`, season, rows: 0 })
     }
 
     // Aggregate per player
@@ -165,7 +181,7 @@ export async function GET(req: Request) {
 
     const rows = []
     for (const [player_name, d] of playerMap) {
-      const row = buildRow(player_name, d, now)
+      const row = buildRow(player_name, d, now, season)
       if (row) rows.push(row)
     }
 
@@ -183,8 +199,19 @@ export async function GET(req: Request) {
       else console.error('[/api/seasonstats] upsert error:', error.message)
     }
 
+    // Remove rows for players with no games in this season's window (only after a clean upsert).
+    if (upserted === rows.length) {
+      const { error: pruneErr } = await supabase
+        .from('player_season_stats')
+        .delete()
+        .eq('season', season)
+        .lt('fetched_at', now)
+      if (pruneErr) console.error('[/api/seasonstats] prune error:', pruneErr.message)
+    }
+
     return NextResponse.json({
-      message: `Computed season stats for ${upserted} players from ${logs.length} game logs`,
+      message: `Computed ${season} season stats for ${upserted} players from ${logs.length} game logs`,
+      season,
       players: upserted,
       gameLogs: logs.length,
     })

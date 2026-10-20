@@ -14,6 +14,8 @@ import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 import { isPlayerName } from '@/lib/odds-api'
 import { normalizePlayerName } from '@/lib/lineups'
+import { CURRENT_SEASON } from '@/lib/constants'
+import { pickSeasonRows } from '@/lib/season'
 
 export const maxDuration = 300
 import {
@@ -526,7 +528,12 @@ async function runEnrichment(force = false) {
   for (const row of defRows ?? []) defMap.set(row.team_abbreviation as string, row as TeamDefenseStats)
 
   const seasonMap = new Map<string, SeasonStats>()
-  for (const row of seasonRows ?? []) {
+  // Current season once a player has a real sample, else last season (early October).
+  const seasonPicked = pickSeasonRows(
+    (seasonRows ?? []) as { player_name: string; season: string; games_played: number | null }[],
+    CURRENT_SEASON,
+  )
+  for (const row of seasonPicked.values() as Iterable<Record<string, unknown>>) {
     seasonMap.set(row.player_name as string, {
       avg_points:   row.avg_points   != null ? Number(row.avg_points)   : null,
       avg_rebounds: row.avg_rebounds != null ? Number(row.avg_rebounds) : null,
