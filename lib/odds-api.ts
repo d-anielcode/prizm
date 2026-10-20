@@ -49,6 +49,7 @@ export function isPlayerName(name: string, homeTeam?: string, awayTeam?: string)
   if (!name) return false
   const trimmed = name.trim()
   if (trimmed === 'Both Teams') return false
+  if (trimmed === 'Any Player') return false // "any player to hit X" market, not a player prop
   if (trimmed.endsWith(' Alternate')) return false
   if (trimmed.endsWith(' Total')) return false
   if (homeTeam && trimmed === homeTeam) return false

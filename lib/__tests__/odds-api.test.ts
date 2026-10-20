@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { selectEarliestSlate } from '../odds-api'
-import { fetchEventsForLeagues, fetchTodaysWNBAEvents } from '../odds-api'
+import { fetchEventsForLeagues, fetchTodaysWNBAEvents, isPlayerName } from '../odds-api'
 
 type RawEvent = { id: number; home: string; away: string; date: string; status: string }
 
@@ -53,5 +53,21 @@ describe('fetchEventsForLeagues', () => {
   })
   it('exposes a WNBA convenience wrapper', () => {
     expect(typeof fetchTodaysWNBAEvents).toBe('function')
+  })
+})
+
+describe('isPlayerName', () => {
+  it('accepts real player names', () => {
+    expect(isPlayerName('Jayson Tatum', 'Detroit Pistons', 'Boston Celtics')).toBe(true)
+  })
+
+  // Regression: "Any Player (Threes)" style markets were scored as a player prop.
+  it('rejects the generic "Any Player" market', () => {
+    expect(isPlayerName('Any Player', 'Detroit Pistons', 'Boston Celtics')).toBe(false)
+  })
+
+  it('rejects team-total markets', () => {
+    expect(isPlayerName('Both Teams')).toBe(false)
+    expect(isPlayerName('Boston Celtics', 'Detroit Pistons', 'Boston Celtics')).toBe(false)
   })
 })
