@@ -23,10 +23,10 @@ jobs:
       # fetch_player_positions.py, sim_3pm.py, check_data_freshness.py).
       # Without checkout these silently failed with "No such file".
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
