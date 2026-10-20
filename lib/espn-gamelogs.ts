@@ -22,6 +22,12 @@ export interface GameLogRow {
   fetched_at:  string
 }
 
+/** ESPN timestamps are UTC; NBA game dates are ET calendar days (a 9 PM ET tip is
+ *  02:00Z the next day). Every game_date in player_game_logs must use the ET date. */
+export function espnGameDateToEt(isoUtc: string): string {
+  return new Date(isoUtc).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+}
+
 /** ESPN season type 1 = preseason. Those minutes/roles don't reflect real games,
  *  so they must stay out of player_game_logs (hit rates, trends, season averages). */
 export function isPreseasonEvent(event: EspnRecord): boolean {

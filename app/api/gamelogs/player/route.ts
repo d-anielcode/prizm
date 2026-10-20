@@ -8,7 +8,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireCronAuth } from '@/lib/api-auth'
-import type { GameLogRow } from '@/lib/espn-gamelogs'
+import { espnGameDateToEt, type GameLogRow } from '@/lib/espn-gamelogs'
+import { CURRENT_SEASON } from '@/lib/constants'
+import { seasonDateRange } from '@/lib/season'
 
 function getDb() {
   return createClient(
@@ -83,7 +85,11 @@ export async function GET(req: Request) {
   const rows: GameLogRow[] = []
   const now = new Date().toISOString()
 
+  const seasonStart = seasonDateRange(CURRENT_SEASON).start
+
   for (const seasonType of seasonTypes) {
+    // Preseason minutes/roles aren't real games (same rule as the scoreboard fetch).
+    if (/preseason/i.test(String(seasonType.displayName ?? ''))) continue
     for (const category of (seasonType.categories as Record<string, unknown>[]) ?? []) {
       for (const ev of (category.events as Record<string, unknown>[]) ?? []) {
         const eventId = ev.eventId as string
@@ -98,9 +104,9 @@ export async function GET(req: Request) {
         const meta = eventsMap[eventId]
         if (!meta) continue
 
-        const gameDate = (meta.gameDate as string).slice(0, 10)
+        const gameDate = espnGameDateToEt(meta.gameDate as string)
         // Only current season
-        if (gameDate < '2025-10-22') continue
+        if (gameDate < seasonStart) continue
 
         const isHome = (meta.atVs as string) !== '@'
         const playerTeam = (meta.team as Record<string, string>)?.abbreviation ?? ''
