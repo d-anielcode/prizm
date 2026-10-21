@@ -18,9 +18,23 @@
 
 import { applyCalibration } from '@/lib/calibration'
 
-/** Convert American odds to decimal. -110 -> 1.909, +120 -> 2.20 */
+/** Player-prop prices outside this band are near-certain or longshot alt lines
+ *  (or bad data): seen in prop_history as -10000 / +3000. They're never usable
+ *  picks, and a handful of them dominates any EV or ROI average. */
+export const ODDS_SANE_MIN = -500
+export const ODDS_SANE_MAX = 500
+
+/** True for a usable American price: -500..-100 or +100..+500. */
+export function isSaneOdds(odds: number | null | undefined): odds is number {
+  if (odds == null || !Number.isFinite(odds)) return false
+  if (Math.abs(odds) < 100) return false
+  return odds >= ODDS_SANE_MIN && odds <= ODDS_SANE_MAX
+}
+
+/** Convert American odds to decimal. -110 -> 1.909, +120 -> 2.20.
+ *  Null for missing or out-of-range odds (see isSaneOdds). */
 export function americanToDecimal(odds: number | null | undefined): number | null {
-  if (odds == null || !Number.isFinite(odds)) return null
+  if (!isSaneOdds(odds)) return null
   if (odds > 0)  return 1 + odds / 100
   if (odds < 0)  return 1 + 100 / Math.abs(odds)
   return null  // 0 odds is malformed

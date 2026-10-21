@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { selectEarliestSlate } from '../odds-api'
-import { fetchEventsForLeagues, fetchTodaysWNBAEvents, isPlayerName } from '../odds-api'
+import { fetchEventsForLeagues, fetchTodaysWNBAEvents, isPlayerName, parsePropsFromEvent } from '../odds-api'
 
 type RawEvent = { id: number; home: string; away: string; date: string; status: string }
 
@@ -69,5 +69,24 @@ describe('isPlayerName', () => {
   it('rejects team-total markets', () => {
     expect(isPlayerName('Both Teams')).toBe(false)
     expect(isPlayerName('Boston Celtics', 'Detroit Pistons', 'Boston Celtics')).toBe(false)
+  })
+})
+
+describe('parsePropsFromEvent odds sanity', () => {
+  const event = (over: string, under: string) => ({
+    id: 1, home_team: 'Detroit Pistons', away_team: 'Boston Celtics', commence_time: '2026-10-20T23:00:00Z',
+    bookmakers: { DraftKings: [{ odds: [{ label: 'Jayson Tatum (Points)', hdp: 26.5, over, under }] }] },
+  }) as unknown as Parameters<typeof parsePropsFromEvent>[0]
+
+  it('keeps normally priced sides', () => {
+    const props = parsePropsFromEvent(event('1.91', '1.91'))
+    expect(props.map((p) => p.direction)).toEqual(['over', 'under'])
+    expect(props[0].odds).toBe(-110)
+  })
+
+  // Regression: -10000 / +3000 quotes (decimal 1.01 / 31) reached prop_history.
+  it('drops sides priced outside -500..+500', () => {
+    const props = parsePropsFromEvent(event('1.01', '31'))
+    expect(props).toHaveLength(0)
   })
 })

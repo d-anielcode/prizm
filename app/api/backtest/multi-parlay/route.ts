@@ -22,7 +22,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { requireCronAuth } from '@/lib/api-auth'
-import { ev as computeEv } from '@/lib/ev'
+import { ev as computeEv, americanToDecimal } from '@/lib/ev'
 
 export const maxDuration = 120
 
@@ -92,9 +92,8 @@ interface LogRow {
 }
 
 function toDecimal(odds: number | null): number {
-  if (odds == null) return 100 / 130 + 1  // default -130 (conservative avg prop odds)
-  if (odds > 0) return odds / 100 + 1
-  return 100 / Math.abs(odds) + 1
+  // Missing or out-of-range odds (see isSaneOdds) -> default -130 (conservative avg prop odds)
+  return americanToDecimal(odds) ?? 100 / 130 + 1
 }
 
 interface ScoredProp extends GradeRow {

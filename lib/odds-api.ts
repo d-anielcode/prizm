@@ -6,6 +6,7 @@
 // Each entry label is "Player Name (Stat Type)", e.g. "LeBron James (Points)"
 
 import type { Prop, StatType, Direction } from '@/types'
+import { isSaneOdds } from '@/lib/ev'
 
 const BASE_URL = 'https://api.odds-api.io/v3'
 // Deferred env-var check — module-init throws break Next 16 build-time
@@ -242,6 +243,10 @@ export function parsePropsFromEvent(event: EventWithProps): Prop[] {
         const directions: Direction[] = ['over', 'under']
         for (const direction of directions) {
           const decimal = parseFloat(direction === 'over' ? entry.over : entry.under)
+          const odds = isNaN(decimal) ? undefined : decimalToAmerican(decimal)
+          // Near-certain / longshot alt lines (e.g. -10000, +3000) aren't usable picks
+          // and skew every EV/ROI average downstream.
+          if (odds !== undefined && !isSaneOdds(odds)) continue
           props.push({
             player_id: 0,
             player_name: playerName,
@@ -251,7 +256,7 @@ export function parsePropsFromEvent(event: EventWithProps): Prop[] {
             stat_type: statType,
             line: entry.hdp,
             direction,
-            odds: isNaN(decimal) ? undefined : decimalToAmerican(decimal),
+            odds,
             sportsbook: bookmaker,
             commence_time: event.commence_time,
             home_team: event.home_team,
