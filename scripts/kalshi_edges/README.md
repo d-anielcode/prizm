@@ -69,3 +69,26 @@ To finish reconciliation on a game day with live props:
 
 The Prizm side (props, logs, calibration, the mean-shift bridge) is fully wired and
 was validated end-to-end against the real 2026-06-09 slate via synthetic markets.
+
+## Paper trading (book-price scanner)
+
+Fair value = DraftKings/FanDuel odds with the vig removed (minus a measured 1.8-pt
+over bias), mapped to each Kalshi "N+" rung via the per-player distribution;
+edge = fair p − ask − Kalshi fee (0.07·p·(1−p)). Only two-sided book lines and
+rungs within one step of the book line are traded.
+Spec: `docs/superpowers/specs/2026-10-21-kalshi-book-price-scanner-design.md`.
+
+    cd scripts
+    python3 -m kalshi_edges.run_paper scan --dry-run   # print candidates only
+    python3 -m kalshi_edges.run_paper scan             # write paper trades
+    python3 -m kalshi_edges.run_paper clv              # store pre-tip mid for games tipping within 30 min
+    python3 -m kalshi_edges.run_paper grade            # settle from Kalshi results
+    python3 -m kalshi_edges.run_paper report           # ROI, CLV, go-live bar
+
+Ledger: Supabase `kalshi_paper_trades`. Log: `.logs/kalshi-paper.log`.
+Windows tasks (all `pythonw.exe -m kalshi_edges.run_paper ...` in `scripts/`):
+"Prizm Kalshi scan" 3:45 PM, "Prizm Kalshi CLV" 3:55 PM every 30 min for 4 h,
+"Prizm Kalshi grade" 9:00 AM. Start-when-available, so a sleeping PC catches up.
+
+Go-live bar (pre-registered): ≥300 graded trades, ROI ≥ +3% after fees, both
+halves positive, mean CLV > 0. Below it: stay paper-only; don't re-tune on the same sample.
