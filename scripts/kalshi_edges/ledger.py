@@ -1,5 +1,11 @@
 """Paper-trade ledger: pure grading/report math + Supabase I/O (below)."""
+import os
 from collections import defaultdict
+from dataclasses import asdict
+from datetime import timedelta
+from urllib.parse import quote
+
+import requests
 
 # Pre-registered go-live bar (spec). Do not tune after seeing results.
 BAR = {"min_n": 300, "min_roi": 0.03}
@@ -45,12 +51,6 @@ def report(rows):
 
 
 # ── Supabase I/O ─────────────────────────────────────────────────────────────
-import os
-from dataclasses import asdict
-from datetime import timedelta
-from urllib.parse import quote
-import requests
-
 TABLE = "kalshi_paper_trades"
 
 def _sb():
