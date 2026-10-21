@@ -10,7 +10,6 @@ import { getEspnVariants } from '@/lib/player-aliases'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { seasonDateRange, SEASON_ID_RE, groupSeasonLogs, type SeasonLogGroup } from '@/lib/season'
 import { requireCronAuth } from '@/lib/api-auth'
-import { logger } from '@/lib/logger'
 
 export const maxDuration = 120
 
