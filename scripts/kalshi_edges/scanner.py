@@ -14,7 +14,12 @@ class Filters:
     max_spread: float = 0.10
     min_p: float = 0.10
     max_p: float = 0.90
-    max_sigma: float = 1.5
+    # Kalshi "N+" vs book "over N-0.5" is the at-line rung; allow this many rungs away.
+    # Far rungs depend on the per-player distribution's width, which proved noisy
+    # (live dry run 2026-10-21: tails on both sides flagged), so keep it tight.
+    max_rungs: float = 1.0
+    # One-sided fair values (no over/under pair at one line) are too rough to trade.
+    require_two_sided: bool = True
 
 @dataclass
 class Candidate:
@@ -48,7 +53,9 @@ def evaluate_rung(kp, fair, dist, fee_mult, now, f):
         return None
     if kp.yes_ask - kp.yes_bid > f.max_spread:
         return None
-    if abs(kp.strike - fair.line) > f.max_sigma * dist.sigma:
+    if f.require_two_sided and fair.devig != "two_sided":
+        return None
+    if abs(kp.strike - (fair.line + 0.5)) > f.max_rungs:
         return None
     delta, clamped = prob_model.solve_shift(dist, fair.line, fair.p_over)
     if clamped:

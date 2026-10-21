@@ -44,7 +44,7 @@ def test_far_strike_filtered():
 
 def test_extreme_probability_filtered():
     assert evaluate_rung(kp(strike=12, ask=0.90, bid=0.88), fair(line=11.5, p_over=0.97),
-                         DIST, 1.0, NOW, Filters(min_edge=-1, max_sigma=10)) is None
+                         DIST, 1.0, NOW, Filters(min_edge=-1, max_rungs=10)) is None
 
 def test_scan_matches_names_and_counts_skips():
     logs = {"damian lillard": [{"points": v, "minutes": 34} for v in (20, 22, 24, 25, 26, 28, 30, 31, 19, 27, 25, 23)]}
@@ -53,3 +53,13 @@ def test_scan_matches_names_and_counts_skips():
                           Filters(min_edge=-1))
     assert len(cands) == 1 and cands[0].market_ticker.endswith("-25")
     assert skipped["no_book_line"] == 1
+
+
+def test_one_sided_fair_value_filtered():
+    one = FairLine("Damian Lillard", "points", 24.5, 0.55, "one_sided", "DraftKings", TIP)
+    assert evaluate_rung(kp(ask=0.30, bid=0.26), one, DIST, 1.0, NOW, Filters(min_edge=-1)) is None
+
+def test_rungs_beyond_one_step_filtered():
+    # book over 24.5 <-> Kalshi 25+ is the at-line rung; 26+ is 1 away, 27+ is 2 away
+    assert evaluate_rung(kp(strike=26, ask=0.30, bid=0.26), fair(), DIST, 1.0, NOW, Filters(min_edge=-1)) is not None
+    assert evaluate_rung(kp(strike=27, ask=0.20, bid=0.16), fair(), DIST, 1.0, NOW, Filters(min_edge=-1)) is None

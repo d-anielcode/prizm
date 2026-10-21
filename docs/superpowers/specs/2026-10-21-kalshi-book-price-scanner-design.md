@@ -83,9 +83,17 @@ Game date + teams from the ticker's second segment (`26OCT21` + away/home codes)
 - Keep the better side per rung if its edge ≥ `--min-edge` (default 0.03).
 
 **5. Filters (all configurable, defaults pre-registered):** spread `yes_ask − yes_bid
-≤ 0.10`; `0.10 ≤ p_yes ≤ 0.90`; `|N − book_line| ≤ 1.5 × dist.sigma`; game not
-started (`now < commence_time`); player name matches exactly one Prizm player
-(normalized via `normalizePlayerName` rules); one trade per (market ticker, side).
+≤ 0.10`; `0.10 ≤ p_yes ≤ 0.90`; **two-sided fair value only**; **strike within one
+rung of the book line** (`|N − (book_line + 0.5)| ≤ 1`); game not started
+(`now < commence_time`); player name matches one Prizm player (normalized); one trade
+per (market ticker, side).
+
+*Revised 2026-10-21 after the live dry run, before any paper trade was logged:* the
+original `|N − book_line| ≤ 1.5σ` with one-sided fair values produced 157 candidates,
+many on both tails of the same player. Per-player σ from ~40 recent games was too wide
+and stale (Bam Adebayo points σ 11.6), so far rungs mostly measured model error. Kept
+rungs near the line, where the de-vigged book price dominates and the distribution only
+bridges ≤ 1 rung (39 candidates that night).
 
 **6. Paper trade (ledger.py).** Insert into `kalshi_paper_trades` (one row per
 flagged rung): 1 contract at the ask seen. Unique on `(market_ticker, side,
