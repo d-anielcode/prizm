@@ -72,3 +72,10 @@ def apply_calibration(table, stat, score):
     frac = s - lo
     pct = arr[lo] * (1 - frac) + arr[hi] * frac
     return pct / 100.0
+
+def slate_with_odds(game_date):
+    """Today's props with prices, for de-vigging. Same commence_time window as todays_props."""
+    nxt = (date.fromisoformat(game_date) + timedelta(days=1)).isoformat()
+    params = ("select=player_name,stat_type,direction,line,odds,sportsbook,commence_time"
+              f"&odds=not.is.null&commence_time=gte.{game_date}&commence_time=lt.{nxt}T12:00:00")
+    return _sb_get("props", params)
