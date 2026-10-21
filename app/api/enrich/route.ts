@@ -9,7 +9,8 @@
 
 import { NextResponse } from 'next/server'
 import { supabase, safeQuery } from '@/lib/supabase'
-import { TEAM_ABBR } from '@/lib/team-abbr'
+import { TEAM_ABBR, normalizeTeamAbbr } from '@/lib/team-abbr'
+import { fetchEspnRosters, resolvePlayerTeam } from '@/lib/rosters'
 import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 import { isPlayerName } from '@/lib/odds-api'
@@ -107,8 +108,9 @@ async function fetchEspnSpreads(): Promise<Map<string, GameOdds>> {
 
     for (const event of data.events ?? []) {
       for (const comp of event.competitions ?? []) {
-        const home = comp.competitors?.find((c) => c.homeAway === 'home')?.team?.abbreviation
-        const away = comp.competitors?.find((c) => c.homeAway === 'away')?.team?.abbreviation
+        // ESPN codes (GS, NY, ...) -> canonical, so TEAM_ABBR-based lookups match
+        const home = normalizeTeamAbbr(comp.competitors?.find((c) => c.homeAway === 'home')?.team?.abbreviation)
+        const away = normalizeTeamAbbr(comp.competitors?.find((c) => c.homeAway === 'away')?.team?.abbreviation)
         if (!home || !away) continue
 
         const oddsEntry = comp.odds?.[0]
@@ -153,7 +155,7 @@ async function fetchYesterdayTeams(): Promise<Set<string>> {
     for (const event of data.events ?? []) {
       for (const comp of event.competitions ?? []) {
         for (const competitor of comp.competitors ?? []) {
-          const abbr = competitor.team?.abbreviation?.trim().toUpperCase()
+          const abbr = normalizeTeamAbbr(competitor.team?.abbreviation)
           if (abbr) teams.add(abbr)
         }
       }
@@ -166,29 +168,18 @@ async function fetchYesterdayTeams(): Promise<Set<string>> {
 
 // ── Team name → abbreviation lookup ──────────────────────────────────────────
 
-// ── Derive opponent abbreviation + home/away + player team from prop + logs ───
+// ── Derive opponent abbreviation + home/away + player team ───────────────────
+// Current ESPN roster first, latest game log as fallback (see lib/rosters.ts).
 function deriveMatchupContext(
   prop: Prop,
   logs: GameLog[],
+  roster: Map<string, string>,
 ): { isHome: boolean | null; opponentAbbr: string | null; playerTeamAbbr: string | null } {
-  if (logs.length === 0) return { isHome: null, opponentAbbr: null, playerTeamAbbr: null }
-
-  const latestMatchup = logs[0]?.matchup ?? ''
-  const matchParts = latestMatchup.split(/\s+vs\.\s+|\s+@\s+/)
-  const playerTeamAbbr = matchParts[0]?.trim().toUpperCase() ?? null
-  if (!playerTeamAbbr) return { isHome: null, opponentAbbr: null, playerTeamAbbr: null }
-
   const homeAbbr = prop.home_team ? (TEAM_ABBR[prop.home_team] ?? null) : null
   const awayAbbr = prop.away_team ? (TEAM_ABBR[prop.away_team] ?? null) : null
-
-  if (homeAbbr && playerTeamAbbr === homeAbbr) {
-    return { isHome: true,  opponentAbbr: awayAbbr,  playerTeamAbbr }
-  }
-  if (awayAbbr && playerTeamAbbr === awayAbbr) {
-    return { isHome: false, opponentAbbr: homeAbbr, playerTeamAbbr }
-  }
-
-  return { isHome: null, opponentAbbr: null, playerTeamAbbr }
+  const { isHome, opponentAbbr, playerTeamAbbr } =
+    resolvePlayerTeam(prop.player_name, logs[0]?.matchup, homeAbbr, awayAbbr, roster)
+  return { isHome, opponentAbbr, playerTeamAbbr }
 }
 
 // ── Enrichment mutex ─────────────────────────────────────────────────────────
@@ -419,6 +410,7 @@ async function runEnrichment(force = false) {
     yesterdayTeams,
     simRows,
     calibrationRows,
+    rosterMap,
   ] = await Promise.all([
     loadPagedGameLogs(),                                                                          // critical — allowed to throw
     soft(loadPagedHistLines(), [], 'hist lines'),
@@ -434,6 +426,7 @@ async function runEnrichment(force = false) {
     fetchYesterdayTeams(),                                                                        // already has internal try/catch
     soft(safeQuery(supabase.from('sim_3pm').select('player_name, opponent, p_over, p_under, sim_mean, sim_std').eq('game_date', new Date().toISOString().slice(0, 10)), 'load sim_3pm'), [], 'sim 3pm'),
     soft(safeQuery(supabase.from('prop_grades').select('stat_type, direction, hit').gte('game_date', minGradeDate).not('hit', 'is', null), 'load calibration grades'), [], 'calibration grades'),
+    fetchEspnRosters(),                                                                           // never throws; empty map -> game-log fallback
   ])
 
   // ── Build over/under hit-rate calibration maps (for bias gates) ──────────
@@ -614,6 +607,20 @@ async function runEnrichment(force = false) {
   console.log(`[/api/enrich] 3PM sim results loaded: ${simMap.size} players`)
 
   const playersWithLogs = [...logsMap.values()].filter((l) => l.length >= 3).length
+  // How each prop player's team was resolved tonight (roster / game log / none).
+  const teamSources = { roster: 0, logs: 0, none: 0 }
+  {
+    const seen = new Set<string>()
+    for (const prop of props) {
+      if (seen.has(prop.player_name)) continue
+      seen.add(prop.player_name)
+      const logs = logsMap.get(normalizePlayerName(prop.player_name)) ?? []
+      const src = resolvePlayerTeam(prop.player_name, logs[0]?.matchup,
+        prop.home_team ? (TEAM_ABBR[prop.home_team] ?? null) : null,
+        prop.away_team ? (TEAM_ABBR[prop.away_team] ?? null) : null, rosterMap).source
+      teamSources[src ?? 'none']++
+    }
+  }
   const totalsLoaded    = [...spreadMap.values()].filter((g) => g.total != null).length / 2
   console.log(`[/api/enrich] Parallel load done — logs: ${allLogRows.length} rows (${playersWithLogs}/${uniqueNames.length} players), hist: ${histRows.length} rows, ESPN: ${spreadMap.size / 2} games (${totalsLoaded} with O/U), injuries: ${injuryMap.size}, morning odds: ${openingOddsMap.size}, DVP teams: ${dvpMap.size}, positions: ${positionMap.size}, yesterday B2B: ${yesterdayTeams.size}`)
 
@@ -630,7 +637,7 @@ async function runEnrichment(force = false) {
   const teamToPropPlayers = new Map<string, string[]>()  // teamAbbr → player names
   for (const prop of props) {
     const logs = logsMap.get(normalizePlayerName(prop.player_name)) ?? []
-    const { playerTeamAbbr } = deriveMatchupContext(prop, logs)
+    const { playerTeamAbbr } = deriveMatchupContext(prop, logs, rosterMap)
     if (!playerTeamAbbr) continue
     if (!teamToPropPlayers.has(playerTeamAbbr)) teamToPropPlayers.set(playerTeamAbbr, [])
     const team = teamToPropPlayers.get(playerTeamAbbr)!
@@ -640,7 +647,7 @@ async function runEnrichment(force = false) {
   // ── Score every prop ──────────────────────────────────────────────────────
   const updates = props.map((prop) => {
     const logs = logsMap.get(normalizePlayerName(prop.player_name)) ?? []
-    const { isHome, opponentAbbr, playerTeamAbbr } = deriveMatchupContext(prop, logs)
+    const { isHome, opponentAbbr, playerTeamAbbr } = deriveMatchupContext(prop, logs, rosterMap)
     const defStats = opponentAbbr ? (defMap.get(opponentAbbr) ?? null) : null
 
     // Spread + game total: match by home|away team abbreviation pair
@@ -799,7 +806,7 @@ async function runEnrichment(force = false) {
         commence_time:  alt.commence_time as string | undefined,
       }
       const logs = logsMap.get(normalizePlayerName(pseudoProp.player_name)) ?? []
-      const { isHome, opponentAbbr, playerTeamAbbr } = deriveMatchupContext(pseudoProp, logs)
+      const { isHome, opponentAbbr, playerTeamAbbr } = deriveMatchupContext(pseudoProp, logs, rosterMap)
       const defStats = opponentAbbr ? (defMap.get(opponentAbbr) ?? null) : null
       const homeAbbr = pseudoProp.home_team ? (TEAM_ABBR[pseudoProp.home_team] ?? null) : null
       const awayAbbr = pseudoProp.away_team ? (TEAM_ABBR[pseudoProp.away_team] ?? null) : null
@@ -932,6 +939,8 @@ async function runEnrichment(force = false) {
     snapshotted,
     total: props.length,
     playersWithGameLogs: playersWithLogs,
+    rosterPlayers: rosterMap.size,
+    teamSources,
     teamsWithDefenseData: defMap.size,
     teamsWithDvpData: dvpMap.size,
     teamsOnB2B: yesterdayTeams.size,

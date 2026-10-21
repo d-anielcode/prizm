@@ -36,6 +36,8 @@ import { requireCronAuth, internalAuthHeaders } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 import { detectChanges, type ChangeReport } from '@/lib/change-detection'
 import { ev as computeEv, americanToDecimal } from '@/lib/ev'
+import { TEAM_ABBR, normalizeTeamAbbr } from '@/lib/team-abbr'
+import { fetchEspnRosters, resolvePlayerTeam } from '@/lib/rosters'
 
 const adminClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -119,17 +121,14 @@ const STAT_LABELS: Record<string, string> = {
   steals:         'STL',
 }
 
-const ABBR_NORM: Record<string, string> = { GS: 'GSW', NY: 'NYK', NO: 'NOP', SA: 'SAS', NJ: 'NJN' }
-function normaliseAbbr(abbr: string): string { return ABBR_NORM[abbr] ?? abbr }
-
 function teamFromMatchup(matchup: string, isHome: boolean): string | null {
   if (matchup.includes(' @ ')) {
     const [away, home] = matchup.split(' @ ')
-    return normaliseAbbr((isHome ? home : away).trim())
+    return normalizeTeamAbbr((isHome ? home : away).trim())
   }
   if (matchup.includes(' vs. ')) {
     const [home, away] = matchup.split(' vs. ')
-    return normaliseAbbr((isHome ? home : away).trim())
+    return normalizeTeamAbbr((isHome ? home : away).trim())
   }
   return null
 }
@@ -413,6 +412,8 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
     'parlay: load game logs for pool'
   )
 
+  // Current rosters: a player's latest game log may be from a team they've left.
+  const rosterMap = await fetchEspnRosters()
   const logsByPlayer = new Map<string, Record<string, unknown>[]>()
   const teamByPlayer = new Map<string, string>()
   for (const log of logsRaw) {
@@ -461,7 +462,10 @@ async function generateCuratedParlays(gameDate: string): Promise<ParlayResult[]>
       commence_time:    prop.commence_time!,
       l10_hits:         l10Hits,
       l10_total:        l10.length,
-      resolvedTeam:     teamByPlayer.get(prop.player_name) ?? prop.team ?? 'TBD',
+      resolvedTeam:     resolvePlayerTeam(prop.player_name, (allLogs[0]?.matchup as string | undefined) ?? null,
+                          prop.home_team ? (TEAM_ABBR[prop.home_team] ?? null) : null,
+                          prop.away_team ? (TEAM_ABBR[prop.away_team] ?? null) : null, rosterMap).playerTeamAbbr
+                        ?? teamByPlayer.get(prop.player_name) ?? prop.team ?? 'TBD',
       avgMins:          avgMins !== null ? Math.round(avgMins * 10) / 10 : null,
       ev:               propEv,
     }

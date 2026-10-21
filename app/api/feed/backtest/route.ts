@@ -17,7 +17,7 @@
 import { NextResponse } from 'next/server'
 import { supabase }     from '@/lib/supabase'
 import { requireCronAuth } from '@/lib/api-auth'
-import { TEAM_ABBR }    from '@/lib/team-abbr'
+import { TEAM_ABBR, normalizeTeamAbbr }    from '@/lib/team-abbr'
 import type { StatType } from '@/types'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -37,10 +37,7 @@ function getStatValue(log: Record<string, unknown>, statType: string): number {
   return Number(log[field] ?? 0)
 }
 
-const ABBR_NORM: Record<string, string> = {
-  GS: 'GSW', NY: 'NYK', NO: 'NOP', SA: 'SAS', NJ: 'NJN',
-}
-function normaliseAbbr(abbr: string): string { return ABBR_NORM[abbr] ?? abbr }
+function normaliseAbbr(abbr: string): string { return normalizeTeamAbbr(abbr) ?? abbr }
 
 function teamFromMatchup(matchup: string, isHome: boolean): string | null {
   if (matchup.includes(' @ ')) {
