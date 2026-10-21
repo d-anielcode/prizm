@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TEAM_ABBR, normalizeTeamAbbr } from '../team-abbr'
+import { TEAM_ABBR, ABBR_TO_TEAM, normalizeTeamAbbr } from '../team-abbr'
 
 // Every abbreviation ESPN's /teams endpoint returned on 2026-10-21.
 const ESPN_CODES = ['ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GS', 'HOU', 'IND',
@@ -23,5 +23,17 @@ describe('normalizeTeamAbbr', () => {
     expect(normalizeTeamAbbr(' gs ')).toBe('GSW')
     expect(normalizeTeamAbbr('')).toBeNull()
     expect(normalizeTeamAbbr(undefined)).toBeNull()
+  })
+})
+
+describe('TEAM_ABBR aliases', () => {
+  // Regression: the odds feed names the Clippers "LA Clippers"; it wasn't mapped,
+  // so every Clippers game lost matchup context and its spread.
+  it('maps the odds feed name for the Clippers', () => {
+    expect(TEAM_ABBR['LA Clippers']).toBe('LAC')
+  })
+
+  it('keeps the full name in the reverse map', () => {
+    expect(ABBR_TO_TEAM['LAC']).toBe('Los Angeles Clippers')
   })
 })

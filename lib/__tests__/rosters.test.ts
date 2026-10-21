@@ -48,3 +48,12 @@ describe('fetchEspnRosters', () => {
     expect((await fetchEspnRosters(down as unknown as typeof fetch)).size).toBe(0)
   })
 })
+
+describe('resolvePlayerTeam suffixes', () => {
+  // Regression: props said "Jaime Jaquez" while ESPN lists "Jaime Jaquez Jr.".
+  it('matches with or without Jr./Sr./II/III', () => {
+    const r = new Map([['jaime jaquez jr', 'MIL'], ['gary payton', 'GSW']])
+    expect(resolvePlayerTeam('Jaime Jaquez', null, 'WAS', 'MIL', r).playerTeamAbbr).toBe('MIL')
+    expect(resolvePlayerTeam('Gary Payton II', null, 'GSW', 'LAL', r).playerTeamAbbr).toBe('GSW')
+  })
+})

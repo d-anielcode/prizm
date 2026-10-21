@@ -12,6 +12,8 @@ export const TEAM_ABBR: Record<string, string> = {
   'Golden State Warriors':  'GSW',
   'Houston Rockets':        'HOU',
   'Indiana Pacers':         'IND',
+  // Odds feed spelling; listed before the full name so ABBR_TO_TEAM keeps the full name.
+  'LA Clippers':            'LAC',
   'Los Angeles Clippers':   'LAC',
   'Los Angeles Lakers':     'LAL',
   'Memphis Grizzlies':      'MEM',

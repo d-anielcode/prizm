@@ -42,6 +42,23 @@ export async function fetchEspnRosters(fetchFn: typeof fetch = fetch): Promise<M
   return out
 }
 
+const SUFFIX_RE = /\s+(jr|sr|ii|iii|iv)$/
+
+/** Roster lookup that tolerates a missing or extra suffix ("Jaime Jaquez" vs
+ *  ESPN's "Jaime Jaquez Jr.", "Gary Payton II" vs "Gary Payton"). */
+function lookupRoster(roster: Map<string, string>, playerName: string): string | null {
+  const name = normalizePlayerName(playerName)
+  const direct = roster.get(name)
+  if (direct) return direct
+  const bare = name.replace(SUFFIX_RE, '')
+  if (bare !== name && roster.get(bare)) return roster.get(bare)!
+  for (const sfx of ['jr', 'sr', 'ii', 'iii', 'iv']) {
+    const t = roster.get(`${bare} ${sfx}`)
+    if (t) return t
+  }
+  return null
+}
+
 export interface PlayerTeamContext {
   isHome: boolean | null
   opponentAbbr: string | null
@@ -60,7 +77,7 @@ export function resolvePlayerTeam(
 ): PlayerTeamContext {
   const home = normalizeTeamAbbr(homeAbbr)
   const away = normalizeTeamAbbr(awayAbbr)
-  const fromRoster = roster.get(normalizePlayerName(playerName)) ?? null
+  const fromRoster = lookupRoster(roster, playerName)
   const fromLogs = normalizeTeamAbbr((latestLogMatchup ?? '').split(/\s+vs\.\s+|\s+@\s+/)[0])
 
   const candidates: Array<[string | null, 'roster' | 'logs']> = [[fromRoster, 'roster'], [fromLogs, 'logs']]
