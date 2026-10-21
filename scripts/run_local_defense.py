@@ -1,10 +1,13 @@
-"""Daily NBA defense + positions refresh, run from a home PC.
+r"""Daily NBA defense + positions refresh, run from a home PC.
 
 stats.nba.com times out from GitHub Actions runners (cloud IPs), so the
 daily-stats workflow can't refresh team_defense_stats. Windows Task Scheduler
 runs this every morning, before the workflow's freshness check:
 
-    task "Prizm NBA defense refresh": <python.exe> scripts\run_local_defense.py
+    task "Prizm NBA defense refresh": <pythonw.exe> scripts\run_local_defense.py
+
+pythonw.exe has no console, so no window pops up; the child scripts reuse it with
+CREATE_NO_WINDOW and all output goes to the log.
 
 Log: .logs\defense-refresh.log in the repo (gitignored). Not under AppData: this
 Python is a packaged install and its AppData writes were not visible outside it.
@@ -30,7 +33,8 @@ def main():
             log.write(f'[{datetime.now():%Y-%m-%dT%H:%M:%S}] {label}\n'); log.flush()
             r = subprocess.run([sys.executable, os.path.join(REPO, 'scripts', script), *args],
                                cwd=REPO, stdout=log, stderr=subprocess.STDOUT,
-                               env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
+                               env={**os.environ, 'PYTHONIOENCODING': 'utf-8'},
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             log.write(f'[{datetime.now():%Y-%m-%dT%H:%M:%S}] {label} exit={r.returncode}\n'); log.flush()
             worst = max(worst, r.returncode)
     return worst
