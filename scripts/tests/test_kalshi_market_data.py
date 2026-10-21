@@ -50,3 +50,39 @@ def test_parse_strike_from_cap_strike():
     raw["floor_strike"] = None
     raw["cap_strike"] = 22
     assert parse_market(raw).strike == 22
+
+from datetime import date
+from kalshi_edges.market_data import PROP_SERIES, SERIES_STAT
+
+def _live(ticker, title, floor, ask="0.4800", bid="0.3200", vol="12.00"):
+    return {"ticker": ticker, "title": title, "yes_sub_title": "",
+            "strike_type": "greater", "floor_strike": floor, "cap_strike": None,
+            "yes_ask_dollars": ask, "yes_bid_dollars": bid, "volume_fp": vol,
+            "status": "active", "close_time": "2026-10-24T02:00:00Z"}
+
+def test_live_points_rung_strike_is_floor_plus_half():
+    kp = parse_market(_live("KXNBAPTS-26OCT21PHXPOR-PORDLILLARD0-25", "Damian Lillard: 25+ points", 24.5))
+    assert (kp.player, kp.stat, kp.strike) == ("Damian Lillard", "points", 25)
+    assert (kp.yes_bid, kp.yes_ask) == (0.32, 0.48)
+
+def test_live_pra_uses_series_not_title_keywords():
+    kp = parse_market(_live("KXNBAPRA-26OCT21PHXPOR-PORDLILLARD0-30",
+                            "Damian Lillard: 30+ points, rebounds, and assists", 29.5))
+    assert kp.stat == "pra" and kp.strike == 30
+
+def test_live_suffix_name_and_game_fields():
+    kp = parse_market(_live("KXNBASTL-26OCT21SACLAC-SACDACUFF5-2", "Darius Acuff Jr.: 2+ steals", 1.5))
+    assert kp.player == "Darius Acuff Jr."
+    assert kp.stat == "steals" and kp.strike == 2
+    assert kp.series == "KXNBASTL"
+    assert kp.game_date == date(2026, 10, 21)
+    assert (kp.away, kp.home) == ("SAC", "LAC")
+
+def test_live_threes_series():
+    kp = parse_market(_live("KXNBA3PT-26OCT21SACLAC-LACKWAGLER1-3", "Keaton Wagler: 3+ threes", 2.5))
+    assert kp.stat == "three_pointers" and kp.strike == 3
+
+def test_prop_series_covers_seven_stats():
+    assert sorted(PROP_SERIES) == sorted(SERIES_STAT)
+    assert set(SERIES_STAT.values()) == {"points", "rebounds", "assists", "three_pointers",
+                                         "blocks", "steals", "pra"}

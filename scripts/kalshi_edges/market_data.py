@@ -6,23 +6,28 @@ Schema reconciliation (Task 7, verified against live api.elections.kalshi.com on
 the milestone strike as a STRUCTURED field (`strike_type` + `floor_strike` /
 `cap_strike`) rather than only in the title. We use those structured fields.
 
-STILL PENDING (could not finalize on 2026-06-08 — no single-game NBA player-prop
-markets were open during the Finals off-day): the exact single-game prop title
-format and the per-game series tickers. Kalshi has no single umbrella "NBA props"
-series; props are listed per game-day under per-player/per-stat series tickers,
-typically only a few hours before tip. `fetch_props` therefore scans an explicit
-list of series tickers (`PROP_SERIES`), to be populated on an NBA game day. The
-player/stat title heuristic below is the one piece awaiting live confirmation.
+Live format confirmed 2026-10-21: one series per stat (SERIES_STAT), titles
+"Player: N+ stat", strike_type "greater" with floor_strike N-0.5.
 """
+import math
 import re
+from dataclasses import dataclass, field
+from datetime import date
 import requests
-from dataclasses import dataclass
 
 KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2"
 
-# Per-game-day NBA player-prop series tickers to scan. Empty until reconciled on a
-# game day (see module docstring). Populate, e.g., ["KXNBAPTSLEBRON", ...].
-PROP_SERIES: list[str] = []
+# One series per stat (live-verified 2026-10-21); each holds every player's
+# "N+" rungs for every game. The stat comes from the series, not the title:
+# PRA titles ("points, rebounds, and assists") would otherwise match "rebound".
+SERIES_STAT = {
+    "KXNBAPTS": "points", "KXNBAREB": "rebounds", "KXNBAAST": "assists",
+    "KXNBA3PT": "three_pointers", "KXNBABLK": "blocks", "KXNBASTL": "steals",
+    "KXNBAPRA": "pra",
+}
+PROP_SERIES: list[str] = list(SERIES_STAT)
+_MONTHS = {m: i for i, m in enumerate(
+    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
 
 # Order matters: 'point' is generic, so it is checked last. PRA before points.
 STAT_KEYWORDS = [
@@ -46,6 +51,10 @@ class KalshiProp:
     yes_bid: float   # 0..1
     yes_ask: float   # 0..1
     volume: int
+    series: str = field(default="", compare=False)
+    game_date: date | None = field(default=None, compare=False)
+    away: str | None = field(default=None, compare=False)
+    home: str | None = field(default=None, compare=False)
 
 def _classify_stat(text):
     t = text.lower()
@@ -79,10 +88,33 @@ def _dollars(v):
     except (TypeError, ValueError):
         return None
 
+def _series_of(ticker):
+    return (ticker or "").split("-")[0]
+
+def _game_of(ticker):
+    """'KXNBAPTS-26OCT21PHXPOR-...' -> (date(2026,10,21), 'PHX', 'POR'), else (None, None, None).
+    Team codes are 2-3 letters; ambiguous splits (e.g. 5 letters) try 3+2 then 2+3."""
+    parts = (ticker or "").split("-")
+    if len(parts) < 2:
+        return None, None, None
+    m = re.match(r"^(\d{2})([A-Z]{3})(\d{2})([A-Z]+)$", parts[1])
+    if not m or m.group(2) not in _MONTHS:
+        return None, None, None
+    yy, mon, dd, teams = m.groups()
+    d = date(2000 + int(yy), _MONTHS[mon], int(dd))
+    if len(teams) in (5, 6):
+        return d, teams[:3], teams[3:]
+    if len(teams) == 4:
+        return d, teams[:2], teams[2:]
+    return d, None, None
+
 def _strike_from(raw):
-    """Milestone strike: prefer the structured floor/cap strike, fall back to '<n>+'."""
+    """Milestone N for an "N+" market. Kalshi's live props use strike_type='greater'
+    with floor_strike = N - 0.5 (24.5 for "25+"), so N = floor(floor_strike) + 1.
+    Other strike types keep the structured value as N."""
     if raw.get("floor_strike") is not None:
-        return int(float(raw["floor_strike"]))
+        fs = float(raw["floor_strike"])
+        return math.floor(fs) + 1 if raw.get("strike_type") == "greater" else int(fs)
     if raw.get("cap_strike") is not None:
         return int(float(raw["cap_strike"]))
     text = f"{raw.get('yes_sub_title') or ''} {raw.get('title') or ''}"
@@ -91,8 +123,10 @@ def _strike_from(raw):
 
 def parse_market(raw):
     """Parse one Kalshi market dict into a KalshiProp, or None if not an NBA prop."""
+    ticker = raw.get("ticker", "")
+    series = _series_of(ticker)
     text = f"{raw.get('title') or ''} {raw.get('yes_sub_title') or ''}"
-    stat = _classify_stat(text)
+    stat = SERIES_STAT.get(series) or _classify_stat(text)
     if stat is None:
         return None
     strike = _strike_from(raw)
@@ -106,7 +140,16 @@ def parse_market(raw):
         return None
     bid = _dollars(raw.get("yes_bid_dollars")) or 0.0
     volume = int(float(raw.get("volume_fp") or 0))
-    return KalshiProp(raw.get("ticker", ""), player, stat, strike, bid, ask, volume)
+    gd, away, home = _game_of(ticker)
+    return KalshiProp(ticker, player, stat, strike, bid, ask, volume,
+                      series=series, game_date=gd, away=away, home=home)
+
+def fetch_market(ticker, session=None):
+    """One market by ticker (any status). Returns the raw market dict."""
+    sess = session or requests.Session()
+    r = sess.get(f"{KALSHI_BASE}/markets/{ticker}", timeout=30)
+    r.raise_for_status()
+    return r.json()["market"]
 
 def fetch_markets(series_ticker, session=None):
     """Page through open markets for one series ticker. Returns raw market dicts."""
