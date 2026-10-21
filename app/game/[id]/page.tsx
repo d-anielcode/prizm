@@ -1,24 +1,10 @@
 import { supabase } from '@/lib/supabase'
 import { TEAM_ABBR } from '@/lib/team-abbr'
+import { fetchEspnRosters, resolvePlayerTeam } from '@/lib/rosters'
 import GamePropsTable from '@/components/GamePropsTable'
 import { loadLineupMap } from '@/lib/lineups'
 import Link from 'next/link'
 import type { AltLine, OpponentCtx, Prop, PropWithAlts, StatType } from '@/types'
-
-// ── Matchup helpers (same as home page) ──────────────────────────────────────
-const ABBR_NORM: Record<string, string> = { GS: 'GSW', NY: 'NYK', NO: 'NOP', SA: 'SAS', NJ: 'NJN' }
-function normaliseAbbr(a: string) { return ABBR_NORM[a] ?? a }
-function teamFromMatchup(matchup: string, isHome: boolean): string | null {
-  if (matchup.includes(' @ ')) {
-    const [away, home] = matchup.split(' @ ')
-    return normaliseAbbr((isHome ? home : away).trim())
-  }
-  if (matchup.includes(' vs. ')) {
-    const [home, away] = matchup.split(' vs. ')
-    return normaliseAbbr((isHome ? home : away).trim())
-  }
-  return null
-}
 
 function getStatRank(row: Record<string, number | null>, stat: StatType): number | null {
   if (stat === 'points')        return row['pts_rank']  ?? null
@@ -83,7 +69,7 @@ async function buildOppCtx(props: PropWithAlts[]): Promise<Map<string, OpponentC
 
   // Load defense stats + game logs + opponent leaks in parallel
   const uniqueNames = [...new Set(props.map((p) => p.player_name))]
-  const [{ data: defRows }, { data: logsRaw }, { data: leakRows }] = await Promise.all([
+  const [{ data: defRows }, { data: logsRaw }, { data: leakRows }, roster] = await Promise.all([
     supabase.from('team_defense_stats').select('*').in('team_abbreviation', teamAbbrs),
     supabase
       .from('player_game_logs')
@@ -95,6 +81,7 @@ async function buildOppCtx(props: PropWithAlts[]): Promise<Map<string, OpponentC
       .from('opponent_stat_leaks')
       .select('opponent_team, stat_type, over_hit_rate')
       .in('opponent_team', teamAbbrs),
+    fetchEspnRosters(),
   ])
 
   // Build defMap and leakMap
@@ -106,20 +93,19 @@ async function buildOppCtx(props: PropWithAlts[]): Promise<Map<string, OpponentC
     leakMap.set(`${row.opponent_team}|${row.stat_type}`, Number(row.over_hit_rate))
   }
 
-  // Resolve player → team abbr from most recent game log
-  const teamByPlayer = new Map<string, string>()
+  // Latest game log per player (fallback when the roster doesn't list them)
+  const latestMatchup = new Map<string, string>()
   for (const log of logsRaw ?? []) {
-    if (!teamByPlayer.has(log.player_name as string) && log.matchup && log.is_home != null) {
-      const abbr = teamFromMatchup(log.matchup as string, log.is_home as boolean)
-      if (abbr) teamByPlayer.set(log.player_name as string, abbr)
+    if (!latestMatchup.has(log.player_name as string) && log.matchup) {
+      latestMatchup.set(log.player_name as string, log.matchup as string)
     }
   }
 
   for (const prop of props) {
     if (!prop.id) continue
-    const playerTeam = teamByPlayer.get(prop.player_name)
-    if (!playerTeam) continue
-    const oppAbbr = playerTeam === homeAbbr ? awayAbbr : playerTeam === awayAbbr ? homeAbbr : null
+    // Current ESPN roster first (players move teams), latest game log as fallback.
+    const oppAbbr = resolvePlayerTeam(prop.player_name, latestMatchup.get(prop.player_name),
+      homeAbbr, awayAbbr, roster).opponentAbbr
     if (!oppAbbr) continue
     const defRow = defMap.get(oppAbbr) ?? null
     const rank = defRow ? getStatRank(defRow, prop.stat_type) : null

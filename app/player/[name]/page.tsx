@@ -6,7 +6,8 @@ import { PropSparkline } from '@/components/PropSparkline'
 import Link from 'next/link'
 import type { Prop, StatType } from '@/types'
 import { getEspnVariants } from '@/lib/player-aliases'
-import { TEAM_ABBR } from '@/lib/team-abbr'
+import { TEAM_ABBR, normalizeTeamAbbr } from '@/lib/team-abbr'
+import { fetchEspnRosters, resolvePlayerTeam } from '@/lib/rosters'
 import { CURRENT_SEASON } from '@/lib/constants'
 import { pickSeasonRows, shiftSeason } from '@/lib/season'
 import { calibratedPct } from '@/lib/calibration'
@@ -61,8 +62,9 @@ function getStatValue(g: GameLog, statType: StatType): number {
   }
 }
 
+/** Opponent from a game-log matchup, as a canonical code (logs use ESPN codes). */
 function extractOpponent(matchup: string): string | null {
-  return matchup.split(/\s+vs\.\s+|\s+@\s+/)[1]?.trim().toUpperCase() ?? null
+  return normalizeTeamAbbr(matchup.split(/\s+vs\.\s+|\s+@\s+/)[1])
 }
 
 function computeAvgs(logs: GameLog[]) {
@@ -363,25 +365,14 @@ export default async function PlayerPage({ params }: { params: Promise<{ name: s
   const seasonLabel = picked?.season ?? CURRENT_SEASON
 
   // ── 5. Derive team / opponent context ─────────────────────────────────────────
-  const latestMatchup   = (logRows?.[0]?.matchup as string) ?? ''
-  const matchParts      = latestMatchup.split(/\s+vs\.\s+|\s+@\s+/)
-  const playerTeamAbbr  = matchParts[0]?.trim().toUpperCase() ?? ''
-
+  // Current ESPN roster first (players move teams), latest game log as fallback.
+  const latestMatchup = (logRows?.[0]?.matchup as string) ?? ''
   const homeAbbr = homeTeam ? (TEAM_ABBR[homeTeam] ?? null) : null
   const awayAbbr = awayTeam ? (TEAM_ABBR[awayTeam] ?? null) : null
-
-  // Figure out which abbreviation is tonight's opponent
-  let tonightOpponentAbbr: string | null = null
-  let isHomeTonight: boolean | null = null
-  if (playerTeamAbbr && homeAbbr && awayAbbr) {
-    if (playerTeamAbbr === homeAbbr) {
-      isHomeTonight = true
-      tonightOpponentAbbr = awayAbbr
-    } else if (playerTeamAbbr === awayAbbr) {
-      isHomeTonight = false
-      tonightOpponentAbbr = homeAbbr
-    }
-  }
+  const tonight = resolvePlayerTeam(playerName, latestMatchup, homeAbbr, awayAbbr, await fetchEspnRosters())
+  const playerTeamAbbr = tonight.playerTeamAbbr ?? ''
+  const tonightOpponentAbbr: string | null = tonight.opponentAbbr
+  const isHomeTonight: boolean | null = tonight.isHome
 
   const opponentDisplay = tonightOpponentAbbr ?? (awayTeam || homeTeam)
   const team     = playerTeamAbbr || (firstProp?.team !== 'TBD' ? (firstProp?.team ?? '') : '')

@@ -12,11 +12,15 @@ const ESPN_TEAMS = 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba
 
 /** normalizePlayerName(name) -> canonical team code, from ESPN's 30 team rosters.
  *  Never throws: a failed team call is skipped, and an unreachable ESPN gives an
- *  empty map (callers then fall back to game logs). */
-export async function fetchEspnRosters(fetchFn: typeof fetch = fetch): Promise<Map<string, string>> {
+ *  empty map (callers then fall back to game logs). Cached for an hour by default
+ *  (rosters change rarely; pages would otherwise make 31 calls per view). */
+export async function fetchEspnRosters(
+  fetchFn: typeof fetch = fetch,
+  init: RequestInit = { next: { revalidate: 3600 } },
+): Promise<Map<string, string>> {
   const out = new Map<string, string>()
   try {
-    const res = await fetchFn(ESPN_TEAMS, { cache: 'no-store' })
+    const res = await fetchFn(ESPN_TEAMS, init)
     if (!res.ok) return out
     const data = await res.json() as {
       sports?: Array<{ leagues?: Array<{ teams?: Array<{ team?: { id?: string; abbreviation?: string } }> }> }>
@@ -26,7 +30,7 @@ export async function fetchEspnRosters(fetchFn: typeof fetch = fetch): Promise<M
       const code = normalizeTeamAbbr(team?.abbreviation)
       if (!team?.id || !code) return
       try {
-        const r = await fetchFn(`${ESPN_TEAMS}/${team.id}/roster`, { cache: 'no-store' })
+        const r = await fetchFn(`${ESPN_TEAMS}/${team.id}/roster`, init)
         if (!r.ok) return
         const roster = await r.json() as { athletes?: Array<{ displayName?: string }> }
         for (const a of roster.athletes ?? []) {
