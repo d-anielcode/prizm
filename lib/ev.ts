@@ -89,3 +89,24 @@ export function breakEvenProb(americanOdds: number | null | undefined): number |
   if (dec == null || dec <= 0) return null
   return 1 / dec
 }
+
+/** Largest model-minus-market probability gap shown as an "edge". The calibrated
+ *  score ignores price (a +450 long shot can map to 47%), and on 2025-26 data the
+ *  score added ~nothing beyond the market's own probability (AUC 0.549 vs 0.568),
+ *  so bigger gaps are calibration artifacts, not edges. */
+export const MAX_MODEL_MARKET_GAP = 0.10
+
+/** Model (calibrated) vs market (implied) probability for one prop. */
+export function modelVsMarket(
+  rawConfidenceScore: number | null | undefined,
+  americanOdds: number | null | undefined,
+  statType?: string,
+): { modelP: number; marketP: number; gap: number; ev: number; plausible: boolean } | null {
+  if (rawConfidenceScore == null) return null
+  const dec = americanToDecimal(americanOdds)
+  if (dec == null) return null
+  const modelP = applyCalibration(rawConfidenceScore, statType) / 100
+  const marketP = 1 / dec
+  const gap = modelP - marketP
+  return { modelP, marketP, gap, ev: modelP * dec - 1, plausible: gap <= MAX_MODEL_MARKET_GAP }
+}

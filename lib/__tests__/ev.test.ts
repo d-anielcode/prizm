@@ -26,3 +26,29 @@ describe('EV ignores insane odds', () => {
     expect(americanToDecimal(120)).toBeCloseTo(2.2, 3)
   })
 })
+
+import { modelVsMarket, MAX_MODEL_MARKET_GAP } from '../ev'
+
+describe('modelVsMarket', () => {
+  it('reports model %, market implied %, the gap and EV', () => {
+    const v = modelVsMarket(60, -110, 'points')!
+    expect(v.marketP).toBeCloseTo(110 / 210, 4)
+    expect(v.gap).toBeCloseTo(v.modelP - v.marketP, 6)
+    expect(v.ev).toBeCloseTo(v.modelP * (1 + 100 / 110) - 1, 6)
+  })
+
+  // Regression (2026-10-24): Marcus Smart O0.5 3PM at +450 showed "47% win,
+  // +156% edge" because the score calibration ignores price.
+  it('flags gaps beyond MAX_MODEL_MARKET_GAP as implausible', () => {
+    const v = modelVsMarket(60, 450, 'three_pointers')!
+    expect(v.gap).toBeGreaterThan(MAX_MODEL_MARKET_GAP)
+    expect(v.plausible).toBe(false)
+    const w = modelVsMarket(60, -110, 'points')!
+    expect(w.plausible).toBe(w.gap <= MAX_MODEL_MARKET_GAP)
+  })
+
+  it('returns null without usable odds', () => {
+    expect(modelVsMarket(60, null, 'points')).toBeNull()
+    expect(modelVsMarket(60, 3000, 'points')).toBeNull()
+  })
+})
