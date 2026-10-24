@@ -19,7 +19,7 @@ export const maxDuration = 60
 import { NextResponse } from 'next/server'
 import { createClient }  from '@supabase/supabase-js'
 import { supabase }      from '@/lib/supabase'
-import type { StatType } from '@/types'
+import { gradeParlay, type LegGrade, type ParlayLeg } from '@/lib/parlay-grade'
 import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 
@@ -30,30 +30,6 @@ const adminClient = createClient(
 )
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-function getActualValue(log: Record<string, unknown>, statType: string): number | null {
-  switch (statType as StatType) {
-    case 'points':         return Number(log.points    ?? 0)
-    case 'rebounds':       return Number(log.rebounds  ?? 0)
-    case 'assists':        return Number(log.assists   ?? 0)
-    case 'steals':         return Number(log.steals    ?? 0)
-    case 'blocks':         return Number(log.blocks    ?? 0)
-    case 'three_pointers': return Number(log.fg3m      ?? 0)
-    case 'pra':            return Number(log.pra       ?? 0)
-    default:               return null
-  }
-}
-
-// ── Core grading logic ────────────────────────────────────────────────────────
-
-interface LegGrade {
-  player_name: string
-  stat_type:   string
-  line:        number
-  direction:   string
-  actual:      number | null
-  hit:         boolean | null  // null = no data / DNP
-}
 
 interface ParlayGrade {
   id:        string
@@ -110,50 +86,20 @@ async function gradePendingParlays(): Promise<ParlayGrade[]> {
     logIndex.set(`${log.player_name}|${log.game_date}`, log as Record<string, unknown>)
   }
 
+  // A date is gradable only once its box scores are in. This cron can fire before
+  // /api/gamelogs (Hobby crons run anywhere in their hour); grading then voided
+  // every leg as "DNP" and the parlay was never retried.
+  const datesWithLogs = new Set<string>()
+  for (const d of gameDates) {
+    const { data } = await supabase.from('player_game_logs').select('id').eq('game_date', d).limit(1)
+    if (data && data.length > 0) datesWithLogs.add(d)
+  }
+
   const grades: ParlayGrade[] = []
-
   for (const p of parlays) {
-    const rawLegs = (p.legs as Array<Record<string, unknown>>) ?? []
-    const legGrades: LegGrade[] = []
-
-    for (const l of rawLegs) {
-      const log   = logIndex.get(`${l.player_name}|${p.game_date}`)
-      const mins  = log ? Number(log.minutes ?? 0) : null
-      const isDnp = mins !== null && mins < 5
-
-      const actual = (!log || isDnp) ? null : getActualValue(log, l.stat_type as string)
-      const hit    = actual === null ? null
-        : l.direction === 'over' ? actual > Number(l.line) : actual < Number(l.line)
-
-      legGrades.push({
-        player_name: l.player_name as string,
-        stat_type:   l.stat_type   as string,
-        line:        Number(l.line),
-        direction:   l.direction   as string,
-        actual,
-        hit,
-      })
-    }
-
-    // Determine overall parlay result — sportsbook rules:
-    // Void legs are removed; remaining legs are evaluated normally.
-    // Only fully void if no playable legs remain.
-    const playableLegs = legGrades.filter((l) => l.hit !== null)
-    const voidCount    = legGrades.length - playableLegs.length
-
-    let result: 'hit' | 'miss' | 'void'
-    if (playableLegs.length === 0) {
-      // Every leg was DNP/void — entire parlay is void
-      result = 'void'
-    } else if (playableLegs.some((l) => l.hit === false)) {
-      // At least one playable leg missed
-      result = 'miss'
-    } else {
-      // All playable legs hit (void legs removed per sportsbook rules)
-      result = 'hit'
-    }
-
-    grades.push({ id: p.id as string, game_date: p.game_date as string, title: p.title as string, legs: legGrades, result })
+    const g = gradeParlay((p.legs as ParlayLeg[]) ?? [], p.game_date as string, logIndex, datesWithLogs)
+    if (!g) continue  // logs not in yet -> stays pending for the next run
+    grades.push({ id: p.id as string, game_date: p.game_date as string, title: p.title as string, legs: g.legs, result: g.result })
   }
 
   return grades
