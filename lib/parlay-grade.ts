@@ -2,6 +2,7 @@
 // and removed; the parlay only fully voids when no playable legs remain.
 
 import type { StatType } from '@/types'
+import { normalizePlayerName } from '@/lib/lineups'
 
 export interface ParlayLeg {
   player_name: string
@@ -21,6 +22,13 @@ export interface LegGrade {
 
 const MIN_MINUTES = 5
 
+/** Index key for a player's game log: normalized name without Jr./Sr./II-IV, so a
+ *  leg "Darius Acuff" finds logs stored as "Darius Acuff Jr." (and Jokic/Jokić). */
+export function logKey(playerName: string, gameDate: string): string {
+  const bare = normalizePlayerName(playerName).replace(/\s+(jr|sr|ii|iii|iv)$/, '')
+  return `${bare}|${gameDate}`
+}
+
 function actualValue(log: Record<string, unknown>, statType: string): number | null {
   switch (statType as StatType) {
     case 'points':         return Number(log.points   ?? 0)
@@ -37,7 +45,7 @@ function actualValue(log: Record<string, unknown>, statType: string): number | n
 /**
  * Grade one parlay. Returns null when `gameDate` has no game logs yet: a missing
  * log only means "did not play" once that night's box scores have been fetched.
- * logIndex is keyed `${player_name}|${game_date}`.
+ * logIndex is keyed by logKey(player_name, game_date).
  */
 export function gradeParlay(
   legs: ParlayLeg[],
@@ -47,7 +55,7 @@ export function gradeParlay(
 ): { legs: LegGrade[]; result: 'hit' | 'miss' | 'void' } | null {
   if (!datesWithLogs.has(gameDate)) return null
   const graded = legs.map((l): LegGrade => {
-    const log = logIndex.get(`${l.player_name}|${gameDate}`)
+    const log = logIndex.get(logKey(l.player_name, gameDate))
     const played = log && Number(log.minutes ?? 0) >= MIN_MINUTES
     const actual = played ? actualValue(log, l.stat_type) : null
     const line = Number(l.line)

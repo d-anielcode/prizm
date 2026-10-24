@@ -19,7 +19,7 @@ export const maxDuration = 60
 import { NextResponse } from 'next/server'
 import { createClient }  from '@supabase/supabase-js'
 import { supabase }      from '@/lib/supabase'
-import { gradeParlay, type LegGrade, type ParlayLeg } from '@/lib/parlay-grade'
+import { gradeParlay, logKey, type LegGrade, type ParlayLeg } from '@/lib/parlay-grade'
 import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 
@@ -66,33 +66,28 @@ async function gradePendingParlays(): Promise<ParlayGrade[]> {
 
   if (!parlays || parlays.length === 0) return []
 
-  // Collect all player/date combos we need
-  const playerNames = new Set<string>()
-  const gameDates   = new Set<string>()
-  for (const p of parlays) {
-    const legs = (p.legs as Array<Record<string, unknown>>) ?? []
-    for (const l of legs) playerNames.add(l.player_name as string)
-    gameDates.add(p.game_date as string)
-  }
-
-  const { data: logsRaw } = await supabase
-    .from('player_game_logs')
-    .select('player_name, game_date, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
-    .in('player_name', [...playerNames])
-    .in('game_date',   [...gameDates])
-
-  const logIndex = new Map<string, Record<string, unknown>>()
-  for (const log of logsRaw ?? []) {
-    logIndex.set(`${log.player_name}|${log.game_date}`, log as Record<string, unknown>)
-  }
-
+  // Load each parlay night's box scores by date (not by exact name: legs and logs
+  // can spell a player differently, e.g. "Darius Acuff" vs "Darius Acuff Jr.").
   // A date is gradable only once its box scores are in. This cron can fire before
   // /api/gamelogs (Hobby crons run anywhere in their hour); grading then voided
   // every leg as "DNP" and the parlay was never retried.
+  const gameDates = [...new Set(parlays.map((p) => p.game_date as string))]
+  const logIndex = new Map<string, Record<string, unknown>>()
   const datesWithLogs = new Set<string>()
   for (const d of gameDates) {
-    const { data } = await supabase.from('player_game_logs').select('id').eq('game_date', d).limit(1)
-    if (data && data.length > 0) datesWithLogs.add(d)
+    for (let from = 0; ; from += 1000) {
+      const { data: page } = await supabase
+        .from('player_game_logs')
+        .select('player_name, game_date, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
+        .eq('game_date', d)
+        .order('id')
+        .range(from, from + 999)
+      for (const log of page ?? []) {
+        logIndex.set(logKey(log.player_name as string, d), log as Record<string, unknown>)
+        datesWithLogs.add(d)
+      }
+      if (!page || page.length < 1000) break
+    }
   }
 
   const grades: ParlayGrade[] = []
