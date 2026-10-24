@@ -133,3 +133,10 @@ export function pickTierThresholds(table: unknown, statType?: string): TierThres
 export function tierThresholds(statType?: string): TierThresholds | null {
   return pickTierThresholds(TABLE, statType)
 }
+
+/** Hit-rate targets the LOCK/PLAY thresholds are derived from (calibration table
+ *  `_targets`). FADE has no target: it means "no pick". */
+export function tierTargets(): { LOCK: number; PLAY: number } {
+  const t = TABLE.tier_thresholds?._targets
+  return { LOCK: t?.lock ?? 0.6, PLAY: t?.play ?? 0.55 }
+}

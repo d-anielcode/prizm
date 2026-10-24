@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { ConfidenceBadge } from '@/components/ConfidenceBadge'
+import { tierTargets } from '@/lib/calibration'
 import Link from 'next/link'
 import type { Prop, StatType, Direction, ConfidenceLabel } from '@/types'
 
@@ -246,9 +247,11 @@ function hitRateColor(rate: number): string {
   return 'text-red-400'
 }
 
-function tierTargetRate(label: ConfidenceLabel): number {
-  // Expected hit rates per tier (from model calibration targets)
-  return label === 'LOCK' ? 0.78 : label === 'PLAY' ? 0.70 : label === 'LEAN' ? 0.55 : 0.38
+function tierTargetRate(label: ConfidenceLabel): number | null {
+  // The hit-rate targets LOCK/PLAY thresholds are derived from (calibration table).
+  // FADE (and legacy LEAN) have no target: FADE means "no pick".
+  const t = tierTargets()
+  return label === 'LOCK' ? t.LOCK : label === 'PLAY' ? t.PLAY : null
 }
 
 const TIER_COLORS: Record<ConfidenceLabel, string> = {
@@ -295,7 +298,7 @@ export default async function TrendsPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {tierAccuracy.map(({ label, hitRate, sampleCount }) => {
               const target  = tierTargetRate(label)
-              const delta   = hitRate - target
+              const delta   = target == null ? 0 : hitRate - target
               const onTrack = Math.abs(delta) <= 0.05
               const above   = delta > 0.05
               return (
@@ -308,10 +311,16 @@ export default async function TrendsPage() {
                     {Math.round(hitRate * 100)}%
                   </span>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-white/30">target {Math.round(target * 100)}%</span>
-                    <span className={`text-[10px] font-bold ${onTrack ? 'text-white/30' : above ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {onTrack ? '✓' : above ? `+${Math.round(delta * 100)}pp` : `${Math.round(delta * 100)}pp`}
-                    </span>
+                    {target == null ? (
+                      <span className="text-[10px] text-white/30">no target (not a pick)</span>
+                    ) : (
+                      <>
+                        <span className="text-[10px] text-white/30">target {Math.round(target * 100)}%</span>
+                        <span className={`text-[10px] font-bold ${onTrack ? 'text-white/30' : above ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {onTrack ? '✓' : above ? `+${Math.round(delta * 100)}pp` : `${Math.round(delta * 100)}pp`}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               )
