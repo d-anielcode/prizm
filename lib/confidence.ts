@@ -898,6 +898,7 @@ export interface PrecomputedFactors {
   consistencyAdj:            number  // ±3 from L10 CV (player reliability)
   lineupAdj:                 number  // +2 confirmed starter; -25 confirmed out
   hasLogs:     boolean
+  gamesPlayed?: number  // game logs available; gates LOCK/PLAY (MIN_GAMES_FOR_TIER)
   statType:    StatType
   direction:   'over' | 'under'
   hit:         boolean  // did OVER actually hit?
@@ -1230,7 +1231,7 @@ export function computeFactors(
     simAdj:                    adds.simAdj,
     consistencyAdj:            adds.consistencyAdj,
     lineupAdj:                 adds.lineupAdj,
-    hasLogs, statType: stat_type, direction, hit,
+    hasLogs, gamesPlayed: gameLogs.length, statType: stat_type, direction, hit,
   }
 }
 
@@ -1274,7 +1275,7 @@ export function applyWeights(f: PrecomputedFactors, weights: Record<string, numb
     f.consistencyAdj +
     f.lineupAdj
   )))
-  const label = getLabel(score, f.statType).label
+  const label = getLabel(score, f.statType, f.gamesPlayed).label
   return { score, label }
 }
 
@@ -1429,7 +1430,7 @@ export function scoreProps(
     consistencyAdj +
     lineupAdj
   )))
-  const { label, tier } = getLabel(score, stat_type)
+  const { label, tier } = getLabel(score, stat_type, gameLogs.length)
   // Derive correct opponent display name from game-log-based opponentAbbr.
   // prop.opponent is unreliable (always set to away_team regardless of which side the player is on).
   const opponentDisplayName = opponentAbbr
@@ -1511,7 +1512,16 @@ export function assignTier(
   return                                    { label: 'FADE', tier: 'HIGH_RISK' }
 }
 
-export function getLabel(score: number, statType?: StatType): { label: ConfidenceLabel; tier: RiskTier } {
+/** A player needs this many game logs (the L10 window) before a prop can be LOCK
+ *  or PLAY. Rookies with 0-3 games reached LOCK on scores built from almost no data. */
+export const MIN_GAMES_FOR_TIER = 10
+
+export function getLabel(
+  score: number,
+  statType?: StatType,
+  gamesPlayed?: number,
+): { label: ConfidenceLabel; tier: RiskTier } {
+  if (gamesPlayed !== undefined && gamesPlayed < MIN_GAMES_FOR_TIER) return assignTier(score, null, null)
   // 1. Calibration-derived thresholds win when present (authoritative, incl.
   //    deliberate nulls). 2. Else fall back to confidence-weights config. 3. Else
   //    code defaults. Sorting/dedup still use raw scores elsewhere — unchanged.

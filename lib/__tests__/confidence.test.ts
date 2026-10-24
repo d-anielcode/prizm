@@ -16,6 +16,8 @@ import {
   type ScoringContext,
   type TeamDefenseStats,
   type SeasonStats,
+  getLabel,
+  MIN_GAMES_FOR_TIER,
 } from '../confidence'
 import type { Prop } from '@/types'
 
@@ -537,5 +539,30 @@ describe('U12: scoreProps emits score_factors breakdown', () => {
     for (const k of EXPECTED_KEYS) {
       expect(keys).toContain(k)
     }
+  })
+})
+
+// ── Sample-size gate on tiers ────────────────────────────────────────────────
+describe('getLabel sample gate', () => {
+  // Regression (2026-10-24): rookies with 0-3 NBA games (Caleb Wilson, Yaxel
+  // Lendeborg) were LOCK with no reasons: the no-log cap (65) sits above the
+  // steals/blocks/3PM LOCK thresholds. No LOCK/PLAY until MIN_GAMES_FOR_TIER games.
+  it('labels FADE below the minimum sample regardless of score', () => {
+    expect(getLabel(95, 'steals', 2).label).toBe('FADE')
+    expect(getLabel(95, 'points', MIN_GAMES_FOR_TIER - 1).label).toBe('FADE')
+  })
+
+  it('applies normal thresholds once the sample is met (or unknown)', () => {
+    expect(getLabel(95, 'steals', MIN_GAMES_FOR_TIER).label).toBe('LOCK')
+    expect(getLabel(95, 'steals').label).toBe('LOCK')
+  })
+
+  it('scoreProps never returns LOCK/PLAY for a player with 2 game logs', () => {
+    const logs = [0, 1].map((i) => ({
+      game_date: `2026-10-2${i}`, matchup: 'CHI vs. BOS', is_home: true,
+      points: 30, rebounds: 10, assists: 8, steals: 4, blocks: 3, fg3m: 5, minutes: 34, pra: 48,
+    }))
+    const r = scoreProps(makeProp({ stat_type: 'steals', line: 1.5, direction: 'over' }), logs as never, null, null)
+    expect(r.confidence_label).toBe('FADE')
   })
 })

@@ -865,7 +865,7 @@ async function runEnrichment(force = false) {
         }
       }
 
-      return { ...alt, confidence_score: adjScore, confidence_label: getLabel(adjScore, pseudoProp.stat_type).label }
+      return { ...alt, confidence_score: adjScore, confidence_label: getLabel(adjScore, pseudoProp.stat_type, logs.length).label }
     })
 
     for (let i = 0; i < altUpdates.length; i += BATCH) {
