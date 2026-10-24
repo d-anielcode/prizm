@@ -140,3 +140,27 @@ export function tierTargets(): { LOCK: number; PLAY: number } {
   const t = TABLE.tier_thresholds?._targets
   return { LOCK: t?.lock ?? 0.6, PLAY: t?.play ?? 0.55 }
 }
+
+/** Last game date the calibration curves were fitted on. */
+export function calibrationWindowEnd(): string {
+  return TABLE.data_window?.end ?? ''
+}
+
+/** Score-calibration check on props graded AFTER the calibration's fitting window.
+ *  Bucketing the same props the curve was fitted on would match by construction. */
+export function outOfSampleBuckets<B extends { label: string; min: number; max: number }>(
+  rows: Array<{ confidence_score: number; stat_type: string; hit: boolean; game_date: string }>,
+  buckets: B[],
+): { buckets: Array<B & { hits: number; total: number }>; after: string; sampleSize: number } {
+  const after = calibrationWindowEnd()
+  const oos = rows.filter((r) => r.game_date > after)
+  const withCal = oos.map((r) => ({ hit: r.hit, cal: applyCalibration(r.confidence_score, r.stat_type) }))
+  return {
+    buckets: buckets.map((b) => {
+      const inBucket = withCal.filter((r) => r.cal >= b.min && r.cal <= b.max)
+      return { ...b, hits: inBucket.filter((r) => r.hit).length, total: inBucket.length }
+    }),
+    after,
+    sampleSize: oos.length,
+  }
+}

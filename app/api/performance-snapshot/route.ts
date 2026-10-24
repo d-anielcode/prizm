@@ -14,7 +14,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { requireCronAuth } from '@/lib/api-auth'
-import { applyCalibration } from '@/lib/calibration'
+import { outOfSampleBuckets } from '@/lib/calibration'
 
 export const maxDuration = 120
 
@@ -98,13 +98,13 @@ async function computeDailyBreakdown(db: DB) {
 }
 
 async function computeCalibration(db: DB) {
-  const rows: { confidence_score: number; confidence_label: string; direction: string; stat_type: string; hit: boolean }[] = []
+  const rows: { confidence_score: number; confidence_label: string; direction: string; stat_type: string; hit: boolean; game_date: string }[] = []
   let from = 0
   const PAGE = 1000
   while (true) {
     const { data: page } = await db
       .from('prop_grades')
-      .select('confidence_score, confidence_label, direction, stat_type, hit')
+      .select('confidence_score, confidence_label, direction, stat_type, hit, game_date')
       .not('confidence_score', 'is', null)
       .not('hit', 'is', null)
       .range(from, from + PAGE - 1)
@@ -114,17 +114,9 @@ async function computeCalibration(db: DB) {
     from += PAGE
   }
 
-  // Bucketize on the CALIBRATED score so the histogram shows honest hit-rate
-  // bands. Stored confidence_score is raw; applyCalibration() does the remap.
-  // Per-stat calibration table (v2): each row maps using its own stat_type curve
-  // so a "70" PRA shows in a different bucket than a "70" rebounds where appropriate.
-  const buckets = CALIB_BUCKETS.map((b) => {
-    const inBucket = rows.filter((r) => {
-      const cal = applyCalibration(r.confidence_score, r.stat_type)
-      return cal >= b.min && cal <= b.max
-    })
-    return { ...b, hits: inBucket.filter((r) => r.hit).length, total: inBucket.length }
-  })
+  // Bucketize on the CALIBRATED score, using only props graded after the calibration
+  // window: the curve was fitted on the earlier props, so they'd match by construction.
+  const { buckets, after: calibAfter, sampleSize: calibSample } = outOfSampleBuckets(rows, CALIB_BUCKETS)
 
   const byDirection = {
     over:  { hits: rows.filter((r) => r.direction === 'over'  && r.hit).length, total: rows.filter((r) => r.direction === 'over').length },
@@ -152,7 +144,7 @@ async function computeCalibration(db: DB) {
   const gap = (overRate != null && underRate != null) ? underRate - overRate : 0
   const recommendedOverAdj = gap > 0 ? -Math.round(gap * 100) : 0
 
-  return { buckets, byDirection, byLabelDir, byStatType, recommendedOverAdj, currentOverAdj: -3, sampleSize: rows.length }
+  return { buckets, calibAfter, calibSample, byDirection, byLabelDir, byStatType, recommendedOverAdj, currentOverAdj: -3, sampleSize: rows.length }
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────

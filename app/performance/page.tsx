@@ -3,7 +3,7 @@
 // Two lean parallel queries: all-time totals + last 5 game days.
 
 import { supabase } from '@/lib/supabase'
-import { applyCalibration } from '@/lib/calibration'
+import { outOfSampleBuckets } from '@/lib/calibration'
 
 // Revalidate every 30 min — performance data only changes after nightly grading
 export const revalidate = 1800
@@ -132,6 +132,8 @@ interface DirSplit    { hits: number; total: number }
 
 interface CalibrationData {
   buckets:           CalibBucket[]
+  calibAfter?:       string   // buckets only use props graded after this date (out of sample)
+  calibSample?:      number
   byDirection:       { over: DirSplit; under: DirSplit }
   byLabelDir:        Record<string, { over: DirSplit; under: DirSplit }>
   byStatType:        Record<string, { hits: number; total: number }>
@@ -155,13 +157,13 @@ const CALIB_BUCKETS = [
 ]
 
 async function loadCalibrationData(): Promise<CalibrationData> {
-  const rows: { confidence_score: number; confidence_label: string; direction: string; stat_type: string; hit: boolean }[] = []
+  const rows: { confidence_score: number; confidence_label: string; direction: string; stat_type: string; hit: boolean; game_date: string }[] = []
   let from = 0
   const PAGE = 1000
   while (true) {
     const { data: page } = await supabase
       .from('prop_grades')
-      .select('confidence_score, confidence_label, direction, stat_type, hit')
+      .select('confidence_score, confidence_label, direction, stat_type, hit, game_date')
       .not('confidence_score', 'is', null)
       .not('hit', 'is', null)
       .range(from, from + PAGE - 1)
@@ -171,15 +173,9 @@ async function loadCalibrationData(): Promise<CalibrationData> {
     from += PAGE
   }
 
-  // Score buckets — keyed on per-stat calibrated score so the histogram shows
-  // honest hit-rate bands. Each row applies its own stat_type calibration curve.
-  const buckets: CalibBucket[] = CALIB_BUCKETS.map((b) => {
-    const inBucket = rows.filter((r) => {
-      const cal = applyCalibration(r.confidence_score, r.stat_type)
-      return cal >= b.min && cal <= b.max
-    })
-    return { ...b, hits: inBucket.filter((r) => r.hit).length, total: inBucket.length }
-  })
+  // Score buckets on the calibrated score, out of sample only (props graded after
+  // the calibration window); in-sample props match the curve by construction.
+  const { buckets, after: calibAfter, sampleSize: calibSample } = outOfSampleBuckets(rows, CALIB_BUCKETS)
 
   // OVER vs UNDER split overall
   const byDirection = {
@@ -212,7 +208,7 @@ async function loadCalibrationData(): Promise<CalibrationData> {
   // Each model score point ≈ 1% probability shift. Gap in % → score point correction.
   const recommendedOverAdj = gap > 0 ? -Math.round(gap * 100) : 0
 
-  return { buckets, byDirection, byLabelDir, byStatType, recommendedOverAdj, currentOverAdj: -3, sampleSize: rows.length }
+  return { buckets, calibAfter, calibSample, byDirection, byLabelDir, byStatType, recommendedOverAdj, currentOverAdj: -3, sampleSize: rows.length }
 }
 
 // ── Streak data ───────────────────────────────────────────────────────────────
@@ -789,6 +785,11 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                   <div className="flex flex-col gap-0.5">
                     <p className="text-[11px] text-white/35 uppercase tracking-widest">Score Calibration</p>
                     <p className="text-[10px] text-white/20">Does score 70 actually mean 70% hit rate?</p>
+                    <p className="text-[10px] text-white/30">
+                      {calibration!.calibAfter
+                        ? `Props graded after ${calibration!.calibAfter} only (${calibration!.calibSample ?? 0}), which the calibration wasn't fitted on.`
+                        : 'Includes the props the calibration was fitted on, so it can look better than it is.'}
+                    </p>
                   </div>
                 </div>
                 <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
