@@ -123,8 +123,8 @@ export default async function EdgePage() {
         <span className="text-xs text-white/40">{picks.length} model +EV picks</span>
       </div>
       <p className="text-sm text-white/50 mb-6 max-w-2xl">
-        Props where the model&apos;s probability beats the price, ranked by the model&apos;s
-        <span className="text-white/70"> estimated</span> expected value. These are model
+        Props where the model&apos;s probability beats the price, ranked by the model&apos;s{' '}
+        <span className="text-white/70">estimated</span>{' '}expected value. These are model
         estimates, not proven edges: in 2025-26 testing on held-out games at real odds, the
         model&apos;s picks did not beat the books (LOCK/PLAY returned about −5%).
       </p>
