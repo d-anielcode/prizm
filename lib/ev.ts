@@ -1,0 +1,91 @@
+/**
+ * lib/ev.ts — Expected value math for prop picks.
+ *
+ * The tier system (LOCK/PLAY/LEAN/FADE) ranks by raw confidence score, which
+ * ignores odds. A LEAN at +150 can be better than a LOCK at -200 if the
+ * probability advantage is large enough. EV puts everything on one scale.
+ *
+ * EV per unit stake = (calibrated_prob × decimal_odds) − 1
+ *
+ *   Positive  EV = profitable in expectation (the book is mispricing)
+ *   Negative  EV = unprofitable in expectation (the juice eats the edge)
+ *   Break-even at -110:  prob > 1/1.909 = 0.524
+ *
+ * All probabilities use the isotonic-calibrated score, NOT the raw model
+ * score, because the calibrated value is "what fraction of these props
+ * historically hit." That's the only honest input to EV.
+ */
+
+import { applyCalibration } from '@/lib/calibration'
+
+/** Player-prop prices outside this band are near-certain or longshot alt lines
+ *  (or bad data): seen in prop_history as -10000 / +3000. They're never usable
+ *  picks, and a handful of them dominates any EV or ROI average. */
+export const ODDS_SANE_MIN = -500
+export const ODDS_SANE_MAX = 500
+
+/** True for a usable American price: -500..-100 or +100..+500. */
+export function isSaneOdds(odds: number | null | undefined): odds is number {
+  if (odds == null || !Number.isFinite(odds)) return false
+  if (Math.abs(odds) < 100) return false
+  return odds >= ODDS_SANE_MIN && odds <= ODDS_SANE_MAX
+}
+
+/** Convert American odds to decimal. -110 -> 1.909, +120 -> 2.20.
+ *  Null for missing or out-of-range odds (see isSaneOdds). */
+export function americanToDecimal(odds: number | null | undefined): number | null {
+  if (!isSaneOdds(odds)) return null
+  if (odds > 0)  return 1 + odds / 100
+  if (odds < 0)  return 1 + 100 / Math.abs(odds)
+  return null  // 0 odds is malformed
+}
+
+/** Implied probability from American odds (no overround removal). */
+export function impliedProb(odds: number | null | undefined): number | null {
+  const dec = americanToDecimal(odds)
+  if (dec == null || dec <= 0) return null
+  return 1 / dec
+}
+
+/**
+ * Expected value per unit stake.
+ * Returns null if either input is missing/invalid.
+ *
+ *   rawConfidenceScore: 0-100 from confidence.ts (RAW — we'll calibrate it)
+ *   americanOdds: standard American odds (e.g. -110, +145)
+ *   statType: optional; when provided, uses the per-stat calibration curve
+ *             (much more accurate than the global fallback for stats that
+ *             diverge widely — e.g. rebounds vs 3PM).
+ */
+export function ev(
+  rawConfidenceScore: number | null | undefined,
+  americanOdds: number | null | undefined,
+  statType?: string,
+): number | null {
+  if (rawConfidenceScore == null) return null
+  const dec = americanToDecimal(americanOdds)
+  if (dec == null) return null
+  const prob = applyCalibration(rawConfidenceScore, statType) / 100
+  return prob * dec - 1
+}
+
+/** EV as a percentage, rounded to 1 decimal. Returns null if inputs invalid. */
+export function evPct(
+  rawConfidenceScore: number | null | undefined,
+  americanOdds: number | null | undefined,
+  statType?: string,
+): number | null {
+  const e = ev(rawConfidenceScore, americanOdds, statType)
+  if (e == null) return null
+  return Math.round(e * 1000) / 10  // e.g. 0.0834 -> 8.3
+}
+
+/**
+ * Break-even probability for the given American odds.
+ * A prop is +EV iff calibrated_prob > breakEvenProb(odds).
+ */
+export function breakEvenProb(americanOdds: number | null | undefined): number | null {
+  const dec = americanToDecimal(americanOdds)
+  if (dec == null || dec <= 0) return null
+  return 1 / dec
+}

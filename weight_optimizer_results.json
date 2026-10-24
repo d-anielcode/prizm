@@ -1,0 +1,2602 @@
+{
+  "generated_at": "2026-03-30T23:51:06.997606",
+  "n_iterations": 10000,
+  "min_high_count": 30,
+  "results_by_stat": {
+    "points": {
+      "n_props": 9052,
+      "n_skipped": 946,
+      "high_threshold": 68,
+      "baseline": null,
+      "top_results": [
+        {
+          "hit_rate": 0.7777777777777778,
+          "high_count": 36,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.0234,
+            "matchupEdge": 0.0393,
+            "last20HitRate": 0.3748,
+            "trend": 0.0848,
+            "seasonCushion": 0.0079,
+            "pace": 0.0561,
+            "newsInjury": 0.0563,
+            "restDays": 0.0262,
+            "blowout": 0.0773,
+            "homeAway": 0.2096,
+            "vsOpponent": 0.0443
+          }
+        },
+        {
+          "hit_rate": 0.7741935483870968,
+          "high_count": 31,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.0306,
+            "matchupEdge": 0.089,
+            "last20HitRate": 0.2936,
+            "trend": 0.0472,
+            "seasonCushion": 0.0714,
+            "pace": 0.0826,
+            "newsInjury": 0.0992,
+            "restDays": 0.1716,
+            "blowout": 0.0226,
+            "homeAway": 0.0868,
+            "vsOpponent": 0.0053
+          }
+        },
+        {
+          "hit_rate": 0.7741935483870968,
+          "high_count": 31,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.0285,
+            "matchupEdge": 0.0214,
+            "last20HitRate": 0.289,
+            "trend": 0.0707,
+            "seasonCushion": 0.0491,
+            "pace": 0.0096,
+            "newsInjury": 0.1871,
+            "restDays": 0.1773,
+            "blowout": 0.1098,
+            "homeAway": 0.0395,
+            "vsOpponent": 0.0179
+          }
+        },
+        {
+          "hit_rate": 0.7741935483870968,
+          "high_count": 31,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.0497,
+            "matchupEdge": 0.0524,
+            "last20HitRate": 0.2871,
+            "trend": 0.0403,
+            "seasonCushion": 0.0676,
+            "pace": 0.0796,
+            "newsInjury": 0.0425,
+            "restDays": 0.1957,
+            "blowout": 0.0873,
+            "homeAway": 0.0314,
+            "vsOpponent": 0.0664
+          }
+        },
+        {
+          "hit_rate": 0.7714285714285715,
+          "high_count": 35,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.0402,
+            "matchupEdge": 0.0483,
+            "last20HitRate": 0.3682,
+            "trend": 0.0667,
+            "seasonCushion": 0.0141,
+            "pace": 0.087,
+            "newsInjury": 0.0768,
+            "restDays": 0.0242,
+            "blowout": 0.0743,
+            "homeAway": 0.112,
+            "vsOpponent": 0.0881
+          }
+        },
+        {
+          "hit_rate": 0.7666666666666667,
+          "high_count": 30,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.063,
+            "matchupEdge": 0.0606,
+            "last20HitRate": 0.2421,
+            "trend": 0.0526,
+            "seasonCushion": 0.0707,
+            "pace": 0.0693,
+            "newsInjury": 0.1362,
+            "restDays": 0.1903,
+            "blowout": 0.0926,
+            "homeAway": 0.0182,
+            "vsOpponent": 0.0044
+          }
+        },
+        {
+          "hit_rate": 0.75,
+          "high_count": 32,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.036,
+            "matchupEdge": 0.0325,
+            "last20HitRate": 0.335,
+            "trend": 0.0443,
+            "seasonCushion": 0.0389,
+            "pace": 0.057,
+            "newsInjury": 0.1243,
+            "restDays": 0.1826,
+            "blowout": 0.0406,
+            "homeAway": 0.0955,
+            "vsOpponent": 0.0132
+          }
+        },
+        {
+          "hit_rate": 0.7352941176470589,
+          "high_count": 34,
+          "high_hits": 25,
+          "weights": {
+            "lineValue": 0.0873,
+            "matchupEdge": 0.1475,
+            "last20HitRate": 0.3036,
+            "trend": 0.003,
+            "seasonCushion": 0.0541,
+            "pace": 0.0198,
+            "newsInjury": 0.0675,
+            "restDays": 0.1173,
+            "blowout": 0.1145,
+            "homeAway": 0.047,
+            "vsOpponent": 0.0384
+          }
+        },
+        {
+          "hit_rate": 0.7297297297297297,
+          "high_count": 37,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.0621,
+            "matchupEdge": 0.2447,
+            "last20HitRate": 0.3032,
+            "trend": 0.0554,
+            "seasonCushion": 0.0261,
+            "pace": 0.0153,
+            "newsInjury": 0.0172,
+            "restDays": 0.2391,
+            "blowout": 0.0117,
+            "homeAway": 0.0063,
+            "vsOpponent": 0.019
+          }
+        },
+        {
+          "hit_rate": 0.7297297297297297,
+          "high_count": 37,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.0472,
+            "matchupEdge": 0.2777,
+            "last20HitRate": 0.1921,
+            "trend": 0.0697,
+            "seasonCushion": 0.1161,
+            "pace": 0.0043,
+            "newsInjury": 0.0093,
+            "restDays": 0.213,
+            "blowout": 0.0565,
+            "homeAway": 0.0115,
+            "vsOpponent": 0.0026
+          }
+        },
+        {
+          "hit_rate": 0.7272727272727273,
+          "high_count": 33,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.0219,
+            "matchupEdge": 0.1078,
+            "last20HitRate": 0.2857,
+            "trend": 0.0597,
+            "seasonCushion": 0.0854,
+            "pace": 0.0638,
+            "newsInjury": 0.1081,
+            "restDays": 0.0799,
+            "blowout": 0.0985,
+            "homeAway": 0.0712,
+            "vsOpponent": 0.018
+          }
+        },
+        {
+          "hit_rate": 0.7222222222222222,
+          "high_count": 36,
+          "high_hits": 26,
+          "weights": {
+            "lineValue": 0.001,
+            "matchupEdge": 0.1703,
+            "last20HitRate": 0.3428,
+            "trend": 0.068,
+            "seasonCushion": 0.0685,
+            "pace": 0.0023,
+            "newsInjury": 0.0649,
+            "restDays": 0.0316,
+            "blowout": 0.0772,
+            "homeAway": 0.0224,
+            "vsOpponent": 0.151
+          }
+        },
+        {
+          "hit_rate": 0.71875,
+          "high_count": 32,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0901,
+            "matchupEdge": 0.2025,
+            "last20HitRate": 0.3114,
+            "trend": 0.0214,
+            "seasonCushion": 0.0369,
+            "pace": 0.0049,
+            "newsInjury": 0.0046,
+            "restDays": 0.1261,
+            "blowout": 0.0219,
+            "homeAway": 0.021,
+            "vsOpponent": 0.1591
+          }
+        },
+        {
+          "hit_rate": 0.71875,
+          "high_count": 32,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0973,
+            "matchupEdge": 0.0057,
+            "last20HitRate": 0.3201,
+            "trend": 0.0265,
+            "seasonCushion": 0.0295,
+            "pace": 0.1701,
+            "newsInjury": 0.0976,
+            "restDays": 0.0822,
+            "blowout": 0.0122,
+            "homeAway": 0.0637,
+            "vsOpponent": 0.095
+          }
+        },
+        {
+          "hit_rate": 0.71875,
+          "high_count": 32,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0318,
+            "matchupEdge": 0.0304,
+            "last20HitRate": 0.2933,
+            "trend": 0.0017,
+            "seasonCushion": 0.1035,
+            "pace": 0.005,
+            "newsInjury": 0.0361,
+            "restDays": 0.132,
+            "blowout": 0.316,
+            "homeAway": 0.0291,
+            "vsOpponent": 0.021
+          }
+        },
+        {
+          "hit_rate": 0.71875,
+          "high_count": 32,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0867,
+            "matchupEdge": 0.0098,
+            "last20HitRate": 0.3108,
+            "trend": 0.05,
+            "seasonCushion": 0.0148,
+            "pace": 0.124,
+            "newsInjury": 0.0989,
+            "restDays": 0.1107,
+            "blowout": 0.0282,
+            "homeAway": 0.0011,
+            "vsOpponent": 0.1651
+          }
+        },
+        {
+          "hit_rate": 0.71875,
+          "high_count": 32,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0484,
+            "matchupEdge": 0.0017,
+            "last20HitRate": 0.2385,
+            "trend": 0.0836,
+            "seasonCushion": 0.0291,
+            "pace": 0.0335,
+            "newsInjury": 0.0421,
+            "restDays": 0.3272,
+            "blowout": 0.0762,
+            "homeAway": 0.0702,
+            "vsOpponent": 0.0497
+          }
+        },
+        {
+          "hit_rate": 0.717948717948718,
+          "high_count": 39,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.1053,
+            "matchupEdge": 0.2035,
+            "last20HitRate": 0.2744,
+            "trend": 0.1033,
+            "seasonCushion": 0.0111,
+            "pace": 0.0074,
+            "newsInjury": 0.0173,
+            "restDays": 0.0142,
+            "blowout": 0.0307,
+            "homeAway": 0.1574,
+            "vsOpponent": 0.0752
+          }
+        },
+        {
+          "hit_rate": 0.717948717948718,
+          "high_count": 39,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.0627,
+            "matchupEdge": 0.1066,
+            "last20HitRate": 0.3419,
+            "trend": 0.0618,
+            "seasonCushion": 0.0209,
+            "pace": 0.0171,
+            "newsInjury": 0.1187,
+            "restDays": 0.1105,
+            "blowout": 0.0019,
+            "homeAway": 0.1331,
+            "vsOpponent": 0.0248
+          }
+        },
+        {
+          "hit_rate": 0.717948717948718,
+          "high_count": 39,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.0185,
+            "matchupEdge": 0.0334,
+            "last20HitRate": 0.3599,
+            "trend": 0.0829,
+            "seasonCushion": 0.0175,
+            "pace": 0.082,
+            "newsInjury": 0.0303,
+            "restDays": 0.1194,
+            "blowout": 0.1427,
+            "homeAway": 0.045,
+            "vsOpponent": 0.0685
+          }
+        }
+      ],
+      "top50_avg_weights": {
+        "lineValue": 0.0487,
+        "matchupEdge": 0.0751,
+        "last20HitRate": 0.2567,
+        "trend": 0.0731,
+        "seasonCushion": 0.0641,
+        "pace": 0.0505,
+        "newsInjury": 0.0801,
+        "restDays": 0.1457,
+        "blowout": 0.0671,
+        "homeAway": 0.071,
+        "vsOpponent": 0.068
+      }
+    },
+    "rebounds": {
+      "n_props": 7816,
+      "n_skipped": 845,
+      "high_threshold": 68,
+      "baseline": null,
+      "top_results": [
+        {
+          "hit_rate": 0.6904761904761905,
+          "high_count": 42,
+          "high_hits": 29,
+          "weights": {
+            "lineValue": 0.0723,
+            "matchupEdge": 0.0674,
+            "last20HitRate": 0.1709,
+            "trend": 0.1742,
+            "seasonCushion": 0.0319,
+            "pace": 0.2451,
+            "newsInjury": 0.0083,
+            "restDays": 0.0583,
+            "blowout": 0.0172,
+            "homeAway": 0.1162,
+            "vsOpponent": 0.0383
+          }
+        },
+        {
+          "hit_rate": 0.6875,
+          "high_count": 32,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.0992,
+            "matchupEdge": 0.1123,
+            "last20HitRate": 0.0419,
+            "trend": 0.0851,
+            "seasonCushion": 0.1768,
+            "pace": 0.2303,
+            "newsInjury": 0.1248,
+            "restDays": 0.0389,
+            "blowout": 0.027,
+            "homeAway": 0.0275,
+            "vsOpponent": 0.0361
+          }
+        },
+        {
+          "hit_rate": 0.6875,
+          "high_count": 32,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.0938,
+            "matchupEdge": 0.1214,
+            "last20HitRate": 0.053,
+            "trend": 0.1056,
+            "seasonCushion": 0.1548,
+            "pace": 0.0234,
+            "newsInjury": 0.004,
+            "restDays": 0.0226,
+            "blowout": 0.0504,
+            "homeAway": 0.052,
+            "vsOpponent": 0.3191
+          }
+        },
+        {
+          "hit_rate": 0.6857142857142857,
+          "high_count": 35,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.0873,
+            "matchupEdge": 0.1914,
+            "last20HitRate": 0.1213,
+            "trend": 0.1705,
+            "seasonCushion": 0.0548,
+            "pace": 0.0376,
+            "newsInjury": 0.1291,
+            "restDays": 0.045,
+            "blowout": 0.0755,
+            "homeAway": 0.0364,
+            "vsOpponent": 0.0511
+          }
+        },
+        {
+          "hit_rate": 0.6774193548387096,
+          "high_count": 31,
+          "high_hits": 21,
+          "weights": {
+            "lineValue": 0.0562,
+            "matchupEdge": 0.1556,
+            "last20HitRate": 0.0747,
+            "trend": 0.0844,
+            "seasonCushion": 0.1575,
+            "pace": 0.0964,
+            "newsInjury": 0.0001,
+            "restDays": 0.1508,
+            "blowout": 0.0123,
+            "homeAway": 0.1791,
+            "vsOpponent": 0.033
+          }
+        },
+        {
+          "hit_rate": 0.6774193548387096,
+          "high_count": 31,
+          "high_hits": 21,
+          "weights": {
+            "lineValue": 0.0979,
+            "matchupEdge": 0.0018,
+            "last20HitRate": 0.0758,
+            "trend": 0.1119,
+            "seasonCushion": 0.1293,
+            "pace": 0.148,
+            "newsInjury": 0.0972,
+            "restDays": 0.039,
+            "blowout": 0.1142,
+            "homeAway": 0.1209,
+            "vsOpponent": 0.0641
+          }
+        },
+        {
+          "hit_rate": 0.6666666666666666,
+          "high_count": 33,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.0759,
+            "matchupEdge": 0.1205,
+            "last20HitRate": 0.179,
+            "trend": 0.1839,
+            "seasonCushion": 0.012,
+            "pace": 0.0073,
+            "newsInjury": 0.0089,
+            "restDays": 0.0036,
+            "blowout": 0.0734,
+            "homeAway": 0.2675,
+            "vsOpponent": 0.068
+          }
+        },
+        {
+          "hit_rate": 0.6666666666666666,
+          "high_count": 33,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.0371,
+            "matchupEdge": 0.1956,
+            "last20HitRate": 0.1092,
+            "trend": 0.2016,
+            "seasonCushion": 0.0609,
+            "pace": 0.1324,
+            "newsInjury": 0.0806,
+            "restDays": 0.0147,
+            "blowout": 0.0772,
+            "homeAway": 0.0216,
+            "vsOpponent": 0.0692
+          }
+        },
+        {
+          "hit_rate": 0.6666666666666666,
+          "high_count": 33,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.0153,
+            "matchupEdge": 0.0376,
+            "last20HitRate": 0.2045,
+            "trend": 0.1596,
+            "seasonCushion": 0.0497,
+            "pace": 0.1059,
+            "newsInjury": 0.0057,
+            "restDays": 0.0902,
+            "blowout": 0.1907,
+            "homeAway": 0.0062,
+            "vsOpponent": 0.1345
+          }
+        },
+        {
+          "hit_rate": 0.6666666666666666,
+          "high_count": 30,
+          "high_hits": 20,
+          "weights": {
+            "lineValue": 0.0852,
+            "matchupEdge": 0.0424,
+            "last20HitRate": 0.065,
+            "trend": 0.1797,
+            "seasonCushion": 0.0662,
+            "pace": 0.0642,
+            "newsInjury": 0.0348,
+            "restDays": 0.0854,
+            "blowout": 0.1907,
+            "homeAway": 0.0377,
+            "vsOpponent": 0.1486
+          }
+        },
+        {
+          "hit_rate": 0.6666666666666666,
+          "high_count": 30,
+          "high_hits": 20,
+          "weights": {
+            "lineValue": 0.1196,
+            "matchupEdge": 0.0981,
+            "last20HitRate": 0.0216,
+            "trend": 0.0895,
+            "seasonCushion": 0.1547,
+            "pace": 0.0293,
+            "newsInjury": 0.0445,
+            "restDays": 0.1162,
+            "blowout": 0.0764,
+            "homeAway": 0.0326,
+            "vsOpponent": 0.2173
+          }
+        },
+        {
+          "hit_rate": 0.6571428571428571,
+          "high_count": 35,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0695,
+            "matchupEdge": 0.0458,
+            "last20HitRate": 0.0689,
+            "trend": 0.1365,
+            "seasonCushion": 0.1044,
+            "pace": 0.007,
+            "newsInjury": 0.104,
+            "restDays": 0.171,
+            "blowout": 0.1013,
+            "homeAway": 0.0278,
+            "vsOpponent": 0.1639
+          }
+        },
+        {
+          "hit_rate": 0.65625,
+          "high_count": 32,
+          "high_hits": 21,
+          "weights": {
+            "lineValue": 0.0417,
+            "matchupEdge": 0.2205,
+            "last20HitRate": 0.0443,
+            "trend": 0.0643,
+            "seasonCushion": 0.2141,
+            "pace": 0.0999,
+            "newsInjury": 0.1347,
+            "restDays": 0.0898,
+            "blowout": 0.0538,
+            "homeAway": 0.0362,
+            "vsOpponent": 0.0006
+          }
+        },
+        {
+          "hit_rate": 0.6511627906976745,
+          "high_count": 43,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.0471,
+            "matchupEdge": 0.1066,
+            "last20HitRate": 0.1587,
+            "trend": 0.1931,
+            "seasonCushion": 0.0425,
+            "pace": 0.0711,
+            "newsInjury": 0.003,
+            "restDays": 0.0138,
+            "blowout": 0.0845,
+            "homeAway": 0.2553,
+            "vsOpponent": 0.0242
+          }
+        },
+        {
+          "hit_rate": 0.6470588235294118,
+          "high_count": 34,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.043,
+            "matchupEdge": 0.013,
+            "last20HitRate": 0.1846,
+            "trend": 0.1748,
+            "seasonCushion": 0.0144,
+            "pace": 0.0138,
+            "newsInjury": 0.0897,
+            "restDays": 0.1449,
+            "blowout": 0.1455,
+            "homeAway": 0.1756,
+            "vsOpponent": 0.0007
+          }
+        },
+        {
+          "hit_rate": 0.6470588235294118,
+          "high_count": 34,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.0968,
+            "matchupEdge": 0.0119,
+            "last20HitRate": 0.0453,
+            "trend": 0.1379,
+            "seasonCushion": 0.0887,
+            "pace": 0.0271,
+            "newsInjury": 0.1364,
+            "restDays": 0.2318,
+            "blowout": 0.1564,
+            "homeAway": 0.0063,
+            "vsOpponent": 0.0614
+          }
+        },
+        {
+          "hit_rate": 0.6388888888888888,
+          "high_count": 36,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0336,
+            "matchupEdge": 0.0107,
+            "last20HitRate": 0.097,
+            "trend": 0.1085,
+            "seasonCushion": 0.131,
+            "pace": 0.0474,
+            "newsInjury": 0.0842,
+            "restDays": 0.1949,
+            "blowout": 0.0138,
+            "homeAway": 0.2049,
+            "vsOpponent": 0.0738
+          }
+        },
+        {
+          "hit_rate": 0.6363636363636364,
+          "high_count": 44,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.0662,
+            "matchupEdge": 0.0665,
+            "last20HitRate": 0.2134,
+            "trend": 0.1737,
+            "seasonCushion": 0.0054,
+            "pace": 0.0102,
+            "newsInjury": 0.0165,
+            "restDays": 0.0817,
+            "blowout": 0.2872,
+            "homeAway": 0.0435,
+            "vsOpponent": 0.0357
+          }
+        },
+        {
+          "hit_rate": 0.6363636363636364,
+          "high_count": 33,
+          "high_hits": 21,
+          "weights": {
+            "lineValue": 0.048,
+            "matchupEdge": 0.0813,
+            "last20HitRate": 0.0984,
+            "trend": 0.0842,
+            "seasonCushion": 0.1538,
+            "pace": 0.0296,
+            "newsInjury": 0.1052,
+            "restDays": 0.1222,
+            "blowout": 0.0934,
+            "homeAway": 0.1723,
+            "vsOpponent": 0.0116
+          }
+        },
+        {
+          "hit_rate": 0.6341463414634146,
+          "high_count": 41,
+          "high_hits": 26,
+          "weights": {
+            "lineValue": 0.0925,
+            "matchupEdge": 0.1261,
+            "last20HitRate": 0.1238,
+            "trend": 0.119,
+            "seasonCushion": 0.1103,
+            "pace": 0.0037,
+            "newsInjury": 0.1572,
+            "restDays": 0.0327,
+            "blowout": 0.1195,
+            "homeAway": 0.1109,
+            "vsOpponent": 0.0043
+          }
+        }
+      ],
+      "top50_avg_weights": {
+        "lineValue": 0.0642,
+        "matchupEdge": 0.0908,
+        "last20HitRate": 0.1093,
+        "trend": 0.1459,
+        "seasonCushion": 0.0921,
+        "pace": 0.0704,
+        "newsInjury": 0.0681,
+        "restDays": 0.0879,
+        "blowout": 0.1081,
+        "homeAway": 0.073,
+        "vsOpponent": 0.0901
+      }
+    },
+    "assists": {
+      "n_props": 5166,
+      "n_skipped": 486,
+      "high_threshold": 74,
+      "baseline": null,
+      "top_results": [
+        {
+          "hit_rate": 0.6363636363636364,
+          "high_count": 77,
+          "high_hits": 49,
+          "weights": {
+            "lineValue": 0.2158,
+            "matchupEdge": 0.0193,
+            "last20HitRate": 0.0824,
+            "trend": 0.0086,
+            "seasonCushion": 0.3578,
+            "pace": 0.0379,
+            "newsInjury": 0.1901,
+            "restDays": 0.0664,
+            "blowout": 0.0122,
+            "homeAway": 0.0092,
+            "vsOpponent": 0.0001
+          }
+        },
+        {
+          "hit_rate": 0.6097560975609756,
+          "high_count": 41,
+          "high_hits": 25,
+          "weights": {
+            "lineValue": 0.1094,
+            "matchupEdge": 0.023,
+            "last20HitRate": 0.0676,
+            "trend": 0.2362,
+            "seasonCushion": 0.1701,
+            "pace": 0.0397,
+            "newsInjury": 0.1572,
+            "restDays": 0.0938,
+            "blowout": 0.0016,
+            "homeAway": 0.0628,
+            "vsOpponent": 0.0385
+          }
+        },
+        {
+          "hit_rate": 0.6060606060606061,
+          "high_count": 33,
+          "high_hits": 20,
+          "weights": {
+            "lineValue": 0.0937,
+            "matchupEdge": 0.0062,
+            "last20HitRate": 0.0298,
+            "trend": 0.1601,
+            "seasonCushion": 0.24,
+            "pace": 0.042,
+            "newsInjury": 0.0365,
+            "restDays": 0.139,
+            "blowout": 0.0126,
+            "homeAway": 0.2061,
+            "vsOpponent": 0.034
+          }
+        },
+        {
+          "hit_rate": 0.6052631578947368,
+          "high_count": 38,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.1237,
+            "matchupEdge": 0.088,
+            "last20HitRate": 0.0156,
+            "trend": 0.2954,
+            "seasonCushion": 0.1126,
+            "pace": 0.015,
+            "newsInjury": 0.1121,
+            "restDays": 0.0944,
+            "blowout": 0.0761,
+            "homeAway": 0.0519,
+            "vsOpponent": 0.0153
+          }
+        },
+        {
+          "hit_rate": 0.6052631578947368,
+          "high_count": 38,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0919,
+            "matchupEdge": 0.0139,
+            "last20HitRate": 0.0469,
+            "trend": 0.1509,
+            "seasonCushion": 0.2756,
+            "pace": 0.0093,
+            "newsInjury": 0.192,
+            "restDays": 0.0075,
+            "blowout": 0.0301,
+            "homeAway": 0.0307,
+            "vsOpponent": 0.1514
+          }
+        },
+        {
+          "hit_rate": 0.6036036036036037,
+          "high_count": 111,
+          "high_hits": 67,
+          "weights": {
+            "lineValue": 0.0012,
+            "matchupEdge": 0.0014,
+            "last20HitRate": 0.2882,
+            "trend": 0.0177,
+            "seasonCushion": 0.3809,
+            "pace": 0.0712,
+            "newsInjury": 0.0645,
+            "restDays": 0.0324,
+            "blowout": 0.0468,
+            "homeAway": 0.0874,
+            "vsOpponent": 0.0083
+          }
+        },
+        {
+          "hit_rate": 0.5975609756097561,
+          "high_count": 82,
+          "high_hits": 49,
+          "weights": {
+            "lineValue": 0.277,
+            "matchupEdge": 0.0339,
+            "last20HitRate": 0.0711,
+            "trend": 0.0448,
+            "seasonCushion": 0.3189,
+            "pace": 0.0134,
+            "newsInjury": 0.0283,
+            "restDays": 0.0963,
+            "blowout": 0.0488,
+            "homeAway": 0.0303,
+            "vsOpponent": 0.0372
+          }
+        },
+        {
+          "hit_rate": 0.5957446808510638,
+          "high_count": 47,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.1968,
+            "matchupEdge": 0.013,
+            "last20HitRate": 0.0432,
+            "trend": 0.1499,
+            "seasonCushion": 0.247,
+            "pace": 0.0175,
+            "newsInjury": 0.2327,
+            "restDays": 0.023,
+            "blowout": 0.0007,
+            "homeAway": 0.0581,
+            "vsOpponent": 0.018
+          }
+        },
+        {
+          "hit_rate": 0.5945945945945946,
+          "high_count": 37,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.1079,
+            "matchupEdge": 0.0056,
+            "last20HitRate": 0.0407,
+            "trend": 0.2861,
+            "seasonCushion": 0.1184,
+            "pace": 0.0104,
+            "newsInjury": 0.008,
+            "restDays": 0.092,
+            "blowout": 0.0496,
+            "homeAway": 0.2232,
+            "vsOpponent": 0.0582
+          }
+        },
+        {
+          "hit_rate": 0.5930232558139535,
+          "high_count": 86,
+          "high_hits": 51,
+          "weights": {
+            "lineValue": 0.0935,
+            "matchupEdge": 0.0057,
+            "last20HitRate": 0.2194,
+            "trend": 0.0401,
+            "seasonCushion": 0.3411,
+            "pace": 0.038,
+            "newsInjury": 0.0285,
+            "restDays": 0.0922,
+            "blowout": 0.0486,
+            "homeAway": 0.0073,
+            "vsOpponent": 0.0857
+          }
+        },
+        {
+          "hit_rate": 0.5930232558139535,
+          "high_count": 86,
+          "high_hits": 51,
+          "weights": {
+            "lineValue": 0.0964,
+            "matchupEdge": 0.019,
+            "last20HitRate": 0.0738,
+            "trend": 0.4029,
+            "seasonCushion": 0.0113,
+            "pace": 0.094,
+            "newsInjury": 0.004,
+            "restDays": 0.0569,
+            "blowout": 0.031,
+            "homeAway": 0.1832,
+            "vsOpponent": 0.0274
+          }
+        },
+        {
+          "hit_rate": 0.5921052631578947,
+          "high_count": 76,
+          "high_hits": 45,
+          "weights": {
+            "lineValue": 0.2194,
+            "matchupEdge": 0.0933,
+            "last20HitRate": 0.1509,
+            "trend": 0.0032,
+            "seasonCushion": 0.3317,
+            "pace": 0.0273,
+            "newsInjury": 0.0488,
+            "restDays": 0.0289,
+            "blowout": 0.0192,
+            "homeAway": 0.0149,
+            "vsOpponent": 0.0626
+          }
+        },
+        {
+          "hit_rate": 0.5897435897435898,
+          "high_count": 39,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.1535,
+            "matchupEdge": 0.1576,
+            "last20HitRate": 0.0248,
+            "trend": 0.2062,
+            "seasonCushion": 0.2062,
+            "pace": 0.0833,
+            "newsInjury": 0.016,
+            "restDays": 0.0118,
+            "blowout": 0.0238,
+            "homeAway": 0.0872,
+            "vsOpponent": 0.0295
+          }
+        },
+        {
+          "hit_rate": 0.5869565217391305,
+          "high_count": 46,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.2239,
+            "matchupEdge": 0.0794,
+            "last20HitRate": 0.0132,
+            "trend": 0.1758,
+            "seasonCushion": 0.2144,
+            "pace": 0.1191,
+            "newsInjury": 0.0785,
+            "restDays": 0.0309,
+            "blowout": 0.028,
+            "homeAway": 0.0247,
+            "vsOpponent": 0.012
+          }
+        },
+        {
+          "hit_rate": 0.5833333333333334,
+          "high_count": 36,
+          "high_hits": 21,
+          "weights": {
+            "lineValue": 0.1073,
+            "matchupEdge": 0.0265,
+            "last20HitRate": 0.0294,
+            "trend": 0.1909,
+            "seasonCushion": 0.2338,
+            "pace": 0.0199,
+            "newsInjury": 0.2368,
+            "restDays": 0.0134,
+            "blowout": 0.0106,
+            "homeAway": 0.065,
+            "vsOpponent": 0.0664
+          }
+        },
+        {
+          "hit_rate": 0.5777777777777777,
+          "high_count": 45,
+          "high_hits": 26,
+          "weights": {
+            "lineValue": 0.043,
+            "matchupEdge": 0.0002,
+            "last20HitRate": 0.3044,
+            "trend": 0.017,
+            "seasonCushion": 0.264,
+            "pace": 0.0151,
+            "newsInjury": 0.0463,
+            "restDays": 0.2657,
+            "blowout": 0.0147,
+            "homeAway": 0.0085,
+            "vsOpponent": 0.0211
+          }
+        },
+        {
+          "hit_rate": 0.5774647887323944,
+          "high_count": 71,
+          "high_hits": 41,
+          "weights": {
+            "lineValue": 0.089,
+            "matchupEdge": 0.045,
+            "last20HitRate": 0.0925,
+            "trend": 0.3721,
+            "seasonCushion": 0.0184,
+            "pace": 0.0466,
+            "newsInjury": 0.0031,
+            "restDays": 0.1509,
+            "blowout": 0.0517,
+            "homeAway": 0.0489,
+            "vsOpponent": 0.0817
+          }
+        },
+        {
+          "hit_rate": 0.575,
+          "high_count": 40,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0467,
+            "matchupEdge": 0.1724,
+            "last20HitRate": 0.0158,
+            "trend": 0.1757,
+            "seasonCushion": 0.2617,
+            "pace": 0.0552,
+            "newsInjury": 0.0367,
+            "restDays": 0.0971,
+            "blowout": 0.0429,
+            "homeAway": 0.0529,
+            "vsOpponent": 0.0428
+          }
+        },
+        {
+          "hit_rate": 0.5737704918032787,
+          "high_count": 61,
+          "high_hits": 35,
+          "weights": {
+            "lineValue": 0.1798,
+            "matchupEdge": 0.0316,
+            "last20HitRate": 0.0118,
+            "trend": 0.009,
+            "seasonCushion": 0.392,
+            "pace": 0.0227,
+            "newsInjury": 0.0485,
+            "restDays": 0.0276,
+            "blowout": 0.169,
+            "homeAway": 0.1032,
+            "vsOpponent": 0.0048
+          }
+        },
+        {
+          "hit_rate": 0.5737704918032787,
+          "high_count": 61,
+          "high_hits": 35,
+          "weights": {
+            "lineValue": 0.2333,
+            "matchupEdge": 0.0262,
+            "last20HitRate": 0.1185,
+            "trend": 0.2877,
+            "seasonCushion": 0.0656,
+            "pace": 0.0331,
+            "newsInjury": 0.0552,
+            "restDays": 0.0562,
+            "blowout": 0.0922,
+            "homeAway": 0.0226,
+            "vsOpponent": 0.0093
+          }
+        }
+      ],
+      "top50_avg_weights": {
+        "lineValue": 0.1105,
+        "matchupEdge": 0.0529,
+        "last20HitRate": 0.0792,
+        "trend": 0.198,
+        "seasonCushion": 0.2108,
+        "pace": 0.0511,
+        "newsInjury": 0.0611,
+        "restDays": 0.0829,
+        "blowout": 0.0497,
+        "homeAway": 0.0543,
+        "vsOpponent": 0.0496
+      }
+    },
+    "pra": {
+      "n_props": 4319,
+      "n_skipped": 429,
+      "high_threshold": 78,
+      "baseline": null,
+      "top_results": [
+        {
+          "hit_rate": 0.45901639344262296,
+          "high_count": 61,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.1819,
+            "matchupEdge": 0.0283,
+            "last20HitRate": 0.0747,
+            "trend": 0.0449,
+            "seasonCushion": 0.5008,
+            "pace": 0.0269,
+            "newsInjury": 0.0027,
+            "restDays": 0.02,
+            "blowout": 0.0393,
+            "homeAway": 0.0236,
+            "vsOpponent": 0.057
+          }
+        },
+        {
+          "hit_rate": 0.4391891891891892,
+          "high_count": 148,
+          "high_hits": 65,
+          "weights": {
+            "lineValue": 0.1117,
+            "matchupEdge": 0.0076,
+            "last20HitRate": 0.1479,
+            "trend": 0.0032,
+            "seasonCushion": 0.6252,
+            "pace": 0.0047,
+            "newsInjury": 0.0184,
+            "restDays": 0.0053,
+            "blowout": 0.0105,
+            "homeAway": 0.0409,
+            "vsOpponent": 0.0246
+          }
+        },
+        {
+          "hit_rate": 0.4306569343065693,
+          "high_count": 137,
+          "high_hits": 59,
+          "weights": {
+            "lineValue": 0.0301,
+            "matchupEdge": 0.0098,
+            "last20HitRate": 0.0212,
+            "trend": 0.0147,
+            "seasonCushion": 0.6543,
+            "pace": 0.0247,
+            "newsInjury": 0.0153,
+            "restDays": 0.0718,
+            "blowout": 0.0727,
+            "homeAway": 0.0721,
+            "vsOpponent": 0.0134
+          }
+        },
+        {
+          "hit_rate": 0.42424242424242425,
+          "high_count": 99,
+          "high_hits": 42,
+          "weights": {
+            "lineValue": 0.1299,
+            "matchupEdge": 0.0485,
+            "last20HitRate": 0.1921,
+            "trend": 0.0091,
+            "seasonCushion": 0.5165,
+            "pace": 0.0028,
+            "newsInjury": 0.015,
+            "restDays": 0.0051,
+            "blowout": 0.0566,
+            "homeAway": 0.0037,
+            "vsOpponent": 0.0208
+          }
+        },
+        {
+          "hit_rate": 0.4117647058823529,
+          "high_count": 34,
+          "high_hits": 14,
+          "weights": {
+            "lineValue": 0.1106,
+            "matchupEdge": 0.021,
+            "last20HitRate": 0.0913,
+            "trend": 0.2388,
+            "seasonCushion": 0.381,
+            "pace": 0.0358,
+            "newsInjury": 0.0055,
+            "restDays": 0.09,
+            "blowout": 0.0102,
+            "homeAway": 0.0095,
+            "vsOpponent": 0.0063
+          }
+        },
+        {
+          "hit_rate": 0.390625,
+          "high_count": 64,
+          "high_hits": 25,
+          "weights": {
+            "lineValue": 0.1751,
+            "matchupEdge": 0.0463,
+            "last20HitRate": 0.0644,
+            "trend": 0.0023,
+            "seasonCushion": 0.5164,
+            "pace": 0.0045,
+            "newsInjury": 0.0086,
+            "restDays": 0.0568,
+            "blowout": 0.0612,
+            "homeAway": 0.0185,
+            "vsOpponent": 0.046
+          }
+        },
+        {
+          "hit_rate": 0.38596491228070173,
+          "high_count": 57,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.0732,
+            "matchupEdge": 0.0202,
+            "last20HitRate": 0.0926,
+            "trend": 0.5193,
+            "seasonCushion": 0.0178,
+            "pace": 0.0593,
+            "newsInjury": 0.0552,
+            "restDays": 0.0916,
+            "blowout": 0.0473,
+            "homeAway": 0.0055,
+            "vsOpponent": 0.018
+          }
+        },
+        {
+          "hit_rate": 0.38461538461538464,
+          "high_count": 52,
+          "high_hits": 20,
+          "weights": {
+            "lineValue": 0.1238,
+            "matchupEdge": 0.1048,
+            "last20HitRate": 0.0066,
+            "trend": 0.0304,
+            "seasonCushion": 0.5569,
+            "pace": 0.0051,
+            "newsInjury": 0.0045,
+            "restDays": 0.0254,
+            "blowout": 0.0116,
+            "homeAway": 0.059,
+            "vsOpponent": 0.0718
+          }
+        },
+        {
+          "hit_rate": 0.38235294117647056,
+          "high_count": 68,
+          "high_hits": 26,
+          "weights": {
+            "lineValue": 0.0343,
+            "matchupEdge": 0.0325,
+            "last20HitRate": 0.019,
+            "trend": 0.5548,
+            "seasonCushion": 0.0695,
+            "pace": 0.0244,
+            "newsInjury": 0.0126,
+            "restDays": 0.0021,
+            "blowout": 0.0385,
+            "homeAway": 0.0018,
+            "vsOpponent": 0.2106
+          }
+        },
+        {
+          "hit_rate": 0.375,
+          "high_count": 72,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.0045,
+            "matchupEdge": 0.033,
+            "last20HitRate": 0.0391,
+            "trend": 0.5444,
+            "seasonCushion": 0.0964,
+            "pace": 0.107,
+            "newsInjury": 0.0145,
+            "restDays": 0.0265,
+            "blowout": 0.0029,
+            "homeAway": 0.1267,
+            "vsOpponent": 0.0049
+          }
+        },
+        {
+          "hit_rate": 0.35135135135135137,
+          "high_count": 37,
+          "high_hits": 13,
+          "weights": {
+            "lineValue": 0.024,
+            "matchupEdge": 0.0383,
+            "last20HitRate": 0.0076,
+            "trend": 0.3298,
+            "seasonCushion": 0.3504,
+            "pace": 0.0265,
+            "newsInjury": 0.0069,
+            "restDays": 0.0413,
+            "blowout": 0.0393,
+            "homeAway": 0.0317,
+            "vsOpponent": 0.1043
+          }
+        },
+        {
+          "hit_rate": 0.34,
+          "high_count": 50,
+          "high_hits": 17,
+          "weights": {
+            "lineValue": 0.0398,
+            "matchupEdge": 0.0257,
+            "last20HitRate": 0.0414,
+            "trend": 0.4709,
+            "seasonCushion": 0.1763,
+            "pace": 0.0085,
+            "newsInjury": 0.0038,
+            "restDays": 0.057,
+            "blowout": 0.1494,
+            "homeAway": 0.0257,
+            "vsOpponent": 0.0016
+          }
+        },
+        {
+          "hit_rate": 0.3333333333333333,
+          "high_count": 39,
+          "high_hits": 13,
+          "weights": {
+            "lineValue": 0.0018,
+            "matchupEdge": 0.0526,
+            "last20HitRate": 0.0211,
+            "trend": 0.145,
+            "seasonCushion": 0.5471,
+            "pace": 0.0225,
+            "newsInjury": 0.0282,
+            "restDays": 0.042,
+            "blowout": 0.0051,
+            "homeAway": 0.0788,
+            "vsOpponent": 0.0559
+          }
+        },
+        {
+          "hit_rate": 0.32653061224489793,
+          "high_count": 49,
+          "high_hits": 16,
+          "weights": {
+            "lineValue": 0.1328,
+            "matchupEdge": 0.0339,
+            "last20HitRate": 0.2031,
+            "trend": 0.4542,
+            "seasonCushion": 0.077,
+            "pace": 0.0127,
+            "newsInjury": 0.0049,
+            "restDays": 0.0386,
+            "blowout": 0.0229,
+            "homeAway": 0.0065,
+            "vsOpponent": 0.0135
+          }
+        },
+        {
+          "hit_rate": 0.3111111111111111,
+          "high_count": 45,
+          "high_hits": 14,
+          "weights": {
+            "lineValue": 0.1489,
+            "matchupEdge": 0.0132,
+            "last20HitRate": 0.0161,
+            "trend": 0.1133,
+            "seasonCushion": 0.5078,
+            "pace": 0.017,
+            "newsInjury": 0.0064,
+            "restDays": 0.1409,
+            "blowout": 0.0064,
+            "homeAway": 0.0204,
+            "vsOpponent": 0.0095
+          }
+        },
+        {
+          "hit_rate": 0.3076923076923077,
+          "high_count": 39,
+          "high_hits": 12,
+          "weights": {
+            "lineValue": 0.0715,
+            "matchupEdge": 0.0472,
+            "last20HitRate": 0.0884,
+            "trend": 0.4475,
+            "seasonCushion": 0.151,
+            "pace": 0.0278,
+            "newsInjury": 0.0461,
+            "restDays": 0.0503,
+            "blowout": 0.0406,
+            "homeAway": 0.008,
+            "vsOpponent": 0.0216
+          }
+        }
+      ],
+      "top50_avg_weights": {
+        "lineValue": 0.0871,
+        "matchupEdge": 0.0352,
+        "last20HitRate": 0.0704,
+        "trend": 0.2452,
+        "seasonCushion": 0.359,
+        "pace": 0.0256,
+        "newsInjury": 0.0155,
+        "restDays": 0.0478,
+        "blowout": 0.0384,
+        "homeAway": 0.0333,
+        "vsOpponent": 0.0425
+      }
+    },
+    "blocks": {
+      "n_props": 400,
+      "n_skipped": 56,
+      "high_threshold": 72,
+      "baseline": null,
+      "top_results": [
+        {
+          "hit_rate": 0.6363636363636364,
+          "high_count": 44,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.0677,
+            "matchupEdge": 0.0594,
+            "last20HitRate": 0.0685,
+            "trend": 0.0239,
+            "seasonCushion": 0.457,
+            "pace": 0.0734,
+            "newsInjury": 0.0109,
+            "restDays": 0.0627,
+            "blowout": 0.0326,
+            "homeAway": 0.0632,
+            "vsOpponent": 0.0807
+          }
+        },
+        {
+          "hit_rate": 0.627906976744186,
+          "high_count": 43,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.0169,
+            "matchupEdge": 0.1069,
+            "last20HitRate": 0.0542,
+            "trend": 0.0201,
+            "seasonCushion": 0.4718,
+            "pace": 0.142,
+            "newsInjury": 0.0274,
+            "restDays": 0.0489,
+            "blowout": 0.047,
+            "homeAway": 0.0535,
+            "vsOpponent": 0.0113
+          }
+        },
+        {
+          "hit_rate": 0.6274509803921569,
+          "high_count": 51,
+          "high_hits": 32,
+          "weights": {
+            "lineValue": 0.0368,
+            "matchupEdge": 0.0625,
+            "last20HitRate": 0.1369,
+            "trend": 0.0062,
+            "seasonCushion": 0.4756,
+            "pace": 0.015,
+            "newsInjury": 0.0117,
+            "restDays": 0.0421,
+            "blowout": 0.0327,
+            "homeAway": 0.0326,
+            "vsOpponent": 0.1479
+          }
+        },
+        {
+          "hit_rate": 0.625,
+          "high_count": 32,
+          "high_hits": 20,
+          "weights": {
+            "lineValue": 0.1243,
+            "matchupEdge": 0.0056,
+            "last20HitRate": 0.1329,
+            "trend": 0.0172,
+            "seasonCushion": 0.4018,
+            "pace": 0.0089,
+            "newsInjury": 0.107,
+            "restDays": 0.0118,
+            "blowout": 0.0222,
+            "homeAway": 0.0452,
+            "vsOpponent": 0.1231
+          }
+        },
+        {
+          "hit_rate": 0.62,
+          "high_count": 50,
+          "high_hits": 31,
+          "weights": {
+            "lineValue": 0.0018,
+            "matchupEdge": 0.0154,
+            "last20HitRate": 0.0884,
+            "trend": 0.0232,
+            "seasonCushion": 0.4771,
+            "pace": 0.0039,
+            "newsInjury": 0.0899,
+            "restDays": 0.1024,
+            "blowout": 0.0942,
+            "homeAway": 0.0937,
+            "vsOpponent": 0.01
+          }
+        },
+        {
+          "hit_rate": 0.6129032258064516,
+          "high_count": 62,
+          "high_hits": 38,
+          "weights": {
+            "lineValue": 0.0097,
+            "matchupEdge": 0.0071,
+            "last20HitRate": 0.336,
+            "trend": 0.0128,
+            "seasonCushion": 0.4969,
+            "pace": 0.0397,
+            "newsInjury": 0.0134,
+            "restDays": 0.0046,
+            "blowout": 0.0524,
+            "homeAway": 0.0212,
+            "vsOpponent": 0.0062
+          }
+        },
+        {
+          "hit_rate": 0.6046511627906976,
+          "high_count": 43,
+          "high_hits": 26,
+          "weights": {
+            "lineValue": 0.0963,
+            "matchupEdge": 0.0116,
+            "last20HitRate": 0.009,
+            "trend": 0.0179,
+            "seasonCushion": 0.4565,
+            "pace": 0.0988,
+            "newsInjury": 0.0167,
+            "restDays": 0.1023,
+            "blowout": 0.1212,
+            "homeAway": 0.0368,
+            "vsOpponent": 0.0329
+          }
+        },
+        {
+          "hit_rate": 0.6041666666666666,
+          "high_count": 48,
+          "high_hits": 29,
+          "weights": {
+            "lineValue": 0.0451,
+            "matchupEdge": 0.0434,
+            "last20HitRate": 0.0237,
+            "trend": 0.0203,
+            "seasonCushion": 0.4824,
+            "pace": 0.0413,
+            "newsInjury": 0.0937,
+            "restDays": 0.0541,
+            "blowout": 0.0417,
+            "homeAway": 0.1159,
+            "vsOpponent": 0.0385
+          }
+        },
+        {
+          "hit_rate": 0.6037735849056604,
+          "high_count": 53,
+          "high_hits": 32,
+          "weights": {
+            "lineValue": 0.0145,
+            "matchupEdge": 0.0742,
+            "last20HitRate": 0.0348,
+            "trend": 0.0155,
+            "seasonCushion": 0.5129,
+            "pace": 0.0028,
+            "newsInjury": 0.0361,
+            "restDays": 0.0605,
+            "blowout": 0.005,
+            "homeAway": 0.0591,
+            "vsOpponent": 0.1846
+          }
+        },
+        {
+          "hit_rate": 0.6037735849056604,
+          "high_count": 53,
+          "high_hits": 32,
+          "weights": {
+            "lineValue": 0.0877,
+            "matchupEdge": 0.0044,
+            "last20HitRate": 0.0407,
+            "trend": 0.0214,
+            "seasonCushion": 0.5107,
+            "pace": 0.0431,
+            "newsInjury": 0.0654,
+            "restDays": 0.0806,
+            "blowout": 0.1002,
+            "homeAway": 0.0374,
+            "vsOpponent": 0.0084
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 40,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.0186,
+            "matchupEdge": 0.0427,
+            "last20HitRate": 0.0279,
+            "trend": 0.0198,
+            "seasonCushion": 0.4767,
+            "pace": 0.0673,
+            "newsInjury": 0.1284,
+            "restDays": 0.0027,
+            "blowout": 0.1208,
+            "homeAway": 0.0056,
+            "vsOpponent": 0.0895
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 35,
+          "high_hits": 21,
+          "weights": {
+            "lineValue": 0.1575,
+            "matchupEdge": 0.0434,
+            "last20HitRate": 0.0503,
+            "trend": 0.0016,
+            "seasonCushion": 0.4305,
+            "pace": 0.1019,
+            "newsInjury": 0.0963,
+            "restDays": 0.0037,
+            "blowout": 0.03,
+            "homeAway": 0.0027,
+            "vsOpponent": 0.0821
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 35,
+          "high_hits": 21,
+          "weights": {
+            "lineValue": 0.0725,
+            "matchupEdge": 0.0764,
+            "last20HitRate": 0.0293,
+            "trend": 0.3001,
+            "seasonCushion": 0.1989,
+            "pace": 0.0131,
+            "newsInjury": 0.129,
+            "restDays": 0.1277,
+            "blowout": 0.0245,
+            "homeAway": 0.0273,
+            "vsOpponent": 0.0014
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 35,
+          "high_hits": 21,
+          "weights": {
+            "lineValue": 0.0328,
+            "matchupEdge": 0.0044,
+            "last20HitRate": 0.0336,
+            "trend": 0.3472,
+            "seasonCushion": 0.1763,
+            "pace": 0.135,
+            "newsInjury": 0.1061,
+            "restDays": 0.043,
+            "blowout": 0.0101,
+            "homeAway": 0.0571,
+            "vsOpponent": 0.0545
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 35,
+          "high_hits": 21,
+          "weights": {
+            "lineValue": 0.0265,
+            "matchupEdge": 0.0087,
+            "last20HitRate": 0.3868,
+            "trend": 0.009,
+            "seasonCushion": 0.3819,
+            "pace": 0.0529,
+            "newsInjury": 0.042,
+            "restDays": 0.0059,
+            "blowout": 0.0356,
+            "homeAway": 0.0435,
+            "vsOpponent": 0.0071
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 30,
+          "high_hits": 18,
+          "weights": {
+            "lineValue": 0.0978,
+            "matchupEdge": 0.0444,
+            "last20HitRate": 0.05,
+            "trend": 0.2768,
+            "seasonCushion": 0.171,
+            "pace": 0.144,
+            "newsInjury": 0.0174,
+            "restDays": 0.0236,
+            "blowout": 0.0603,
+            "homeAway": 0.0751,
+            "vsOpponent": 0.0396
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 30,
+          "high_hits": 18,
+          "weights": {
+            "lineValue": 0.0252,
+            "matchupEdge": 0.0087,
+            "last20HitRate": 0.1044,
+            "trend": 0.0193,
+            "seasonCushion": 0.418,
+            "pace": 0.0215,
+            "newsInjury": 0.0296,
+            "restDays": 0.0348,
+            "blowout": 0.1516,
+            "homeAway": 0.1771,
+            "vsOpponent": 0.0098
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 30,
+          "high_hits": 18,
+          "weights": {
+            "lineValue": 0.0504,
+            "matchupEdge": 0.1477,
+            "last20HitRate": 0.1373,
+            "trend": 0.3733,
+            "seasonCushion": 0.0633,
+            "pace": 0.1828,
+            "newsInjury": 0.0174,
+            "restDays": 0.0012,
+            "blowout": 0.0009,
+            "homeAway": 0.0,
+            "vsOpponent": 0.0257
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 30,
+          "high_hits": 18,
+          "weights": {
+            "lineValue": 0.0464,
+            "matchupEdge": 0.151,
+            "last20HitRate": 0.1336,
+            "trend": 0.3882,
+            "seasonCushion": 0.0393,
+            "pace": 0.0007,
+            "newsInjury": 0.0489,
+            "restDays": 0.0112,
+            "blowout": 0.0851,
+            "homeAway": 0.0507,
+            "vsOpponent": 0.045
+          }
+        },
+        {
+          "hit_rate": 0.6,
+          "high_count": 30,
+          "high_hits": 18,
+          "weights": {
+            "lineValue": 0.0415,
+            "matchupEdge": 0.0276,
+            "last20HitRate": 0.1766,
+            "trend": 0.3937,
+            "seasonCushion": 0.0149,
+            "pace": 0.0937,
+            "newsInjury": 0.1234,
+            "restDays": 0.0342,
+            "blowout": 0.0523,
+            "homeAway": 0.0327,
+            "vsOpponent": 0.0095
+          }
+        }
+      ],
+      "top50_avg_weights": {
+        "lineValue": 0.0715,
+        "matchupEdge": 0.0541,
+        "last20HitRate": 0.0953,
+        "trend": 0.1885,
+        "seasonCushion": 0.2765,
+        "pace": 0.0593,
+        "newsInjury": 0.0583,
+        "restDays": 0.0441,
+        "blowout": 0.0549,
+        "homeAway": 0.0471,
+        "vsOpponent": 0.0505
+      }
+    },
+    "steals": {
+      "n_props": 1280,
+      "n_skipped": 97,
+      "high_threshold": 72,
+      "baseline": null,
+      "top_results": [
+        {
+          "hit_rate": 0.7741935483870968,
+          "high_count": 31,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.0637,
+            "matchupEdge": 0.0057,
+            "last20HitRate": 0.4006,
+            "trend": 0.047,
+            "seasonCushion": 0.1892,
+            "pace": 0.046,
+            "newsInjury": 0.0728,
+            "restDays": 0.0245,
+            "blowout": 0.1212,
+            "homeAway": 0.0027,
+            "vsOpponent": 0.0267
+          }
+        },
+        {
+          "hit_rate": 0.7666666666666667,
+          "high_count": 30,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.4035,
+            "matchupEdge": 0.0309,
+            "last20HitRate": 0.109,
+            "trend": 0.0167,
+            "seasonCushion": 0.1955,
+            "pace": 0.1373,
+            "newsInjury": 0.0058,
+            "restDays": 0.0054,
+            "blowout": 0.0186,
+            "homeAway": 0.0052,
+            "vsOpponent": 0.0721
+          }
+        },
+        {
+          "hit_rate": 0.7666666666666667,
+          "high_count": 30,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.3211,
+            "matchupEdge": 0.0718,
+            "last20HitRate": 0.1353,
+            "trend": 0.0774,
+            "seasonCushion": 0.1505,
+            "pace": 0.0006,
+            "newsInjury": 0.0486,
+            "restDays": 0.077,
+            "blowout": 0.0489,
+            "homeAway": 0.0169,
+            "vsOpponent": 0.0519
+          }
+        },
+        {
+          "hit_rate": 0.75,
+          "high_count": 36,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.2485,
+            "matchupEdge": 0.0047,
+            "last20HitRate": 0.1945,
+            "trend": 0.0697,
+            "seasonCushion": 0.1994,
+            "pace": 0.069,
+            "newsInjury": 0.0637,
+            "restDays": 0.0262,
+            "blowout": 0.0036,
+            "homeAway": 0.1061,
+            "vsOpponent": 0.0147
+          }
+        },
+        {
+          "hit_rate": 0.75,
+          "high_count": 32,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.4444,
+            "matchupEdge": 0.001,
+            "last20HitRate": 0.1442,
+            "trend": 0.1821,
+            "seasonCushion": 0.0224,
+            "pace": 0.0775,
+            "newsInjury": 0.0414,
+            "restDays": 0.0029,
+            "blowout": 0.061,
+            "homeAway": 0.0211,
+            "vsOpponent": 0.0019
+          }
+        },
+        {
+          "hit_rate": 0.75,
+          "high_count": 32,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.1191,
+            "matchupEdge": 0.0262,
+            "last20HitRate": 0.3397,
+            "trend": 0.024,
+            "seasonCushion": 0.2128,
+            "pace": 0.108,
+            "newsInjury": 0.0366,
+            "restDays": 0.0203,
+            "blowout": 0.0109,
+            "homeAway": 0.0309,
+            "vsOpponent": 0.0715
+          }
+        },
+        {
+          "hit_rate": 0.7419354838709677,
+          "high_count": 31,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.1627,
+            "matchupEdge": 0.1103,
+            "last20HitRate": 0.1413,
+            "trend": 0.3019,
+            "seasonCushion": 0.0082,
+            "pace": 0.0006,
+            "newsInjury": 0.027,
+            "restDays": 0.0168,
+            "blowout": 0.1842,
+            "homeAway": 0.0446,
+            "vsOpponent": 0.0024
+          }
+        },
+        {
+          "hit_rate": 0.7333333333333333,
+          "high_count": 30,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.3508,
+            "matchupEdge": 0.0039,
+            "last20HitRate": 0.1431,
+            "trend": 0.1891,
+            "seasonCushion": 0.0541,
+            "pace": 0.0256,
+            "newsInjury": 0.0241,
+            "restDays": 0.0048,
+            "blowout": 0.0821,
+            "homeAway": 0.0396,
+            "vsOpponent": 0.0828
+          }
+        },
+        {
+          "hit_rate": 0.7333333333333333,
+          "high_count": 30,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.1416,
+            "matchupEdge": 0.0472,
+            "last20HitRate": 0.2153,
+            "trend": 0.1544,
+            "seasonCushion": 0.1375,
+            "pace": 0.0421,
+            "newsInjury": 0.0035,
+            "restDays": 0.0869,
+            "blowout": 0.065,
+            "homeAway": 0.0412,
+            "vsOpponent": 0.0653
+          }
+        },
+        {
+          "hit_rate": 0.7333333333333333,
+          "high_count": 30,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.4011,
+            "matchupEdge": 0.0538,
+            "last20HitRate": 0.0217,
+            "trend": 0.231,
+            "seasonCushion": 0.039,
+            "pace": 0.0412,
+            "newsInjury": 0.1015,
+            "restDays": 0.0041,
+            "blowout": 0.0136,
+            "homeAway": 0.0367,
+            "vsOpponent": 0.0563
+          }
+        },
+        {
+          "hit_rate": 0.7297297297297297,
+          "high_count": 37,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.1875,
+            "matchupEdge": 0.0441,
+            "last20HitRate": 0.177,
+            "trend": 0.0775,
+            "seasonCushion": 0.2402,
+            "pace": 0.0444,
+            "newsInjury": 0.0332,
+            "restDays": 0.072,
+            "blowout": 0.0183,
+            "homeAway": 0.0691,
+            "vsOpponent": 0.0367
+          }
+        },
+        {
+          "hit_rate": 0.71875,
+          "high_count": 32,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.1985,
+            "matchupEdge": 0.0328,
+            "last20HitRate": 0.2313,
+            "trend": 0.1278,
+            "seasonCushion": 0.1596,
+            "pace": 0.0053,
+            "newsInjury": 0.0226,
+            "restDays": 0.0029,
+            "blowout": 0.1166,
+            "homeAway": 0.0397,
+            "vsOpponent": 0.0628
+          }
+        },
+        {
+          "hit_rate": 0.71875,
+          "high_count": 32,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.2908,
+            "matchupEdge": 0.0204,
+            "last20HitRate": 0.1357,
+            "trend": 0.1292,
+            "seasonCushion": 0.1439,
+            "pace": 0.0111,
+            "newsInjury": 0.0408,
+            "restDays": 0.0066,
+            "blowout": 0.1546,
+            "homeAway": 0.0167,
+            "vsOpponent": 0.0501
+          }
+        },
+        {
+          "hit_rate": 0.71875,
+          "high_count": 32,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.1066,
+            "matchupEdge": 0.0396,
+            "last20HitRate": 0.0634,
+            "trend": 0.3094,
+            "seasonCushion": 0.0616,
+            "pace": 0.0685,
+            "newsInjury": 0.0012,
+            "restDays": 0.0223,
+            "blowout": 0.0306,
+            "homeAway": 0.2957,
+            "vsOpponent": 0.0011
+          }
+        },
+        {
+          "hit_rate": 0.7142857142857143,
+          "high_count": 35,
+          "high_hits": 25,
+          "weights": {
+            "lineValue": 0.0631,
+            "matchupEdge": 0.0462,
+            "last20HitRate": 0.1117,
+            "trend": 0.3353,
+            "seasonCushion": 0.0089,
+            "pace": 0.0108,
+            "newsInjury": 0.0427,
+            "restDays": 0.1572,
+            "blowout": 0.043,
+            "homeAway": 0.0618,
+            "vsOpponent": 0.1192
+          }
+        },
+        {
+          "hit_rate": 0.7105263157894737,
+          "high_count": 38,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.0735,
+            "matchupEdge": 0.0053,
+            "last20HitRate": 0.1051,
+            "trend": 0.3262,
+            "seasonCushion": 0.0172,
+            "pace": 0.0159,
+            "newsInjury": 0.0196,
+            "restDays": 0.2182,
+            "blowout": 0.0232,
+            "homeAway": 0.1442,
+            "vsOpponent": 0.0516
+          }
+        },
+        {
+          "hit_rate": 0.7105263157894737,
+          "high_count": 38,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.0114,
+            "matchupEdge": 0.0552,
+            "last20HitRate": 0.154,
+            "trend": 0.3056,
+            "seasonCushion": 0.0696,
+            "pace": 0.0351,
+            "newsInjury": 0.1408,
+            "restDays": 0.0931,
+            "blowout": 0.0336,
+            "homeAway": 0.0656,
+            "vsOpponent": 0.0361
+          }
+        },
+        {
+          "hit_rate": 0.7105263157894737,
+          "high_count": 38,
+          "high_hits": 27,
+          "weights": {
+            "lineValue": 0.0117,
+            "matchupEdge": 0.0667,
+            "last20HitRate": 0.1395,
+            "trend": 0.2704,
+            "seasonCushion": 0.1083,
+            "pace": 0.0842,
+            "newsInjury": 0.027,
+            "restDays": 0.0913,
+            "blowout": 0.0978,
+            "homeAway": 0.0408,
+            "vsOpponent": 0.0624
+          }
+        },
+        {
+          "hit_rate": 0.7096774193548387,
+          "high_count": 31,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.166,
+            "matchupEdge": 0.0277,
+            "last20HitRate": 0.0586,
+            "trend": 0.3007,
+            "seasonCushion": 0.0284,
+            "pace": 0.079,
+            "newsInjury": 0.0903,
+            "restDays": 0.1085,
+            "blowout": 0.0372,
+            "homeAway": 0.08,
+            "vsOpponent": 0.0235
+          }
+        },
+        {
+          "hit_rate": 0.7096774193548387,
+          "high_count": 31,
+          "high_hits": 22,
+          "weights": {
+            "lineValue": 0.2292,
+            "matchupEdge": 0.021,
+            "last20HitRate": 0.0202,
+            "trend": 0.2797,
+            "seasonCushion": 0.0375,
+            "pace": 0.001,
+            "newsInjury": 0.0218,
+            "restDays": 0.1101,
+            "blowout": 0.0763,
+            "homeAway": 0.0301,
+            "vsOpponent": 0.173
+          }
+        }
+      ],
+      "top50_avg_weights": {
+        "lineValue": 0.1293,
+        "matchupEdge": 0.0495,
+        "last20HitRate": 0.1407,
+        "trend": 0.2445,
+        "seasonCushion": 0.0897,
+        "pace": 0.0625,
+        "newsInjury": 0.0416,
+        "restDays": 0.0744,
+        "blowout": 0.0581,
+        "homeAway": 0.0584,
+        "vsOpponent": 0.0514
+      }
+    },
+    "three_pointers": {
+      "n_props": 6571,
+      "n_skipped": 586,
+      "high_threshold": 72,
+      "baseline": null,
+      "top_results": [
+        {
+          "hit_rate": 0.9032258064516129,
+          "high_count": 31,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.014,
+            "matchupEdge": 0.0894,
+            "last20HitRate": 0.5502,
+            "trend": 0.0307,
+            "seasonCushion": 0.0399,
+            "pace": 0.0565,
+            "newsInjury": 0.0038,
+            "restDays": 0.0266,
+            "blowout": 0.0732,
+            "homeAway": 0.081,
+            "vsOpponent": 0.0347
+          }
+        },
+        {
+          "hit_rate": 0.9032258064516129,
+          "high_count": 31,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.0793,
+            "matchupEdge": 0.0997,
+            "last20HitRate": 0.5233,
+            "trend": 0.0234,
+            "seasonCushion": 0.0224,
+            "pace": 0.0194,
+            "newsInjury": 0.0012,
+            "restDays": 0.0586,
+            "blowout": 0.0069,
+            "homeAway": 0.0315,
+            "vsOpponent": 0.1342
+          }
+        },
+        {
+          "hit_rate": 0.8378378378378378,
+          "high_count": 37,
+          "high_hits": 31,
+          "weights": {
+            "lineValue": 0.0003,
+            "matchupEdge": 0.0026,
+            "last20HitRate": 0.5537,
+            "trend": 0.0243,
+            "seasonCushion": 0.0729,
+            "pace": 0.0046,
+            "newsInjury": 0.0859,
+            "restDays": 0.0194,
+            "blowout": 0.099,
+            "homeAway": 0.1177,
+            "vsOpponent": 0.0196
+          }
+        },
+        {
+          "hit_rate": 0.7058823529411765,
+          "high_count": 34,
+          "high_hits": 24,
+          "weights": {
+            "lineValue": 0.068,
+            "matchupEdge": 0.026,
+            "last20HitRate": 0.3651,
+            "trend": 0.1938,
+            "seasonCushion": 0.0131,
+            "pace": 0.0104,
+            "newsInjury": 0.057,
+            "restDays": 0.058,
+            "blowout": 0.054,
+            "homeAway": 0.077,
+            "vsOpponent": 0.0777
+          }
+        },
+        {
+          "hit_rate": 0.703125,
+          "high_count": 64,
+          "high_hits": 45,
+          "weights": {
+            "lineValue": 0.0198,
+            "matchupEdge": 0.0211,
+            "last20HitRate": 0.0592,
+            "trend": 0.2969,
+            "seasonCushion": 0.0375,
+            "pace": 0.0154,
+            "newsInjury": 0.0126,
+            "restDays": 0.3186,
+            "blowout": 0.1028,
+            "homeAway": 0.0302,
+            "vsOpponent": 0.0858
+          }
+        },
+        {
+          "hit_rate": 0.6984126984126984,
+          "high_count": 63,
+          "high_hits": 44,
+          "weights": {
+            "lineValue": 0.0773,
+            "matchupEdge": 0.0086,
+            "last20HitRate": 0.5131,
+            "trend": 0.0656,
+            "seasonCushion": 0.0617,
+            "pace": 0.0193,
+            "newsInjury": 0.0427,
+            "restDays": 0.1132,
+            "blowout": 0.0866,
+            "homeAway": 0.0076,
+            "vsOpponent": 0.0043
+          }
+        },
+        {
+          "hit_rate": 0.6829268292682927,
+          "high_count": 41,
+          "high_hits": 28,
+          "weights": {
+            "lineValue": 0.0113,
+            "matchupEdge": 0.0074,
+            "last20HitRate": 0.1444,
+            "trend": 0.3315,
+            "seasonCushion": 0.0118,
+            "pace": 0.0248,
+            "newsInjury": 0.1019,
+            "restDays": 0.0432,
+            "blowout": 0.2423,
+            "homeAway": 0.063,
+            "vsOpponent": 0.0184
+          }
+        },
+        {
+          "hit_rate": 0.6808510638297872,
+          "high_count": 47,
+          "high_hits": 32,
+          "weights": {
+            "lineValue": 0.0023,
+            "matchupEdge": 0.0119,
+            "last20HitRate": 0.2968,
+            "trend": 0.1858,
+            "seasonCushion": 0.109,
+            "pace": 0.0073,
+            "newsInjury": 0.0712,
+            "restDays": 0.0309,
+            "blowout": 0.0728,
+            "homeAway": 0.0895,
+            "vsOpponent": 0.1225
+          }
+        },
+        {
+          "hit_rate": 0.6785714285714286,
+          "high_count": 56,
+          "high_hits": 38,
+          "weights": {
+            "lineValue": 0.0552,
+            "matchupEdge": 0.0321,
+            "last20HitRate": 0.4896,
+            "trend": 0.0926,
+            "seasonCushion": 0.0499,
+            "pace": 0.1118,
+            "newsInjury": 0.0113,
+            "restDays": 0.1092,
+            "blowout": 0.0318,
+            "homeAway": 0.014,
+            "vsOpponent": 0.0025
+          }
+        },
+        {
+          "hit_rate": 0.6764705882352942,
+          "high_count": 34,
+          "high_hits": 23,
+          "weights": {
+            "lineValue": 0.0267,
+            "matchupEdge": 0.0393,
+            "last20HitRate": 0.1602,
+            "trend": 0.0135,
+            "seasonCushion": 0.2674,
+            "pace": 0.0359,
+            "newsInjury": 0.0521,
+            "restDays": 0.2969,
+            "blowout": 0.0113,
+            "homeAway": 0.0238,
+            "vsOpponent": 0.0728
+          }
+        },
+        {
+          "hit_rate": 0.6702127659574468,
+          "high_count": 94,
+          "high_hits": 63,
+          "weights": {
+            "lineValue": 0.04,
+            "matchupEdge": 0.0179,
+            "last20HitRate": 0.4585,
+            "trend": 0.0438,
+            "seasonCushion": 0.197,
+            "pace": 0.0665,
+            "newsInjury": 0.0406,
+            "restDays": 0.0345,
+            "blowout": 0.0217,
+            "homeAway": 0.0172,
+            "vsOpponent": 0.0624
+          }
+        },
+        {
+          "hit_rate": 0.6666666666666666,
+          "high_count": 69,
+          "high_hits": 46,
+          "weights": {
+            "lineValue": 0.019,
+            "matchupEdge": 0.0076,
+            "last20HitRate": 0.0067,
+            "trend": 0.154,
+            "seasonCushion": 0.2455,
+            "pace": 0.1075,
+            "newsInjury": 0.148,
+            "restDays": 0.1031,
+            "blowout": 0.1079,
+            "homeAway": 0.0765,
+            "vsOpponent": 0.0242
+          }
+        },
+        {
+          "hit_rate": 0.6666666666666666,
+          "high_count": 66,
+          "high_hits": 44,
+          "weights": {
+            "lineValue": 0.1193,
+            "matchupEdge": 0.0869,
+            "last20HitRate": 0.1618,
+            "trend": 0.2344,
+            "seasonCushion": 0.0916,
+            "pace": 0.0439,
+            "newsInjury": 0.0123,
+            "restDays": 0.0025,
+            "blowout": 0.1232,
+            "homeAway": 0.1036,
+            "vsOpponent": 0.0205
+          }
+        },
+        {
+          "hit_rate": 0.6666666666666666,
+          "high_count": 60,
+          "high_hits": 40,
+          "weights": {
+            "lineValue": 0.0908,
+            "matchupEdge": 0.0126,
+            "last20HitRate": 0.5333,
+            "trend": 0.1,
+            "seasonCushion": 0.0017,
+            "pace": 0.0363,
+            "newsInjury": 0.0783,
+            "restDays": 0.0404,
+            "blowout": 0.064,
+            "homeAway": 0.011,
+            "vsOpponent": 0.0315
+          }
+        },
+        {
+          "hit_rate": 0.6666666666666666,
+          "high_count": 30,
+          "high_hits": 20,
+          "weights": {
+            "lineValue": 0.0649,
+            "matchupEdge": 0.2172,
+            "last20HitRate": 0.0701,
+            "trend": 0.1607,
+            "seasonCushion": 0.1674,
+            "pace": 0.0201,
+            "newsInjury": 0.0244,
+            "restDays": 0.2142,
+            "blowout": 0.0191,
+            "homeAway": 0.0182,
+            "vsOpponent": 0.0237
+          }
+        },
+        {
+          "hit_rate": 0.6632653061224489,
+          "high_count": 98,
+          "high_hits": 65,
+          "weights": {
+            "lineValue": 0.0116,
+            "matchupEdge": 0.0215,
+            "last20HitRate": 0.1158,
+            "trend": 0.2524,
+            "seasonCushion": 0.0904,
+            "pace": 0.0212,
+            "newsInjury": 0.046,
+            "restDays": 0.2988,
+            "blowout": 0.0357,
+            "homeAway": 0.0556,
+            "vsOpponent": 0.0509
+          }
+        },
+        {
+          "hit_rate": 0.6627906976744186,
+          "high_count": 172,
+          "high_hits": 114,
+          "weights": {
+            "lineValue": 0.0131,
+            "matchupEdge": 0.0176,
+            "last20HitRate": 0.4806,
+            "trend": 0.1419,
+            "seasonCushion": 0.1524,
+            "pace": 0.0003,
+            "newsInjury": 0.0372,
+            "restDays": 0.0528,
+            "blowout": 0.0044,
+            "homeAway": 0.0253,
+            "vsOpponent": 0.0744
+          }
+        },
+        {
+          "hit_rate": 0.6621621621621622,
+          "high_count": 74,
+          "high_hits": 49,
+          "weights": {
+            "lineValue": 0.0022,
+            "matchupEdge": 0.0793,
+            "last20HitRate": 0.0321,
+            "trend": 0.2853,
+            "seasonCushion": 0.115,
+            "pace": 0.0246,
+            "newsInjury": 0.0063,
+            "restDays": 0.0835,
+            "blowout": 0.1049,
+            "homeAway": 0.2343,
+            "vsOpponent": 0.0324
+          }
+        },
+        {
+          "hit_rate": 0.6610169491525424,
+          "high_count": 59,
+          "high_hits": 39,
+          "weights": {
+            "lineValue": 0.0296,
+            "matchupEdge": 0.0007,
+            "last20HitRate": 0.6566,
+            "trend": 0.0505,
+            "seasonCushion": 0.0273,
+            "pace": 0.0016,
+            "newsInjury": 0.02,
+            "restDays": 0.0183,
+            "blowout": 0.001,
+            "homeAway": 0.0019,
+            "vsOpponent": 0.1925
+          }
+        },
+        {
+          "hit_rate": 0.6590909090909091,
+          "high_count": 44,
+          "high_hits": 29,
+          "weights": {
+            "lineValue": 0.029,
+            "matchupEdge": 0.0581,
+            "last20HitRate": 0.3529,
+            "trend": 0.2099,
+            "seasonCushion": 0.0359,
+            "pace": 0.0487,
+            "newsInjury": 0.0212,
+            "restDays": 0.0477,
+            "blowout": 0.0059,
+            "homeAway": 0.1476,
+            "vsOpponent": 0.0432
+          }
+        }
+      ],
+      "top50_avg_weights": {
+        "lineValue": 0.0683,
+        "matchupEdge": 0.051,
+        "last20HitRate": 0.2603,
+        "trend": 0.1731,
+        "seasonCushion": 0.1051,
+        "pace": 0.0488,
+        "newsInjury": 0.0462,
+        "restDays": 0.0699,
+        "blowout": 0.06,
+        "homeAway": 0.0691,
+        "vsOpponent": 0.0482
+      }
+    }
+  }
+}
