@@ -1,8 +1,9 @@
 // /api/results — Calculate & store prop hit rates from completed games
 //
-// POST (or GET?force=true): Reads all current props + recent game logs,
-//   calculates how many hit for each confidence tier, and upserts to prop_results.
-//   Call this BEFORE refreshing props each day so old props are still in the DB.
+// POST (or GET?force=true): for the last 3 completed ET game days (or ?date=YYYY-MM-DD),
+//   reads that day's prop_history snapshot + game logs, calculates how many hit for
+//   each confidence tier, and upserts to prop_results. Order-independent of the
+//   props refresh; re-running is idempotent (upsert on date,confidence_label).
 //
 // GET: Returns the last 14 days of stored results for display.
 
@@ -11,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import type { Prop, StatType } from '@/types'
 import { requireCronAuth } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
+import { recentCompletedGameDates } from '@/lib/results-dates'
 
 export const maxDuration = 120
 
@@ -33,28 +35,24 @@ function toEasternDate(isoString: string): string {
   return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) // en-CA gives YYYY-MM-DD
 }
 
-async function calculateResults(forDate?: string) {
-  // 1. Load props — from prop_history if a specific date is requested,
-  //    otherwise from the live props table (called before nightly swap).
-  let propsRaw: Prop[] | null = null
+async function calculateResults(forDate: string) {
+  // 1. Load the day's scored props from the saved prop_history snapshot. (Reading
+  //    the live props table made the result depend on cron order: by the time logs
+  //    were in, the slate had usually been replaced by the next day's games.)
+  //    Paged: a day has 2-4k snapshot rows and Supabase returns at most 1000.
+  const propsRaw: Prop[] = []
   let propsError: { message: string } | null = null
-
-  if (forDate) {
-    // Try prop_history table first (saved snapshots)
+  for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase
       .from('prop_history')
       .select('player_name, stat_type, line, direction, confidence_label, confidence_score, commence_time')
       .eq('game_date', forDate)
       .not('confidence_label', 'is', null)
-    propsRaw = (data ?? []) as Prop[]
-    propsError = error
-  } else {
-    const { data, error } = await supabase
-      .from('props')
-      .select('player_name, stat_type, line, direction, confidence_label, confidence_score, commence_time')
-      .not('confidence_label', 'is', null)
-    propsRaw = (data ?? []) as Prop[]
-    propsError = error
+      .order('id')
+      .range(from, from + 999)
+    if (error) { propsError = error; break }
+    propsRaw.push(...((data ?? []) as Prop[]))
+    if (!data || data.length < 1000) break
   }
 
   if (propsError || !propsRaw || propsRaw.length === 0) {
@@ -199,6 +197,14 @@ async function calculateResults(forDate?: string) {
   }
 }
 
+/** Re-summarize the last 3 completed game days, so a missed run heals itself. */
+async function calculateRecent() {
+  const dates = recentCompletedGameDates(new Date(), 3)
+  const results: Record<string, unknown> = {}
+  for (const d of dates) results[d] = await calculateResults(d)
+  return { dates, results }
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
 
@@ -207,9 +213,9 @@ export async function GET(req: Request) {
     const authError = requireCronAuth(req)
     if (authError) return authError
     try {
-      const forDate = url.searchParams.get('date') ?? undefined
-      const result = await calculateResults(forDate)
-      return NextResponse.json(result)
+      const forDate = url.searchParams.get('date')
+      if (forDate) return NextResponse.json(await calculateResults(forDate))
+      return NextResponse.json(await calculateRecent())
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error'
       return NextResponse.json({ error: msg }, { status: 500 })
@@ -232,8 +238,7 @@ export async function POST(req: Request) {
   if (authError) return authError
 
   try {
-    const result = await calculateResults()
-    return NextResponse.json(result)
+    return NextResponse.json(await calculateRecent())
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error'
     logger.error('[/api/results] Error', { err: msg })
