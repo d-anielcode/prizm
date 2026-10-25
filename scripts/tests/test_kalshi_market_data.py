@@ -86,3 +86,37 @@ def test_prop_series_covers_seven_stats():
     assert sorted(PROP_SERIES) == sorted(SERIES_STAT)
     assert set(SERIES_STAT.values()) == {"points", "rebounds", "assists", "three_pointers",
                                          "blocks", "steals", "pra"}
+
+class _Resp:
+    def __init__(self, status, body=None, headers=None):
+        self.status_code, self._body, self.headers = status, body or {}, headers or {}
+    def json(self):
+        return self._body
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+            raise requests.HTTPError(f'{self.status_code}')
+
+class _Sess:
+    def __init__(self, seq):
+        self.seq, self.calls = list(seq), 0
+    def get(self, *a, **k):
+        self.calls += 1
+        return self.seq.pop(0)
+
+def test_fetch_markets_retries_429_then_succeeds(monkeypatch):
+    # Regression (2026-10-24): one 429 from Kalshi killed the whole daily scan.
+    import kalshi_edges.market_data as md
+    waits = []
+    monkeypatch.setattr(md.time, 'sleep', lambda s: waits.append(s))
+    sess = _Sess([_Resp(429, headers={'Retry-After': '2'}), _Resp(200, {'markets': [{'ticker': 'A'}], 'cursor': None})])
+    assert [m['ticker'] for m in md.fetch_markets('KXNBAREB', session=sess)] == ['A']
+    assert sess.calls == 2 and 2.0 in waits
+
+def test_fetch_market_gives_up_after_retries(monkeypatch):
+    import kalshi_edges.market_data as md, pytest, requests
+    monkeypatch.setattr(md.time, 'sleep', lambda s: None)
+    sess = _Sess([_Resp(429)] * (md.MAX_RETRIES + 1))
+    with pytest.raises(requests.HTTPError):
+        md.fetch_market('X', session=sess)
+    assert sess.calls == md.MAX_RETRIES + 1

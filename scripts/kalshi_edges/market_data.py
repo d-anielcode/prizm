@@ -11,6 +11,7 @@ Live format confirmed 2026-10-21: one series per stat (SERIES_STAT), titles
 """
 import math
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import date
 import requests
@@ -144,12 +145,28 @@ def parse_market(raw):
     return KalshiProp(ticker, player, stat, strike, bid, ask, volume,
                       series=series, game_date=gd, away=away, home=home)
 
+MAX_RETRIES = 4
+PAGE_PAUSE_S = 0.25
+
+
+def _get(sess, url, **kw):
+    """GET with retry on 429/5xx. Kalshi rate-limits bursts (a 429 on 2026-10-24 killed
+    the whole daily scan); honor Retry-After, else back off 1, 2, 4, 8 s."""
+    for attempt in range(MAX_RETRIES + 1):
+        r = sess.get(url, timeout=30, **kw)
+        if r.status_code != 429 and r.status_code < 500:
+            break
+        if attempt < MAX_RETRIES:
+            retry_after = (r.headers or {}).get("Retry-After")
+            time.sleep(float(retry_after) if retry_after else 2.0 ** attempt)
+    r.raise_for_status()
+    return r
+
+
 def fetch_market(ticker, session=None):
     """One market by ticker (any status). Returns the raw market dict."""
     sess = session or requests.Session()
-    r = sess.get(f"{KALSHI_BASE}/markets/{ticker}", timeout=30)
-    r.raise_for_status()
-    return r.json()["market"]
+    return _get(sess, f"{KALSHI_BASE}/markets/{ticker}").json()["market"]
 
 def fetch_markets(series_ticker, session=None):
     """Page through open markets for one series ticker. Returns raw market dicts."""
@@ -159,13 +176,12 @@ def fetch_markets(series_ticker, session=None):
         params = {"limit": 1000, "status": "open", "series_ticker": series_ticker}
         if cursor:
             params["cursor"] = cursor
-        r = sess.get(f"{KALSHI_BASE}/markets", params=params, timeout=30)
-        r.raise_for_status()
-        data = r.json()
+        data = _get(sess, f"{KALSHI_BASE}/markets", params=params).json()
         out.extend(data.get("markets", []))
         cursor = data.get("cursor")
         if not cursor:
             break
+        time.sleep(PAGE_PAUSE_S)
     return out
 
 def fetch_props(series_tickers=None, session=None):
