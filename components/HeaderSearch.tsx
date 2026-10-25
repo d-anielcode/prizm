@@ -1,12 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 export function HeaderSearch() {
   const [value, setValue] = useState('')
   const [allPlayers, setAllPlayers] = useState<string[]>([])
-  const [suggestions, setSuggestions] = useState<string[]>([])
   const [open, setOpen] = useState(false)
   const [highlighted, setHighlighted] = useState(-1)
   const router = useRouter()
@@ -20,21 +19,19 @@ export function HeaderSearch() {
       .catch(() => {})
   }, [])
 
-  // Filter suggestions as user types
-  useEffect(() => {
+  // Suggestions are derived from the input (no effect needed; the dropdown only
+  // renders when there are matches)
+  const suggestions = useMemo(() => {
     const q = value.trim().toLowerCase()
-    if (q.length < 1) {
-      setSuggestions([])
-      setOpen(false)
-      return
-    }
-    const matches = allPlayers
-      .filter((n) => n.toLowerCase().includes(q))
-      .slice(0, 8)
-    setSuggestions(matches)
-    setOpen(matches.length > 0)
-    setHighlighted(-1)
+    if (!q) return []
+    return allPlayers.filter((n) => n.toLowerCase().includes(q)).slice(0, 8)
   }, [value, allPlayers])
+
+  function handleChange(next: string) {
+    setValue(next)
+    setOpen(next.trim().length > 0)
+    setHighlighted(-1)
+  }
 
   // Close on outside click
   useEffect(() => {
@@ -91,7 +88,7 @@ export function HeaderSearch() {
           <input
             type="text"
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => handleChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={() => suggestions.length > 0 && setOpen(true)}
             placeholder="Search players..."
