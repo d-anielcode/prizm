@@ -1,0 +1,26 @@
+name: Pipeline - overnight
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      date: { description: 'ET game date (YYYY-MM-DD, optional)', required: false }
+      dry_run: { description: 'Dry run', type: boolean, default: false }
+concurrency: { group: pipeline-overnight, cancel-in-progress: false }
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.12', cache: pip }
+      - run: pip install -r requirements.txt scipy
+      - name: Run phase
+        working-directory: scripts
+        run: python -m pipeline overnight ${{ inputs.date && format('--date {0}', inputs.date) || '' }} ${{ inputs.dry_run && '--dry-run' || '' }}
