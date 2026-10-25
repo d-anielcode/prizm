@@ -8,6 +8,7 @@ import argparse
 import logging
 import os
 import sys
+import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -123,11 +124,20 @@ def main(argv=None):
     sub.add_parser("grade")
     sub.add_parser("report")
     args = ap.parse_args(argv)
+    from pipeline.store import safe_store  # job_runs logging; never blocks the command
+    store = safe_store()
+    rid = store.start(str(uuid.uuid4()), "pc", f"kalshi:{args.cmd}",
+                      datetime.now(ET).date().isoformat(), source="pc") if store else None
     try:
-        return {"scan": cmd_scan, "clv": cmd_clv, "grade": cmd_grade, "report": cmd_report}[args.cmd](args)
-    except Exception:
+        code = {"scan": cmd_scan, "clv": cmd_clv, "grade": cmd_grade, "report": cmd_report}[args.cmd](args)
+        error = None if code == 0 else f"exit {code}"
+    except Exception as e:
         log.exception("%s failed", args.cmd)
-        return 1
+        code, error = 1, f"{type(e).__name__}: {e}"
+    if store:
+        store.finish(rid, status="ok" if code == 0 else "failed",
+                     finished_at=datetime.now(timezone.utc).isoformat(), error=error)
+    return code
 
 
 if __name__ == "__main__":

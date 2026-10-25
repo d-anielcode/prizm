@@ -95,3 +95,12 @@ class NullStore:
 
     def __getattr__(self, name):
         return lambda *a, **k: 0
+
+
+def safe_store():
+    """Store for jobs where logging is optional (PC tasks): None if env is missing."""
+    try:
+        return Store()
+    except Exception as e:  # noqa: BLE001
+        print(f'[store] job_runs logging disabled: {e}')
+        return None
