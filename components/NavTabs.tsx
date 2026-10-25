@@ -10,6 +10,7 @@ const TABS = [
   { label: 'Trends',      href: '/trends' },
   { label: 'Props',       href: '/props' },
   { label: 'Performance', href: '/performance' },
+  { label: 'Status', href: '/status' },
 ]
 
 export function NavTabs() {
