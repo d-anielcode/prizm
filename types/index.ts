@@ -25,8 +25,10 @@ export type StatType =
   | 'blocks'
   | 'three_pointers'
 
-export type ConfidenceLabel = 'HIGH' | 'MEDIUM' | 'LOW'
-export type RiskTier = 'LOW_RISK' | 'MED_RISK' | 'HIGH_RISK'
+// 'LEAN'/'MED_RISK' are LEGACY: no longer emitted by getLabel (removed 2026-06,
+// sub-vig tier). Kept in the union so historical rows + analytics still typecheck.
+export type ConfidenceLabel = 'LOCK' | 'PLAY' | 'LEAN' | 'FADE'
+export type RiskTier = 'PRIME' | 'LOW_RISK' | 'MED_RISK' | 'HIGH_RISK'
 export type Direction = 'over' | 'under'
 
 export interface Prop {
@@ -45,8 +47,25 @@ export interface Prop {
   confidence_score?: number
   confidence_label?: ConfidenceLabel
   confidence_reason?: string
+  prev_confidence_score?: number | null
+  opening_line?: number | null          // first line seen for this prop (for movement tracking)
   risk_tier?: RiskTier
   cached_at?: string
+  home_team?: string
+  away_team?: string
+}
+
+export interface AltLine {
+  line:              number
+  direction:         Direction
+  odds?:             number
+  sportsbook?:       string
+  confidence_score?: number
+  confidence_label?: ConfidenceLabel
+}
+
+export interface PropWithAlts extends Prop {
+  altLines?: AltLine[]
 }
 
 export interface Parlay {
@@ -102,6 +121,12 @@ export interface BDLSeasonAverage {
   blk: number
   fg3m: number
   min: string
+}
+
+export interface OpponentCtx {
+  oppAbbr:     string
+  rank:        number | null   // 1–30, 1 = toughest D, 30 = easiest D for this stat
+  overHitRate: number | null   // 0–1, fraction of OVERs that hit vs this opponent/stat
 }
 
 export interface ConfidenceFactors {
