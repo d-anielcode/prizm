@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { recentCompletedGameDates } from '@/lib/results-dates'
 
 interface ResultRow {
   date: string
@@ -22,13 +23,10 @@ const TIER_COLORS = {
 }
 
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + 'T12:00:00')
-  const today     = new Date(); today.setHours(0,0,0,0)
-  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
-  const target    = new Date(dateStr + 'T00:00:00')
-
-  if (target.getTime() === yesterday.getTime()) return 'Yesterday'
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  // "Yesterday" in Eastern time on both server (UTC) and browser, otherwise the two
+  // disagree in the evening and React throws a hydration mismatch (#418).
+  if (dateStr === recentCompletedGameDates(new Date(), 1)[0]) return 'Yesterday'
+  return new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 function HitBar({ rate, color }: { rate: number; color: string }) {
