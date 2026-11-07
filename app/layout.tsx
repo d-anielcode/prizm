@@ -5,6 +5,7 @@ import { NavTabs } from '@/components/NavTabs'
 import { HeaderSearch } from '@/components/HeaderSearch'
 import { MobileNav } from '@/components/MobileNav'
 import { Logo } from '@/components/Logo'
+import { ModeToggle } from '@/components/ModeToggle'
 import Link from 'next/link'
 
 const inter = Inter({ variable: '--font-sans', subsets: ['latin'] })
@@ -43,14 +44,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <NavTabs />
             </div>
 
-            {/* Search — right */}
-            <div className="shrink-0">
+            {/* Mode toggle + search — right */}
+            <div className="shrink-0 flex items-center gap-3">
+              <div className="hidden md:block"><ModeToggle /></div>
               <HeaderSearch />
             </div>
           </div>
         </header>
 
         <main className="flex-1 pb-20 sm:pb-0">
+          <div className="md:hidden flex justify-center pt-3"><ModeToggle /></div>
           {children}
         </main>
 

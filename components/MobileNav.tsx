@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { modeOf, tabHref } from '@/lib/mode'
 
 const TABS = [
   {
@@ -68,13 +69,15 @@ const TABS = [
 
 export function MobileNav() {
   const pathname = usePathname()
+  const mode = modeOf(pathname)
 
   return (
     <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 backdrop-blur-xl"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
       <div className="flex items-center">
-        {TABS.map(({ label, href, icon }) => {
-          const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
+        {TABS.map(({ label, href: base, icon }) => {
+          const href = base === '/status' ? base : tabHref(base, mode)
+          const isActive = href === '/' || href === '/markets' ? pathname === href : pathname.startsWith(href)
           return (
             <Link
               key={href}

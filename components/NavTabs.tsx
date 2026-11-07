@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { modeOf, tabHref } from '@/lib/mode'
 
 const TABS = [
   { label: 'Home',        href: '/' },
@@ -10,16 +11,19 @@ const TABS = [
   { label: 'Trends',      href: '/trends' },
   { label: 'Props',       href: '/props' },
   { label: 'Performance', href: '/performance' },
-  { label: 'Status', href: '/status' },
+  { label: 'Status',      href: '/status' },
 ]
 
 export function NavTabs() {
   const pathname = usePathname()
+  const mode = modeOf(pathname)
 
   return (
     <nav className="hidden sm:flex items-center">
-      {TABS.map(({ label, href }) => {
-        const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
+      {TABS.map(({ label, href: base }) => {
+        // Status is shared by both modes (one pipeline), so it keeps its own path.
+        const href = base === '/status' ? base : tabHref(base, mode)
+        const isActive = href === '/' || href === '/markets' ? pathname === href : pathname.startsWith(href)
         return (
           <Link
             key={href}
