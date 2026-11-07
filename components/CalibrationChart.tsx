@@ -12,7 +12,7 @@ export function CalibrationChart({ rows }: { rows: CalibrationRow[] }) {
   return (
     <figure className="w-full max-w-[560px]">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img"
-        aria-label="Kalshi pre-tip YES price vs how often YES actually hit">
+        aria-label="Kalshi pre-tip YES mid price vs how often YES actually hit">
         {ticks.map((t) => (
           <g key={t}>
             <line x1={sx(0)} x2={sx(1)} y1={sy(t)} y2={sy(t)} stroke="currentColor" strokeOpacity={0.08} />
@@ -28,7 +28,7 @@ export function CalibrationChart({ rows }: { rows: CalibrationRow[] }) {
               <polyline points={line.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={COLORS[s] ?? '#999'} strokeWidth={2} />
               {line.map((p) => (
                 <circle key={p.band} cx={p.x} cy={p.y} r={3.5} fill={COLORS[s] ?? '#999'}>
-                  <title>{`${s} ${p.band}: price ${Math.round(Number(p.mean_ask) * 100)}¢, hit ${Math.round(Number(p.yes_rate) * 100)}% (n=${p.n})`}</title>
+                  <title>{`${s} ${p.band}: ${p.mean_mid != null ? 'mid' : 'ask'} ${Math.round(p.price * 100)}¢, hit ${Math.round(Number(p.yes_rate) * 100)}% (n=${p.n})`}</title>
                 </circle>
               ))}
             </g>
@@ -41,6 +41,7 @@ export function CalibrationChart({ rows }: { rows: CalibrationRow[] }) {
             <span className="inline-block h-2 w-2 rounded-full" style={{ background: COLORS[s] ?? '#999' }} />{s}
           </span>
         ))}
+        <span>x = mid price before tip</span>
         <span>Dashed line = priced exactly right</span>
       </figcaption>
     </figure>

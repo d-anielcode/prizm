@@ -21,4 +21,18 @@ describe('chartPoints', () => {
     expect(p.x).toBeCloseTo(10 + 0.1 * 180)
     expect(p.y).toBeCloseTo(10 + (1 - 0.2) * 80)
   })
+  it('plots the mid when present, falling back to the ask', () => {
+    const [m, a] = chartPoints([
+      { season: '2025-26', band: '.10-.20', n: 10, mean_ask: 0.14, mean_mid: 0.12, yes_rate: 0.2 },
+      { season: '2025-26', band: '.20-.35', n: 10, mean_ask: 0.3, mean_mid: null, yes_rate: 0.2 },
+    ], 200, 100, 10)
+    expect(m.price).toBeCloseTo(0.12)
+    expect(m.x).toBeCloseTo(10 + 0.12 * 180)
+    expect(a.price).toBeCloseTo(0.3)
+    expect(a.x).toBeCloseTo(10 + 0.3 * 180)
+  })
+  it('treats PostgREST numeric strings as numbers', () => {
+    const [p] = chartPoints([{ season: '2025-26', band: '.10-.20', n: 10, mean_ask: '0.14', mean_mid: '0.12', yes_rate: '0.2' } as never], 200, 100, 10)
+    expect(p.price).toBeCloseTo(0.12)
+  })
 })

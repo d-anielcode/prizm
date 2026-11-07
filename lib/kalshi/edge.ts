@@ -1,6 +1,10 @@
 import { STAT_LABEL, type MarketStat } from '@/lib/kalshi/ladder'
 
-export interface CalibrationRow { season: string; band: string; n: number; mean_ask: number; yes_rate: number }
+export interface CalibrationRow {
+  season: string; band: string; n: number; mean_ask: number; yes_rate: number
+  /** Mean (bid+ask)/2 over two-sided quotes in the band; null when no row had a bid. */
+  mean_mid?: number | null
+}
 export interface PocketRow {
   id: string; status: string
   disc_n: number; disc_roi: number; disc_p: number
@@ -28,11 +32,16 @@ export function pocketLabel(id: string): string {
   return out.join(' · ')
 }
 
-/** Plot coordinates in a w x h box with `pad` margin; x = mean ask, y = realized YES rate. */
+/** Plot coordinates in a w x h box with `pad` margin; x = mean mid price (falls back to the
+ *  mean ask when the band has no two-sided quote), y = realized YES rate. */
 export function chartPoints(rows: CalibrationRow[], w: number, h: number, pad: number) {
-  return rows.map((r) => ({
-    ...r,
-    x: pad + Number(r.mean_ask) * (w - 2 * pad),
-    y: pad + (1 - Number(r.yes_rate)) * (h - 2 * pad),
-  }))
+  return rows.map((r) => {
+    const price = r.mean_mid != null ? Number(r.mean_mid) : Number(r.mean_ask)
+    return {
+      ...r,
+      price,
+      x: pad + price * (w - 2 * pad),
+      y: pad + (1 - Number(r.yes_rate)) * (h - 2 * pad),
+    }
+  })
 }

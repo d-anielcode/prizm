@@ -9,7 +9,7 @@ const pct = (v: number) => `${v >= 0 ? '+' : ''}${(Number(v) * 100).toFixed(1)}%
 export default async function MarketsEdge() {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
   const [{ data: cal }, { data: pockets }, { data: paper }] = await Promise.all([
-    supabase.from('kalshi_calibration').select('season, band, n, mean_ask, yes_rate'),
+    supabase.from('kalshi_calibration').select('season, band, n, mean_ask, mean_mid, yes_rate'),
     supabase.from('kalshi_pockets').select('id, status, disc_n, disc_roi, disc_p, conf_n, conf_roi, fwd_n, fwd_roi'),
     supabase.from('kalshi_pocket_trades').select('pocket_id, ticker, side, price').eq('game_date', today).order('ticker'),
   ])
@@ -37,7 +37,9 @@ export default async function MarketsEdge() {
       <section>
         <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-[var(--text-tertiary)]">Pockets</h2>
         {all.length > 0 && <p className="mb-3 text-xs text-[var(--text-tertiary)]">{rejected} of {all.length} tested pockets rejected.</p>}
-        {shown.length === 0 ? (
+        {all.length === 0 ? (
+          <p className="text-sm text-[var(--text-secondary)]">The study has not run yet.</p>
+        ) : shown.length === 0 ? (
           <p className="text-sm text-[var(--text-secondary)]">No pocket passed the pre-registered test.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -77,7 +79,7 @@ export default async function MarketsEdge() {
         ) : (
           <p className="text-sm text-[var(--text-secondary)]">
             {shown.some((p) => p.status === 'confirmed' || p.status === 'live')
-              ? 'Paper rungs are logged in the 45 minutes before each tip.'
+              ? 'Paper rungs are logged in the 30 minutes before each tip.'
               : 'No pocket has confirmed yet, so nothing is being paper traded.'}
           </p>
         )}
