@@ -44,7 +44,7 @@ New table `kalshi_markets`, one row per Kalshi ticker (upsert on `ticker`):
 | player | text | as Kalshi spells it |
 | strike | int | N in "N+"; 1 for double_double / triple_double |
 | game_date | date | parsed from the ticker (e.g. 26NOV06) |
-| away, home | text | team codes from the ticker, run through the same normalization as `lib/team-abbr.ts` |
+| away, home | text | team codes as they appear in the ticker; normalized with `normalizeTeamAbbr` at display time |
 | yes_bid, yes_ask | numeric | 0..1; null when that side of the book is empty |
 | first_yes_ask | numeric | yes_ask when the ticker was first seen; never overwritten |
 | volume | int | |
@@ -70,11 +70,12 @@ movement indicator; the CLV work in the paper ledger already covers closing pric
   The scanner's own `PROP_SERIES` stays unchanged so the paper ledger is unaffected.
 - New `scripts/kalshi_edges/ingest.py`: `fetch` (reuses `fetch_markets` with its
   429 retry/backoff), `to_rows` (pure mapping KalshiProp/market dict -> table row),
-  `upsert` (service-role Supabase upsert in pages of 500, preserving
-  `first_yes_ask` / `first_seen_at` on existing rows), and `settle(date)` (fetch
-  that date's markets including finalized ones and write `status` / `result`).
-- Thin entry script `scripts/kalshi_ingest.py [--settle DATE]` so it runs as a
-  pipeline `python` step.
+  `upsert` (service-role Supabase upsert in pages of 500; a BEFORE UPDATE trigger
+  keeps `first_yes_ask` / `first_seen_at` from the first insert), and
+  `settle(date)` (fetch that date's settled markets and PATCH `status` / `result`
+  onto existing rows, leaving the last traded prices intact).
+- Thin entry scripts `scripts/kalshi_ingest.py` and `scripts/kalshi_settle.py`
+  (pipeline `python` steps take no arguments; settle uses yesterday ET).
 - Pipeline (`scripts/pipeline/phases.py`):
   - midday and every pretip run: step `kalshi_ingest` (not critical).
   - overnight: step `kalshi_settle` for the previous game date (not critical).
@@ -112,8 +113,7 @@ movement indicator; the CLV work in the paper ledger already covers closing pric
 - Players are matched to game logs with `playerNameVariants`; no match shows
   "no history" instead of hit rates.
 - Filters: stat, game. Header shows "Prices as of HH:MM ET" from the newest
-  `updated_at`, with a stale warning if older than 90 minutes while games are
-  still to tip.
+  `updated_at`, with a stale warning if older than 90 minutes.
 - No edge, tier, or recommendation labels.
 
 ### Code layout
@@ -137,8 +137,8 @@ movement indicator; the CLV work in the paper ledger already covers closing pric
 - Vitest (`lib/kalshi/ladder.test.ts`): ladder grouping and sort, hit rates over
   L5/L10/season windows, DD/TD detection including the steals/blocks cases,
   break-even and fee.
-- Pytest (`scripts/tests/`): DD/TD title parsing, `to_rows` mapping, upsert
-  preserving `first_yes_ask`, settle mapping of finalized results.
+- Pytest (`scripts/tests/`): DD/TD title parsing, `to_row` mapping, collect skip counting,
+  settle grouping of finalized results (first_yes_ask kept by the DB trigger).
 - CI runs both as today. After deploy, a live check of `/markets/props` on a game
   day with the preview browser, plus the `kalshi_ingest` row on `/status`.
 
