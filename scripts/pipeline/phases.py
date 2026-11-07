@@ -19,6 +19,7 @@ PHASES = {
         Step('streak', S, 'http', '/api/feed/generate/streak', 0),
         Step('parlay', S, 'http', '/api/feed/generate/parlay', 0),
         Step('kalshi_settle', 'kalshi', 'python', 'kalshi_settle.py', -1),
+        Step('kalshi_pocket_grade', 'kalshi', 'python', 'kalshi_pocket_grade.py', -1),
         Step('defense_fresh', 'checks', 'check', 'defense_fresh', 0),
     ],
     'midday': [
@@ -33,9 +34,11 @@ PHASES = {
         Step('enrich', S, 'http', '/api/enrich?force=true', 0, critical=True, coverage='enrich_coverage'),
         Step('snapshot', S, 'http', '/api/props/snapshot', 0),
         Step('kalshi_ingest', 'kalshi', 'python', 'kalshi_ingest.py', 0),
+        Step('kalshi_pocket_scan', 'kalshi', 'python', 'kalshi_pocket_scan.py', 0),
     ],
     'weekly': [
         Step('player_bias', 'weekly', 'http', '/api/player-bias?action=analyze', 0),
         Step('opponent_leaks', 'weekly', 'http', '/api/opponent-leaks?action=analyze', 0),
+        Step('kalshi_study', 'kalshi', 'python', 'kalshi_study.py', 0),
     ],
 }

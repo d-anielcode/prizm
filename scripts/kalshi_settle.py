@@ -24,3 +24,6 @@ if __name__ == '__main__':
     dates = target_dates(sys.argv, datetime.now(ZoneInfo('America/New_York')).date())
     for d, n in sorted(run_settle(dates).items()):
         print(f'kalshi_settle {d}: settled {n} markets')
+    from kalshi_edges.history import settle_history
+    st = settle_history(dates)
+    print(f'kalshi_settled rows: {st}')

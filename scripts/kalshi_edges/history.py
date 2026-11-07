@@ -190,3 +190,16 @@ def backfill(series_list=None, sources=("historical", "live"), session=None, log
             for k, v in vars(stats).items():
                 setattr(total, k, getattr(total, k) + v)
     return total
+
+
+def settle_history(game_dates, session=None):
+    """Add kalshi_settled rows for markets of these game dates (live endpoint). Returns BackfillStats."""
+    from kalshi_edges.ingest import fetch_settled
+    sess = session or requests.Session()
+    wanted = set(game_dates)
+    raws = [r for r in fetch_settled(game_dates, session=sess) if _game_of(r.get("ticker"))[0] in wanted]
+    stats = BackfillStats()
+    rows = process_markets(raws, tips_cache(sess), candles_fetcher(sess, historical=False), existing_tickers(), stats)
+    if rows:
+        sb.upsert("kalshi_settled", rows, "ticker")
+    return stats
