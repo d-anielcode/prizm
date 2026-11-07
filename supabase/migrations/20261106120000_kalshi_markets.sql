@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS kalshi_markets (
   first_yes_ask numeric,            -- ask when first seen; kept by trigger
   volume        int  NOT NULL DEFAULT 0,
   status        text,
-  result        text,               -- 'yes' / 'no' once finalized
+  result        text,               -- 'yes' / 'no' / 'void' once finalized
   first_seen_at timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
