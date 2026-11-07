@@ -16,25 +16,30 @@ TABLE = "kalshi_markets"
 PAGE = 500
 
 
-def _side(v, empty):
-    return None if v is None or v == empty else round(float(v), 4)
+def _price(v, ok):
+    """Round a 0..1 price, or None when missing / not a live quote (ok(v) false)."""
+    if v is None:
+        return None
+    v = float(v)
+    return round(v, 4) if ok(v) else None
 
 
 def to_row(kp, status):
     """KalshiProp -> table row, or None if the ticker has no game date / teams."""
     if kp.game_date is None or not kp.away or not kp.home:
         return None
-    ask = _side(kp.yes_ask, 1.0)
+    ask = _price(kp.yes_ask, lambda v: 0 < v < 1)
     return {"ticker": kp.ticker, "series": kp.series, "stat": kp.stat, "player": kp.player,
             "strike": kp.strike, "game_date": kp.game_date.isoformat(),
             "away": kp.away, "home": kp.home,
-            "yes_bid": _side(kp.yes_bid, 0.0), "yes_ask": ask, "first_yes_ask": ask,
+            "yes_bid": _price(kp.yes_bid, lambda v: v > 0), "yes_ask": ask, "first_yes_ask": ask,
             "volume": kp.volume, "status": status}
 
 
 def collect(fetch, series=None):
-    """fetch(series_ticker) -> raw market dicts. Returns (rows, skipped_count)."""
-    rows, skipped = [], 0
+    """fetch(series_ticker) -> raw market dicts. Returns (rows, skipped_count).
+    Rows are unique by ticker (last wins) so one upsert batch never repeats a key."""
+    by_ticker, skipped = {}, 0
     for s in (series or list(INGEST_SERIES_STAT)):
         for raw in fetch(s):
             kp = parse_market(raw, INGEST_SERIES_STAT)
@@ -42,17 +47,23 @@ def collect(fetch, series=None):
             if row is None:
                 skipped += 1
             else:
-                rows.append(row)
-    return rows, skipped
+                by_ticker.pop(row["ticker"], None)
+                by_ticker[row["ticker"]] = row
+    return list(by_ticker.values()), skipped
+
+
+# Kalshi result -> our result. "scalar" is how Kalshi settles voided markets (DNP etc.).
+_RESULTS = {"yes": "yes", "no": "no", "scalar": "void"}
 
 
 def settle_updates(raws, game_date):
-    """Finalized markets for game_date grouped as {(status, result): [tickers]}."""
+    """Finalized markets for game_date grouped as {(status, result): [tickers]}.
+    result is 'yes' / 'no' / 'void'; any other Kalshi result is ignored."""
     out = {}
     for raw in raws:
         gd, _, _ = _game_of(raw.get("ticker"))
-        result = raw.get("result")
-        if gd != game_date or raw.get("status") != "finalized" or result not in ("yes", "no"):
+        result = _RESULTS.get(raw.get("result"))
+        if gd != game_date or raw.get("status") != "finalized" or result is None:
             continue
         out.setdefault(("finalized", result), []).append(raw["ticker"])
     return out
@@ -96,12 +107,25 @@ def run_ingest(session=None):
     return upsert_rows(rows), skipped
 
 
-def run_settle(game_date, session=None):
-    """Settle one ET game date: settled markets closing between that date and +2 days (UTC)."""
+def settle_window(game_dates):
+    """(min_close_ts, max_close_ts) covering every date: earliest 00:00 UTC .. latest +2 days."""
+    lo = datetime.combine(min(game_dates), dtime(0), tzinfo=timezone.utc)
+    hi = datetime.combine(max(game_dates), dtime(0), tzinfo=timezone.utc) + timedelta(days=2)
+    return lo.timestamp(), hi.timestamp()
+
+
+def fetch_settled(game_dates, session=None):
+    """One settled-markets fetch per series spanning all game_dates."""
     sess = session or requests.Session()
-    lo = datetime.combine(game_date, dtime(0), tzinfo=timezone.utc).timestamp()
-    hi = lo + timedelta(days=2).total_seconds()
+    lo, hi = settle_window(game_dates)
     raws = []
     for s in INGEST_SERIES_STAT:
         raws += fetch_markets(s, session=sess, status="settled", min_close_ts=lo, max_close_ts=hi)
-    return apply_settlement(settle_updates(raws, game_date))
+    return raws
+
+
+def run_settle(game_dates, session=None):
+    """Settle several ET game dates (re-PATCHing is idempotent). Returns {date: count}."""
+    dates = sorted(set(game_dates))
+    raws = fetch_settled(dates, session=session)
+    return {d: apply_settlement(settle_updates(raws, d)) for d in dates}
