@@ -38,7 +38,7 @@ export function MarketLadders({ games, ratesFor }: { games: GameLadders[]; rates
                       <tbody>
                         {s.rungs.map((r) => {
                           const rates = ratesFor(p.player, s.stat, r.strike)
-                          const wide = r.yes_bid == null || r.yes_ask == null || r.yes_ask - r.yes_bid > 0.10
+                          const wide = r.yes_bid == null || r.yes_ask == null || Math.round((r.yes_ask - r.yes_bid) * 100) > 10
                           const move = r.yes_ask != null && r.first_yes_ask != null ? r.yes_ask - r.first_yes_ask : 0
                           return (
                             <tr key={r.ticker} className={`border-t border-white/5 ${wide ? 'opacity-40' : ''}`}>

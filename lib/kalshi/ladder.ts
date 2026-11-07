@@ -109,3 +109,11 @@ export function groupLadders(rows: MarketRow[]): GameLadders[] {
     }
   })
 }
+
+/** One log per game_date (first occurrence wins), newest first. Log writers disagree on
+ *  name spelling, so alias-merged logs can repeat a game. */
+export function dedupeLogsByDate<T extends { game_date: string }>(logs: T[]): T[] {
+  const seen = new Map<string, T>()
+  for (const l of logs) if (!seen.has(l.game_date)) seen.set(l.game_date, l)
+  return [...seen.values()].sort((a, b) => b.game_date.localeCompare(a.game_date))
+}

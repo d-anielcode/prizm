@@ -1,11 +1,11 @@
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { CURRENT_SEASON } from '@/lib/constants'
-import { seasonDateRange, shiftSeason } from '@/lib/season'
+import { seasonDateRange } from '@/lib/season'
 import { playerNameVariants } from '@/lib/player-aliases'
 import { normalizePlayerName } from '@/lib/lineups'
 import {
-  groupLadders, hitRate, MARKET_STATS, STAT_LABEL, type LadderLog, type MarketRow, type MarketStat,
+  dedupeLogsByDate, groupLadders, hitRate, MARKET_STATS, STAT_LABEL, type LadderLog, type MarketRow, type MarketStat,
 } from '@/lib/kalshi/ladder'
 import { MarketLadders, type RatesFor } from '@/components/MarketLadders'
 
@@ -42,31 +42,45 @@ async function loadMarkets(gameDate: string): Promise<MarketRow[]> {
 
 type LogRow = LadderLog & { player_name: string }
 
+// Enough history before the season opener for L10 in the first weeks.
+const LOOKBACK_DAYS = 60
+
+/** Logs keyed by the Kalshi player name (alias-aware), one per game, newest first. */
 async function loadLogs(players: string[]): Promise<Map<string, LadderLog[]>> {
   const names = [...new Set(players.flatMap(playerNameVariants))]
-  const since = seasonDateRange(shiftSeason(CURRENT_SEASON, -1)).start
-  const rows: LogRow[] = []
-  for (let i = 0; i < names.length; i += 100) {
-    const batch = names.slice(i, i + 100)
+  const start = new Date(`${seasonDateRange(CURRENT_SEASON).start}T00:00:00Z`)
+  const since = new Date(start.getTime() - LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10)
+  const batches: string[][] = []
+  for (let i = 0; i < names.length; i += 100) batches.push(names.slice(i, i + 100))
+  const results = await Promise.all(batches.map(async (batch) => {
+    const out: LogRow[] = []
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await supabase.from('player_game_logs')
         .select('player_name, game_date, points, rebounds, assists, steals, blocks, fg3m, pra, minutes')
         .in('player_name', batch).gte('game_date', since)
-        .order('game_date', { ascending: false }).range(from, from + PAGE - 1)
+        .order('game_date', { ascending: false }).order('player_name')
+        .range(from, from + PAGE - 1)
       if (error) { console.error('[markets/props] logs', error.message); break }
-      rows.push(...((data ?? []) as LogRow[]))
+      out.push(...((data ?? []) as LogRow[]))
       if (!data || data.length < PAGE) break
     }
-  }
-  const byKey = new Map<string, LadderLog[]>()
-  for (const r of rows) {
+    return out
+  }))
+
+  const byNorm = new Map<string, LogRow[]>()
+  for (const r of results.flat()) {
     const k = normalizePlayerName(r.player_name)
-    const list = byKey.get(k)
+    const list = byNorm.get(k)
     if (list) list.push(r)
-    else byKey.set(k, [r])
+    else byNorm.set(k, [r])
   }
-  for (const logs of byKey.values()) logs.sort((a, b) => b.game_date.localeCompare(a.game_date))
-  return byKey
+  const byPlayer = new Map<string, LadderLog[]>()
+  for (const p of players) {
+    const keys = new Set(playerNameVariants(p).map(normalizePlayerName))
+    const logs = dedupeLogsByDate([...keys].flatMap((k) => byNorm.get(k) ?? []))
+    if (logs.length) byPlayer.set(p, logs)
+  }
+  return byPlayer
 }
 
 export default async function MarketsProps({ searchParams }: { searchParams: Promise<{ stat?: string; game?: string }> }) {
@@ -82,7 +96,7 @@ export default async function MarketsProps({ searchParams }: { searchParams: Pro
   const logs = await loadLogs([...new Set(rows.map((r) => r.player))])
   const season = seasonDateRange(CURRENT_SEASON)
   const ratesFor: RatesFor = (player, s, strike) => {
-    const l = logs.get(normalizePlayerName(player))
+    const l = logs.get(player)
     if (!l?.length) return null
     return {
       l5: hitRate(l, s, strike, { last: 5 }),

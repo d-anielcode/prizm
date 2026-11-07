@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  kalshiFee, breakEven, isDoubleDouble, isTripleDouble, statValue, hitRate, groupLadders,
+  kalshiFee, breakEven, isDoubleDouble, isTripleDouble, statValue, hitRate, groupLadders, dedupeLogsByDate,
   type LadderLog, type MarketRow,
 } from '@/lib/kalshi/ladder'
 
@@ -73,4 +73,15 @@ describe('groupLadders', () => {
     const g = groupLadders([row({ ticker: 'x', stat: 'double_double', strike: 1 }), row({ ticker: 'y', stat: 'points' })])
     expect(g[0].players[0].stats.map((s) => s.stat)).toEqual(['points', 'double_double'])
   })
+})
+
+describe('dedupeLogsByDate', () => {
+  it('keeps the first log per date and sorts newest first', () => {
+    const a = log({ game_date: '2026-11-01', points: 10 })
+    const b = log({ game_date: '2026-11-03', points: 20 })
+    const dup = log({ game_date: '2026-11-01', points: 99 })
+    const c = log({ game_date: '2026-11-02', points: 30 })
+    expect(dedupeLogsByDate([a, b, dup, c])).toEqual([b, c, a])
+  })
+  it('handles empty input', () => { expect(dedupeLogsByDate([])).toEqual([]) })
 })
