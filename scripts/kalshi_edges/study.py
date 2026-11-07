@@ -2,8 +2,10 @@
 
 Pockets, bands and bars are fixed by the spec; do not edit after seeing results.
 """
+import math
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from scipy import stats as sstats
 
@@ -154,16 +156,55 @@ def discovery_pass(d):
             and d["roi_h2"] > 0 and d["p"] < ALPHA)
 
 
-def status_of(disc, conf, fwd):
-    if not discovery_pass(disc):
-        return "rejected"
+DISC_SEASON = "2025-26"
+DISC_LATEST_START = "2025-11-25"   # backfill must reach back to (near) the first props of 2025-26
+
+
+def discovery_complete(rows):
+    """(ok, reason): the 2025-26 backfill covers every stat series and starts early enough.
+    Guards the study against writing pockets from a partial backfill."""
+    disc = [r for r in rows if r.get("season") == DISC_SEASON]
+    if not disc:
+        return False, f"no {DISC_SEASON} rows"
+    missing = [s for s in STATS if s not in {r["stat"] for r in disc}]
+    if missing:
+        return False, f"{DISC_SEASON} rows missing stats: {', '.join(missing)}"
+    earliest = min(str(r["game_date"])[:10] for r in disc)
+    if earliest > DISC_LATEST_START:
+        return False, f"earliest {DISC_SEASON} game_date is {earliest} (> {DISC_LATEST_START})"
+    return True, ""
+
+
+def conf_verdict(conf):
+    """'pass' / 'fail' once the confirmation sample reaches CONF_MIN_N, else None."""
     if conf["n"] < CONF_MIN_N:
+        return None
+    return "fail" if conf["roi"] < 0 else "pass"
+
+
+def fwd_verdict(fwd):
+    if fwd["n"] < FWD_MIN_N:
+        return None
+    return "pass" if fwd["roi"] >= FWD_MIN_ROI else "fail"
+
+
+def status_from(disc_ok, conf_v, fwd_v):
+    if not disc_ok:
+        return "rejected"
+    if conf_v is None:
         return "discovery_pass"
-    if conf["roi"] < 0:
+    if conf_v == "fail":
         return "failed_confirmation"
-    if fwd["n"] >= FWD_MIN_N:
-        return "live" if fwd["roi"] >= FWD_MIN_ROI else "failed_forward"
-    return "confirmed"
+    if fwd_v is None:
+        return "confirmed"
+    return "live" if fwd_v == "pass" else "failed_forward"
+
+
+def status_of(disc, conf, fwd):
+    """Status from current (unfrozen) samples. evaluate() freezes verdicts instead."""
+    ok = discovery_pass(disc)
+    cv = conf_verdict(conf) if ok else None
+    return status_from(ok, cv, fwd_verdict(fwd) if cv == "pass" else None)
 
 
 def by_pocket(trades):
@@ -175,7 +216,9 @@ def by_pocket(trades):
 
 
 def calibration(rows):
-    acc = defaultdict(lambda: [0, 0.0, 0])
+    """Per (season, YES-ask band): n, mean ask, realized YES rate, and mean mid
+    ((bid+ask)/2 over rows quoting both sides; None if no row in the band has a bid)."""
+    acc = defaultdict(lambda: [0, 0.0, 0, 0, 0.0])
     for r in rows:
         ask = _price(r.get("pretip_yes_ask"))
         if ask is None or r.get("result") not in ("yes", "no"):
@@ -185,8 +228,12 @@ def calibration(rows):
             continue
         a = acc[(r["season"], b)]
         a[0] += 1; a[1] += ask; a[2] += r["result"] == "yes"
-    return [{"season": s, "band": b, "n": n, "mean_ask": tot / n, "yes_rate": y / n}
-            for (s, b), (n, tot, y) in sorted(acc.items())]
+        bid = _price(r.get("pretip_yes_bid"))
+        if bid is not None:
+            a[3] += 1; a[4] += (bid + ask) / 2
+    return [{"season": s, "band": b, "n": n, "mean_ask": tot / n, "yes_rate": y / n,
+             "mean_mid": (mid / nm) if nm else None}
+            for (s, b), (n, tot, y, nm, mid) in sorted(acc.items())]
 
 
 def definition(pid):
@@ -198,12 +245,27 @@ def _summary(ts):
     return pocket_stats(ts) if ts else {"n": 0, "roi": 0.0, "roi_h1": 0.0, "roi_h2": 0.0, "p": 1.0}
 
 
-def evaluate(rows, forward_trades):
-    """rows: kalshi_settled rows; forward_trades: graded kalshi_pocket_trades (won not null).
-    Returns one kalshi_pockets row per pre-registered pocket."""
+def _frozen(prev, key, current, now):
+    """Carry a decided verdict over from the previous run; else decide now if possible."""
+    if prev.get(f"{key}_verdict") in ("pass", "fail"):
+        return prev[f"{key}_verdict"], prev.get(f"{key}_decided_at")
+    return current, (now if current is not None else None)
+
+
+def evaluate(rows, forward_trades, previous=None, now=None):
+    """rows: kalshi_settled rows; forward_trades: graded kalshi_pocket_trades (won not null);
+    previous: {pocket_id: existing kalshi_pockets row}. Returns one kalshi_pockets row per
+    pre-registered pocket.
+
+    Verdicts are frozen to avoid repeated looks: the confirmation verdict is decided the
+    first run its sample reaches CONF_MIN_N, the forward verdict the first run it reaches
+    FWD_MIN_N, and later runs carry them over unchanged. conf/fwd n and roi stay current
+    (informational). Discovery is deterministic (2025-26 is closed)."""
+    previous = previous or {}
+    now = now or datetime.now(timezone.utc).isoformat()
     trades = build_trades(rows)
-    disc = by_pocket([t for t in trades if t.season == "2025-26"])
-    conf = by_pocket([t for t in trades if t.season != "2025-26"])
+    disc = by_pocket([t for t in trades if t.season == DISC_SEASON])
+    conf = by_pocket([t for t in trades if t.season != DISC_SEASON])
     fwd = defaultdict(list)
     for f in forward_trades:
         if f.get("won") is not None:
@@ -214,17 +276,43 @@ def evaluate(rows, forward_trades):
         fl = fwd.get(pid, [])
         staked = sum(float(f["price"]) + float(f["fee"]) for f in fl)
         fw = {"n": len(fl), "roi": (sum(float(f["pnl"]) for f in fl) / staked) if staked else 0.0}
+        prev, ok = previous.get(pid) or {}, discovery_pass(d)
+        cv, cv_at = _frozen(prev, "conf", conf_verdict(c) if ok else None, now)
+        fv, fv_at = _frozen(prev, "fwd", fwd_verdict(fw) if cv == "pass" else None, now)
         out.append({"id": pid, "side": pid.split("|")[0], "definition": definition(pid),
                     "disc_n": d["n"], "disc_roi": round(d["roi"], 5), "disc_roi_h1": round(d["roi_h1"], 5),
                     "disc_roi_h2": round(d["roi_h2"], 5), "disc_p": d["p"],
                     "conf_n": c["n"], "conf_roi": round(c["roi"], 5),
                     "fwd_n": fw["n"], "fwd_roi": round(fw["roi"], 5),
-                    "status": status_of(d, c, fw)})
+                    "conf_verdict": cv, "conf_decided_at": cv_at, "fwd_verdict": fv, "fwd_decided_at": fv_at,
+                    "status": status_from(ok, cv, fv)})
     return out
 
 
-def render_report(pockets, cal, n_rows):
+def _fee_ceil(price):
+    """Fee of a 1-contract order: Kalshi rounds the order fee UP to the cent."""
+    return math.ceil(round(taker_fee(price) * 100, 9)) / 100
+
+
+def fee_ceil_roi(trades):
+    """ROI with the fee rounded up to the next cent per contract (1-contract orders)."""
+    staked = pnl = 0.0
+    for t in trades:
+        fee = _fee_ceil(t.price)
+        staked += t.price + fee
+        pnl += (1 - t.price - fee) if t.won else -(t.price + fee)
+    return pnl / staked if staked else 0.0
+
+
+def vol0_share(trades):
+    return sum(t.vol == "0" for t in trades) / len(trades) if trades else 0.0
+
+
+def render_report(pockets, cal, n_rows, trades=None):
+    """trades: build_trades(rows), used for the fee-ceil ROI and volume-0 share of the
+    pockets that passed discovery (computed on their 2025-26 trades)."""
     passed = [p for p in pockets if p["status"] != "rejected"]
+    disc = by_pocket([t for t in (trades or []) if t.season == DISC_SEASON])
     lines = ["# Kalshi calibration study", "",
              f"{n_rows} settled markets; {len(pockets)} pockets tested (pre-registered, K={K}, "
              f"alpha {ALPHA:.2e}); {len(passed)} passed discovery.", "",
@@ -233,8 +321,10 @@ def render_report(pockets, cal, n_rows):
     lines += [f"| {c['season']} | {c['band']} | {c['n']} | {c['mean_ask']:.3f} | {c['yes_rate']:.3f} |" for c in cal]
     lines += ["", "## Pockets that passed discovery", ""]
     if passed:
-        lines += ["| pocket | disc n | disc ROI | p | conf n | conf ROI | status |", "|---|---|---|---|---|---|---|"]
-        lines += [f"| {p['id']} | {p['disc_n']} | {p['disc_roi']:+.1%} | {p['disc_p']:.1e} | {p['conf_n']} | "
+        lines += ["| pocket | disc n | disc ROI | ROI (fee ceil, 1 contract) | vol 0 share | p | conf n | conf ROI | status |",
+                  "|---|---|---|---|---|---|---|---|---|"]
+        lines += [f"| {p['id']} | {p['disc_n']} | {p['disc_roi']:+.1%} | {fee_ceil_roi(disc.get(p['id'], [])):+.1%} | "
+                  f"{vol0_share(disc.get(p['id'], [])):.0%} | {p['disc_p']:.1e} | {p['conf_n']} | "
                   f"{p['conf_roi']:+.1%} | {p['status']} |" for p in passed]
     else:
         lines.append("None.")

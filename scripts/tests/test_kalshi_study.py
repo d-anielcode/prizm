@@ -90,3 +90,107 @@ def test_render_report_mentions_counts():
     rows = [row("a")]
     md = render_report(evaluate(rows, []), calibration(rows), n_rows=1)
     assert "176 pockets" in md and "0 passed discovery" in md
+
+
+# --- review fixes -----------------------------------------------------------
+import math
+from kalshi_edges.study import STATS, discovery_complete, fee_ceil_roi, vol0_share
+
+def _full_disc(earliest="2025-11-20"):
+    return [row(f"s{i}", stat=s, gd=earliest if i == 0 else "2026-01-10") for i, s in enumerate(STATS)]
+
+def test_discovery_complete_ok():
+    ok, reason = discovery_complete(_full_disc() + [row("c", season="2026-27", gd="2026-10-25")])
+    assert ok and reason == ""
+
+def test_discovery_complete_missing_stat():
+    rows = [r for r in _full_disc() if r["stat"] != "triple_double"]
+    ok, reason = discovery_complete(rows)
+    assert not ok and "triple_double" in reason
+
+def test_discovery_complete_late_start():
+    ok, reason = discovery_complete(_full_disc(earliest="2025-12-01"))
+    assert not ok and "2025-12-01" in reason
+    assert discovery_complete(_full_disc(earliest="2025-11-25"))[0]
+
+def test_discovery_complete_no_rows():
+    ok, reason = discovery_complete([row("c", season="2026-27")])
+    assert not ok and reason
+
+# A pocket that passes discovery: NO at .85 (bid .15) wins every time in 2025-26.
+DISC = [row(f"d{i}", gd=f"2025-12-{1 + i % 25:02d}", bid=0.15, ask=0.17, result="no") for i in range(400)]
+PID = "no|band:.80-.90"
+
+def conf_rows(n, result):
+    return [row(f"c{result}{i}", gd=f"2026-10-{20 + i % 10:02d}", season="2026-27", bid=0.15, ask=0.17,
+                result=result) for i in range(n)]
+
+def fwd(n, won):
+    return [{"pocket_id": PID, "price": 0.85, "fee": 0.0089, "won": won,
+             "pnl": (1 - 0.85 - 0.0089) if won else -(0.85 + 0.0089)} for _ in range(n)]
+
+def pocket(rows, fw=(), previous=None, now="2026-11-08T00:00:00+00:00"):
+    return {p["id"]: p for p in evaluate(rows, list(fw), previous=previous, now=now)}[PID]
+
+def test_conf_verdict_undecided_below_min_n():
+    p = pocket(DISC + conf_rows(50, "no"))
+    assert p["conf_verdict"] is None and p["conf_decided_at"] is None and p["status"] == "discovery_pass"
+
+def test_conf_pass_frozen_against_later_worse_sample():
+    p1 = pocket(DISC + conf_rows(120, "no"), now="2026-11-08T00:00:00+00:00")
+    assert p1["conf_verdict"] == "pass" and p1["conf_decided_at"] == "2026-11-08T00:00:00+00:00"
+    assert p1["status"] == "confirmed"
+    later = DISC + conf_rows(120, "no") + conf_rows(400, "yes")          # now deeply negative
+    p2 = pocket(later, previous={PID: p1}, now="2026-11-15T00:00:00+00:00")
+    assert p2["conf_roi"] < 0                                           # current number still reported
+    assert p2["conf_verdict"] == "pass" and p2["conf_decided_at"] == "2026-11-08T00:00:00+00:00"
+    assert p2["status"] == "confirmed"
+
+def test_conf_fail_frozen_against_later_better_sample():
+    p1 = pocket(DISC + conf_rows(120, "yes"))
+    assert p1["conf_verdict"] == "fail" and p1["status"] == "failed_confirmation"
+    p2 = pocket(DISC + conf_rows(120, "yes") + conf_rows(2000, "no"), previous={PID: p1})
+    assert p2["conf_roi"] > 0 and p2["conf_verdict"] == "fail" and p2["status"] == "failed_confirmation"
+
+def test_fwd_verdict_frozen_both_ways():
+    rows = DISC + conf_rows(120, "no")
+    p1 = pocket(rows, fwd(300, True), now="2026-12-01T00:00:00+00:00")
+    assert p1["fwd_verdict"] == "pass" and p1["status"] == "live"
+    p2 = pocket(rows, fwd(300, True) + fwd(600, False), previous={PID: p1})
+    assert p2["fwd_roi"] < 0 and p2["fwd_verdict"] == "pass" and p2["status"] == "live"
+    assert p2["fwd_decided_at"] == "2026-12-01T00:00:00+00:00"
+    q1 = pocket(rows, fwd(300, False))
+    assert q1["fwd_verdict"] == "fail" and q1["status"] == "failed_forward"
+    q2 = pocket(rows, fwd(300, False) + fwd(3000, True), previous={PID: q1})
+    assert q2["fwd_roi"] > 0 and q2["fwd_verdict"] == "fail" and q2["status"] == "failed_forward"
+
+def test_fwd_undecided_below_min_n():
+    p = pocket(DISC + conf_rows(120, "no"), fwd(299, True))
+    assert p["fwd_verdict"] is None and p["status"] == "confirmed"
+
+def test_calibration_mean_mid():
+    rows = [row("a", bid=0.10, ask=0.12), row("b", bid=None, ask=0.14), row("c", bid=0.12, ask=0.16),
+            row("d", bid=None, ask=0.50)]
+    cal = {(c["season"], c["band"]): c for c in calibration(rows)}
+    assert abs(cal[("2025-26", ".10-.20")]["mean_mid"] - (0.11 + 0.14) / 2) < 1e-9
+    assert cal[("2025-26", ".50-.65")]["mean_mid"] is None
+
+def test_fee_ceil_roi_and_vol0_share():
+    tr = [t for t in build_trades([row("a", bid=0.48, ask=0.50, result="yes", vol=0),
+                                   row("b", bid=0.48, ask=0.50, result="no", vol=5)]) if t.side == "yes"]
+    # fee at .50 = .0175 -> rounds up to .02 per contract
+    staked = 2 * (0.50 + 0.02)
+    assert abs(fee_ceil_roi(tr) - ((1 - 0.52) - 0.52) / staked) < 1e-9
+    assert vol0_share(tr) == 0.5
+    # exact-cent fees are not bumped by float noise: .07*.1*.9 = .0063 -> .01
+    t10 = [t for t in build_trades([row("c", bid=0.08, ask=0.10, result="no")]) if t.side == "yes"]
+    assert abs(fee_ceil_roi(t10) - -1.0) < 1e-9
+
+def test_render_report_adds_fee_ceil_and_vol0_for_passed():
+    rows = DISC + conf_rows(120, "no")
+    pockets = evaluate(rows, [])
+    md = render_report(pockets, calibration(rows), len(rows), build_trades(rows))
+    line = next(l for l in md.splitlines() if l.startswith(f"| {PID} |"))
+    t = [x for x in build_trades(DISC) if x.side == "no"]
+    assert f"{fee_ceil_roi(t):+.1%}" in line and "0%" in line          # vol 50 -> no tier-0 trades
+    assert "fee ceil" in md
