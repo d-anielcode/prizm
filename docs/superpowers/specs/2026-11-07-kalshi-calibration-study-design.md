@@ -134,10 +134,12 @@ Statuses: `rejected`, `discovery_pass` (waiting on confirmation n), `confirmed`
 - `kalshi_pockets` table: id (e.g. `no|band:.05-.10`, `yes|band:.10-.20|stat:pra`),
   side, definition (jsonb), discovery n/roi/roi halves/p, confirmation n/roi,
   forward n/roi, status, updated_at. Same RLS/grants pattern.
-- Calibration table for the chart, stored in the same report JSON: per season and
-  YES-ask band, n, mean ask, realized YES rate.
-- Report `docs/kalshi-study/<date>-calibration.md` + `.json`, committed, with the
-  full pocket table, so the numbers are on record whatever they show.
+- `kalshi_calibration` table for the chart (PK season + band): n, mean ask,
+  realized YES rate. Same RLS/grants pattern. Also included in the report JSON.
+- Report `docs/kalshi-study/<date>-calibration.md` + `.json` (written when run with
+  `--report`, committed by hand after the first run), with the full pocket table,
+  so the numbers are on record whatever they show. Weekly pipeline runs update the
+  tables only.
 
 The study reruns weekly (pipeline `weekly` phase, step `kalshi_study`, chain
 'kalshi') to update confirmation counts. The discovery numbers never change after
@@ -171,9 +173,10 @@ Replaces the placeholder. Three sections, facts only:
 2. **Pockets:** every pocket that is not `rejected`, with discovery ROI/n,
    confirmation ROI/n, forward ROI/n, and status. A count line for rejected
    pockets ("170 of 176 tested pockets rejected").
-3. **Today's paper rungs:** today's `kalshi_markets` rungs that fall in confirmed
-   or live pockets, labeled "paper", with the pocket name. Empty state says no
-   pocket has confirmed yet.
+3. **Today's paper rungs:** today's `kalshi_pocket_trades` rows (logged by the
+   pretip scan, so the page never re-implements the classifier), labeled "paper",
+   with the pocket name. Empty state says no pocket has confirmed yet, or that
+   rungs are logged in the 45 minutes before tip.
 
 No bet labels in this phase, including for `live` pockets. Turning a live pocket
 into a recommendation is a later, explicit decision.
