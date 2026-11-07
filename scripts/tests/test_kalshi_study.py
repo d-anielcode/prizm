@@ -71,3 +71,22 @@ def test_calibration_rows():
     cal = {(c["season"], c["band"]): c for c in calibration(rows)}
     assert cal[("2025-26", ".10-.20")]["n"] == 2 and cal[("2025-26", ".10-.20")]["yes_rate"] == 0.5
     assert abs(cal[("2025-26", ".10-.20")]["mean_ask"] - 0.13) < 1e-9
+
+
+from kalshi_edges.study import evaluate, render_report
+
+def test_evaluate_splits_seasons_and_forward():
+    # bid .15 -> NO costs .85 (band .80-.90); note 1 - .10 == .90 would land in .90-.98
+    rows = [row(f"d{i}", gd=f"2025-12-{1 + i % 25:02d}", bid=0.15, ask=0.17, result="no") for i in range(400)]
+    rows += [row(f"c{i}", gd=f"2026-10-{20 + i % 10:02d}", season="2026-27", bid=0.15, ask=0.17, result="no") for i in range(150)]
+    fwd = [{"pocket_id": "no|band:.80-.90", "pnl": 0.08, "price": 0.88, "fee": 0.007, "won": True}]
+    pockets = {p["id"]: p for p in evaluate(rows, fwd)}
+    p = pockets["no|band:.80-.90"]
+    assert p["disc_n"] == 400 and p["conf_n"] == 150 and p["fwd_n"] == 1 and p["status"] == "confirmed"
+    assert pockets["yes|band:.10-.20"]["status"] == "rejected"
+    assert len(pockets) == 176
+
+def test_render_report_mentions_counts():
+    rows = [row("a")]
+    md = render_report(evaluate(rows, []), calibration(rows), n_rows=1)
+    assert "176 pockets" in md and "0 passed discovery" in md

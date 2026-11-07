@@ -192,3 +192,55 @@ def calibration(rows):
 def definition(pid):
     parts = pid.split("|")
     return {"side": parts[0], **{k: v for k, v in (p.split(":", 1) for p in parts[1:])}}
+
+
+def _summary(ts):
+    return pocket_stats(ts) if ts else {"n": 0, "roi": 0.0, "roi_h1": 0.0, "roi_h2": 0.0, "p": 1.0}
+
+
+def evaluate(rows, forward_trades):
+    """rows: kalshi_settled rows; forward_trades: graded kalshi_pocket_trades (won not null).
+    Returns one kalshi_pockets row per pre-registered pocket."""
+    trades = build_trades(rows)
+    disc = by_pocket([t for t in trades if t.season == "2025-26"])
+    conf = by_pocket([t for t in trades if t.season != "2025-26"])
+    fwd = defaultdict(list)
+    for f in forward_trades:
+        if f.get("won") is not None:
+            fwd[f["pocket_id"]].append(f)
+    out = []
+    for pid in POCKET_IDS:
+        d, c = _summary(disc.get(pid, [])), _summary(conf.get(pid, []))
+        fl = fwd.get(pid, [])
+        staked = sum(float(f["price"]) + float(f["fee"]) for f in fl)
+        fw = {"n": len(fl), "roi": (sum(float(f["pnl"]) for f in fl) / staked) if staked else 0.0}
+        out.append({"id": pid, "side": pid.split("|")[0], "definition": definition(pid),
+                    "disc_n": d["n"], "disc_roi": round(d["roi"], 5), "disc_roi_h1": round(d["roi_h1"], 5),
+                    "disc_roi_h2": round(d["roi_h2"], 5), "disc_p": d["p"],
+                    "conf_n": c["n"], "conf_roi": round(c["roi"], 5),
+                    "fwd_n": fw["n"], "fwd_roi": round(fw["roi"], 5),
+                    "status": status_of(d, c, fw)})
+    return out
+
+
+def render_report(pockets, cal, n_rows):
+    passed = [p for p in pockets if p["status"] != "rejected"]
+    lines = ["# Kalshi calibration study", "",
+             f"{n_rows} settled markets; {len(pockets)} pockets tested (pre-registered, K={K}, "
+             f"alpha {ALPHA:.2e}); {len(passed)} passed discovery.", "",
+             "## Calibration (YES ask band vs realized YES rate)", "",
+             "| season | band | n | mean ask | YES rate |", "|---|---|---|---|---|"]
+    lines += [f"| {c['season']} | {c['band']} | {c['n']} | {c['mean_ask']:.3f} | {c['yes_rate']:.3f} |" for c in cal]
+    lines += ["", "## Pockets that passed discovery", ""]
+    if passed:
+        lines += ["| pocket | disc n | disc ROI | p | conf n | conf ROI | status |", "|---|---|---|---|---|---|---|"]
+        lines += [f"| {p['id']} | {p['disc_n']} | {p['disc_roi']:+.1%} | {p['disc_p']:.1e} | {p['conf_n']} | "
+                  f"{p['conf_roi']:+.1%} | {p['status']} |" for p in passed]
+    else:
+        lines.append("None.")
+    best = sorted(pockets, key=lambda p: -p["disc_roi"])[:15]
+    lines += ["", "## Top 15 pockets by discovery ROI (for context; bars decide)", "",
+              "| pocket | disc n | disc ROI | h1 | h2 | p | status |", "|---|---|---|---|---|---|---|"]
+    lines += [f"| {p['id']} | {p['disc_n']} | {p['disc_roi']:+.1%} | {p['disc_roi_h1']:+.1%} | "
+              f"{p['disc_roi_h2']:+.1%} | {p['disc_p']:.1e} | {p['status']} |" for p in best]
+    return "\n".join(lines) + "\n"
