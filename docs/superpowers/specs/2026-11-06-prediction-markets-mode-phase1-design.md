@@ -49,7 +49,7 @@ New table `kalshi_markets`, one row per Kalshi ticker (upsert on `ticker`):
 | first_yes_ask | numeric | yes_ask when the ticker was first seen; never overwritten |
 | volume | int | |
 | status | text | Kalshi status (active, closed, finalized, ...) |
-| result | text | 'yes' / 'no' once finalized, else null |
+| result | text | 'yes' / 'no' / 'void' (Kalshi 'scalar', e.g. DNP) once finalized, else null |
 | first_seen_at, updated_at | timestamptz | |
 
 Index on `game_date`. RLS on with the standard `"anon_read"` select policy; writes
@@ -78,7 +78,7 @@ movement indicator; the CLV work in the paper ledger already covers closing pric
   (pipeline `python` steps take no arguments; settle uses yesterday ET).
 - Pipeline (`scripts/pipeline/phases.py`):
   - midday and every pretip run: step `kalshi_ingest` (not critical).
-  - overnight: step `kalshi_settle` for the previous game date (not critical).
+  - overnight: step `kalshi_settle` for the previous three game dates (idempotent catch-up; optional date argument; not critical).
   - Both log to `job_runs` like every other step, so `/status` shows them.
 - Kalshi market reads need no auth; the step runs on GitHub Actions. If a cloud
   IP is ever blocked, the fallback is a PC task like the defense refresh.
@@ -88,7 +88,7 @@ movement indicator; the CLV work in the paper ledger already covers closing pric
 ### Routing and mode switch
 
 - Sportsbook mode stays on its current routes, unchanged.
-- Markets mode lives under `/markets` with its own `app/markets/layout.tsx` and nav:
+- Markets mode lives under `/markets` sharing the root layout; NavTabs/MobileNav prefix tab links with /markets when in markets mode:
   Home `/markets`, Feed `/markets/feed`, Edge `/markets/edge`, Trends
   `/markets/trends`, Props `/markets/props`, Performance `/markets/performance`.
 - A segmented "Sportsbook | Prediction Markets" toggle at the top of the nav. It
@@ -120,7 +120,7 @@ movement indicator; the CLV work in the paper ledger already covers closing pric
 
 - `lib/kalshi/ladder.ts` (pure): `groupLadders(rows)`, `hitRate(logs, stat, strike)`,
   `isDoubleDouble(log)`, `isTripleDouble(log)`, `breakEven(ask)`, `kalshiFee(p)`.
-- `app/markets/layout.tsx`, `app/markets/props/page.tsx`, placeholder pages for
+- `app/markets/props/page.tsx`, placeholder pages for
   the other five tabs, toggle in `components/NavTabs.tsx` (or a small
   `ModeToggle` component it renders).
 
@@ -147,5 +147,5 @@ movement indicator; the CLV work in the paper ledger already covers closing pric
 - On a game day, `/markets/props` lists every in-scope Kalshi rung for that day's
   games with prices no older than one pretip cycle.
 - Hit rates for a spot-checked player match a manual count from game logs.
-- `kalshi_settle` fills `result` for the previous day's finalized markets.
+- `kalshi_settle` fills `result` (yes/no/void) for the previous days' finalized markets.
 - Sportsbook mode pages are unchanged.
