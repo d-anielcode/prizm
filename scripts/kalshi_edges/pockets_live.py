@@ -4,7 +4,7 @@ from datetime import timedelta
 from kalshi_edges.study import build_trades, classify
 from kalshi_edges.teams import ticker_teams
 
-WINDOW = timedelta(minutes=45)
+WINDOW = timedelta(minutes=30)   # kalshi_live runs every 15 min, so each game is seen ~twice
 ACTIVE_STATUSES = ("confirmed", "live")
 
 

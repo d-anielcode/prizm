@@ -107,6 +107,16 @@ def test_pretip_runs_inside_window():
     assert http.calls[0] == '/api/lineups/fetch' and store.status('snapshot') == ['ok']
 
 
+def test_kalshi_live_not_gated_by_pretip_window():
+    # first tip 5h away and pretip already ok today: pretip would skip, kalshi_live must still run
+    ran = []
+    store = FakeStore(first_tip=(NOW + timedelta(hours=5)).isoformat(), phase_ok_on=True)
+    assert run_phase('kalshi_live', now=NOW, http=FakeHttp(), store=store, sleep=lambda s: None,
+                     python=lambda script: ran.append(script) or 0) == 0
+    assert ran == ['kalshi_ingest.py', 'kalshi_pocket_scan.py']
+    assert store.status('gate') == [] and store.status('kalshi_pocket_scan') == ['ok']
+
+
 def test_dry_run_calls_nothing():
     http = FakeHttp()
     assert run(http=http, dry_run=True) == 0

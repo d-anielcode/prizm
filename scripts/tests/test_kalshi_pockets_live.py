@@ -7,8 +7,8 @@ def mk(t, teams="BOSCHA", ask=0.17, bid=0.15, vol=5, strike=20):   # NO costs .8
     return {"ticker": f"KXNBAPTS-26NOV07{teams}-{t}-{strike}", "player": "A B", "stat": "points", "strike": strike,
             "game_date": "2026-11-07", "yes_bid": bid, "yes_ask": ask, "volume": vol}
 
-def test_scan_only_games_tipping_within_45_minutes():
-    tips = {"BOSCHA": NOW + timedelta(minutes=30), "MINNOP": NOW + timedelta(minutes=90)}
+def test_scan_only_games_tipping_within_30_minutes():
+    tips = {"BOSCHA": NOW + timedelta(minutes=30), "MINNOP": NOW + timedelta(minutes=31)}
     rows = [mk("x"), mk("y", teams="MINNOP")]
     out = scan_trades(rows, tips, NOW, active={"no|band:.80-.90", "yes|band:.10-.20"})
     assert {(o["ticker"].split("-")[2], o["pocket_id"], o["side"]) for o in out} == {

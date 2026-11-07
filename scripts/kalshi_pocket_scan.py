@@ -1,4 +1,5 @@
-"""Pipeline step (pretip): log paper trades for confirmed/live pockets on games tipping within 45 min."""
+"""Pipeline step (kalshi_live, every 15 min): log paper trades for confirmed/live pockets on games
+tipping within 30 min. insert_ignore keeps the first price seen for a pocket/ticker/side."""
 import os, sys
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo

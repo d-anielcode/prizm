@@ -34,6 +34,11 @@ PHASES = {
         Step('enrich', S, 'http', '/api/enrich?force=true', 0, critical=True, coverage='enrich_coverage'),
         Step('snapshot', S, 'http', '/api/props/snapshot', 0),
         Step('kalshi_ingest', 'kalshi', 'python', 'kalshi_ingest.py', 0),
+    ],
+    # Every 15 min through the evening (kalshi-live.yml). Not gated like pretip: the
+    # pocket scan must see every game in the 30 min before its own tip.
+    'kalshi_live': [
+        Step('kalshi_ingest', 'kalshi', 'python', 'kalshi_ingest.py', 0),
         Step('kalshi_pocket_scan', 'kalshi', 'python', 'kalshi_pocket_scan.py', 0),
     ],
     'weekly': [

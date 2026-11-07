@@ -1,4 +1,4 @@
-"""python -m pipeline <overnight|midday|pretip|weekly> [--date YYYY-MM-DD] [--dry-run]"""
+"""python -m pipeline <overnight|midday|pretip|kalshi_live|weekly> [--date YYYY-MM-DD] [--dry-run]"""
 import argparse
 import os
 import subprocess
