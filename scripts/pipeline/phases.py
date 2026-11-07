@@ -18,18 +18,21 @@ PHASES = {
         Step('enrich', S, 'http', '/api/enrich?force=true', 0, critical=True, coverage='enrich_coverage'),
         Step('streak', S, 'http', '/api/feed/generate/streak', 0),
         Step('parlay', S, 'http', '/api/feed/generate/parlay', 0),
+        Step('kalshi_settle', 'kalshi', 'python', 'kalshi_settle.py', -1),
         Step('defense_fresh', 'checks', 'check', 'defense_fresh', 0),
     ],
     'midday': [
         Step('props', S, 'http', '/api/props?refresh=true', 0, critical=True),
         Step('enrich', S, 'http', '/api/enrich?force=true', 0, critical=True, coverage='enrich_coverage'),
         Step('parlay_pass2', S, 'http', '/api/feed/generate/parlay?pass=2', 0),
+        Step('kalshi_ingest', 'kalshi', 'python', 'kalshi_ingest.py', 0),
     ],
     'pretip': [
         Step('lineups', S, 'http', '/api/lineups/fetch', 0),
         Step('props', S, 'http', '/api/props?refresh=true', 0, critical=True),
         Step('enrich', S, 'http', '/api/enrich?force=true', 0, critical=True, coverage='enrich_coverage'),
         Step('snapshot', S, 'http', '/api/props/snapshot', 0),
+        Step('kalshi_ingest', 'kalshi', 'python', 'kalshi_ingest.py', 0),
     ],
     'weekly': [
         Step('player_bias', 'weekly', 'http', '/api/player-bias?action=analyze', 0),

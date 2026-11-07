@@ -7,7 +7,7 @@ def test_overnight_order():
     assert names('overnight') == [
         'gamelogs', 'grade', 'grade_wnba', 'feed_grade', 'results', 'seasonstats', 'perf_snapshot',
         'props', 'props_wnba', 'wnba_stats', 'sim_3pm', 'enrich', 'streak', 'parlay',
-        'defense_fresh']
+        'kalshi_settle', 'defense_fresh']
 
 def test_chains_and_dates():
     by = {s.name: s for s in PHASES['overnight']}
@@ -22,6 +22,11 @@ def test_critical_steps():
     assert crit == {'gamelogs', 'grade', 'props', 'enrich'}
 
 def test_other_phases():
-    assert names('midday') == ['props', 'enrich', 'parlay_pass2']
-    assert names('pretip') == ['lineups', 'props', 'enrich', 'snapshot']
+    assert names('midday') == ['props', 'enrich', 'parlay_pass2', 'kalshi_ingest']
+    assert names('pretip') == ['lineups', 'props', 'enrich', 'snapshot', 'kalshi_ingest']
     assert names('weekly') == ['player_bias', 'opponent_leaks']
+
+def test_kalshi_steps_own_chain_not_critical():
+    ks = [s for p in PHASES.values() for s in p if s.name.startswith('kalshi_')]
+    assert len(ks) == 3
+    assert all(s.chain == 'kalshi' and s.kind == 'python' and not s.critical for s in ks)
