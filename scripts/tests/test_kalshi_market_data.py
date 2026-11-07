@@ -120,3 +120,32 @@ def test_fetch_market_gives_up_after_retries(monkeypatch):
     with pytest.raises(requests.HTTPError):
         md.fetch_market('X', session=sess)
     assert sess.calls == md.MAX_RETRIES + 1
+
+
+from kalshi_edges.market_data import INGEST_SERIES_STAT, PROP_SERIES
+
+def _dd(title="Trey Lyles: Double Double", series="KXNBA2D"):
+    return {"ticker": f"{series}-26NOV06MINNOP-MINTLYLES41", "title": title,
+            "yes_sub_title": "Trey Lyles", "floor_strike": 0.5, "strike_type": "greater",
+            "yes_bid_dollars": "0.0300", "yes_ask_dollars": "0.0700", "volume_fp": "120"}
+
+def test_colon_title_cuts_player_at_colon():
+    raw = dict(sample_markets()[0]); raw["title"] = "LeBron James: 25+ points"
+    assert parse_market(raw).player == "LeBron James"
+
+def test_double_double_parses_with_ingest_map():
+    kp = parse_market(_dd(), INGEST_SERIES_STAT)
+    assert (kp.player, kp.stat, kp.strike, kp.yes_ask) == ("Trey Lyles", "double_double", 1, 0.07)
+    assert (kp.game_date.isoformat(), kp.away, kp.home) == ("2026-11-06", "MIN", "NOP")
+
+def test_triple_double_parses_with_ingest_map():
+    kp = parse_market(_dd("Trey Lyles: Triple Double", "KXNBA3D"), INGEST_SERIES_STAT)
+    assert kp.stat == "triple_double" and kp.strike == 1
+
+def test_scanner_map_ignores_double_double():
+    assert parse_market(_dd()) is None
+    assert "KXNBA2D" not in PROP_SERIES and "KXNBA3D" not in PROP_SERIES
+
+def test_ingest_map_is_the_seven_phase1_series():
+    assert set(INGEST_SERIES_STAT.values()) == {
+        "points", "rebounds", "assists", "three_pointers", "pra", "double_double", "triple_double"}

@@ -27,6 +27,13 @@ SERIES_STAT = {
     "KXNBAPRA": "pra",
 }
 PROP_SERIES: list[str] = list(SERIES_STAT)
+# Series the Prediction Markets mode ingests (phase 1). Separate from SERIES_STAT so
+# the paper scanner keeps scanning only the book-anchored stats.
+INGEST_SERIES_STAT = {
+    "KXNBAPTS": "points", "KXNBAREB": "rebounds", "KXNBAAST": "assists",
+    "KXNBA3PT": "three_pointers", "KXNBAPRA": "pra",
+    "KXNBA2D": "double_double", "KXNBA3D": "triple_double",
+}
 _MONTHS = {m: i for i, m in enumerate(
     ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
 
@@ -66,6 +73,9 @@ def _classify_stat(text):
 
 def _extract_player(title):
     t = re.sub(r"^\s*will\s+", "", title, flags=re.I).strip()
+    # Live titles are "<Player>: <milestone>" ("Trey Lyles: Double Double").
+    if ":" in t:
+        t = t.split(":", 1)[0]
     m = _CUE_RE.search(t)
     if m:
         name = t[:m.start()]
@@ -122,12 +132,14 @@ def _strike_from(raw):
     m = STRIKE_RE.search(text)
     return int(m.group(1)) if m else None
 
-def parse_market(raw):
-    """Parse one Kalshi market dict into a KalshiProp, or None if not an NBA prop."""
+def parse_market(raw, stat_map=None):
+    """Parse one Kalshi market dict into a KalshiProp, or None if not an NBA prop.
+    stat_map: series ticker -> stat (default SERIES_STAT, the scanner's set)."""
     ticker = raw.get("ticker", "")
     series = _series_of(ticker)
     text = f"{raw.get('title') or ''} {raw.get('yes_sub_title') or ''}"
-    stat = SERIES_STAT.get(series) or _classify_stat(text)
+    smap = SERIES_STAT if stat_map is None else stat_map
+    stat = smap.get(series) or (None if series in INGEST_SERIES_STAT else _classify_stat(text))
     if stat is None:
         return None
     strike = _strike_from(raw)
@@ -168,12 +180,17 @@ def fetch_market(ticker, session=None):
     sess = session or requests.Session()
     return _get(sess, f"{KALSHI_BASE}/markets/{ticker}").json()["market"]
 
-def fetch_markets(series_ticker, session=None):
-    """Page through open markets for one series ticker. Returns raw market dicts."""
+def fetch_markets(series_ticker, session=None, status="open", min_close_ts=None, max_close_ts=None):
+    """Page through markets for one series ticker. Returns raw market dicts.
+    status: Kalshi filter ('open', 'closed', 'settled'); close_ts bounds are unix seconds."""
     sess = session or requests.Session()
     out, cursor = [], None
     while True:
-        params = {"limit": 1000, "status": "open", "series_ticker": series_ticker}
+        params = {"limit": 1000, "status": status, "series_ticker": series_ticker}
+        if min_close_ts is not None:
+            params["min_close_ts"] = int(min_close_ts)
+        if max_close_ts is not None:
+            params["max_close_ts"] = int(max_close_ts)
         if cursor:
             params["cursor"] = cursor
         data = _get(sess, f"{KALSHI_BASE}/markets", params=params).json()
