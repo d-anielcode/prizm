@@ -40,3 +40,30 @@ def test_settled_row():
 
 def test_result_map():
     assert RESULT_MAP == {"yes": "yes", "no": "no", "scalar": "void"}
+
+
+from kalshi_edges.history import process_markets, BackfillStats
+
+def _raw(t, open_time="2026-06-13T20:00:00Z", result="no"):
+    return {"ticker": t, "title": "Victor Wembanyama: 40+ points", "floor_strike": 39.5,
+            "strike_type": "greater", "yes_ask_dollars": "1.0000", "open_time": open_time, "result": result}
+
+def test_process_markets_filters_and_counts():
+    tip = datetime(2026, 6, 14, 0, 30, tzinfo=timezone.utc)
+    raws = [
+        _raw("KXNBAPTS-26JUN13NYKSAS-A-40"),                                       # ok
+        _raw("KXNBAPTS-26JUN13NYKSAS-B-40", open_time="2026-06-14T01:00:00Z"),     # opened after tip
+        _raw("KXNBAPTS-26JUN13BOSLAL-C-40"),                                       # no tip match
+        _raw("KXNBAPTS-26JUN13NYKSAS-D-40"),                                       # already stored
+        _raw("KXNBAPTS-26JUN13NYKSAS-E-40", result="unknown"),                     # bad result
+    ]
+    stats = BackfillStats()
+    rows = process_markets(
+        raws, tips_for=lambda d: {"NYKSAS": tip}, candles_for=lambda raw, s, e: [c_hist(TIP - 60, "0.14", "0.05", "2")],
+        existing={"KXNBAPTS-26JUN13NYKSAS-D-40"}, stats=stats)
+    assert [r["ticker"] for r in rows] == ["KXNBAPTS-26JUN13NYKSAS-A-40"]
+    assert (stats.ok, stats.after_tip, stats.no_tip, stats.existing, stats.unparseable) == (1, 1, 1, 1, 1)
+
+def test_no_tip_share_guard():
+    s = BackfillStats(ok=7, no_tip=3)
+    assert s.no_tip_share() == 0.3

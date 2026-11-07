@@ -2,10 +2,17 @@
 
 Pure helpers first (tested); backfill orchestration + I/O below.
 """
+import time
+from dataclasses import dataclass
 from datetime import date, datetime
 
-from kalshi_edges.market_data import INGEST_SERIES_STAT, parse_market
-from kalshi_edges.teams import canon
+import requests
+
+from kalshi_edges import sb
+from kalshi_edges.espn import fetch_tip_index
+from kalshi_edges.market_data import (INGEST_SERIES_STAT, KALSHI_BASE, _game_of, _get,
+                                      fetch_markets, parse_market)
+from kalshi_edges.teams import canon, ticker_teams
 
 RESULT_MAP = {"yes": "yes", "no": "no", "scalar": "void"}
 SEASON_START = (10, 1)   # Oct 1
@@ -61,3 +68,125 @@ def settled_row(raw, tip, pretip):
             "season": season_of(kp.game_date), "tip_time": tip.isoformat(),
             "open_time": _dt(raw["open_time"]).isoformat(),
             "pretip_yes_bid": bid, "pretip_yes_ask": ask, "pretip_volume": vol, "result": result}
+
+
+# --- backfill orchestration -------------------------------------------------
+
+@dataclass
+class BackfillStats:
+    ok: int = 0
+    existing: int = 0
+    after_tip: int = 0
+    no_tip: int = 0
+    no_quote: int = 0
+    unparseable: int = 0
+    errors: int = 0
+
+    def no_tip_share(self):
+        seen = self.ok + self.after_tip + self.no_tip + self.no_quote
+        return self.no_tip / seen if seen else 0.0
+
+
+def process_markets(raws, tips_for, candles_for, existing, stats):
+    """Build kalshi_settled rows. tips_for(date)->{teams: tip}; candles_for(raw, start_ts, end_ts)->candles."""
+    rows = []
+    for raw in raws:
+        t = raw.get("ticker")
+        if t in existing:
+            stats.existing += 1
+            continue
+        gd, _, _ = _game_of(t)
+        teams = ticker_teams(t)
+        if gd is None or teams is None or RESULT_MAP.get(raw.get("result")) is None or not raw.get("open_time"):
+            stats.unparseable += 1
+            continue
+        tip = tips_for(gd).get(teams)
+        if tip is None:
+            stats.no_tip += 1
+            continue
+        opened = _dt(raw["open_time"])
+        if opened >= tip:
+            stats.after_tip += 1
+            continue
+        try:
+            pre = pretip_from_candles(candles_for(raw, int(opened.timestamp()), int(tip.timestamp())), int(tip.timestamp()))
+        except requests.RequestException:
+            stats.errors += 1
+            continue
+        if pre is None:
+            stats.no_quote += 1
+            continue
+        row = settled_row(raw, tip, pre)
+        if row is None:
+            stats.unparseable += 1
+            continue
+        rows.append(row)
+        stats.ok += 1
+    return rows
+
+
+THROTTLE_S = 0.12   # ~8 requests/s
+
+
+def list_historical(series, session):
+    out, cursor = [], None
+    while True:
+        params = {"series_ticker": series, "limit": 1000}
+        if cursor:
+            params["cursor"] = cursor
+        data = _get(session, f"{KALSHI_BASE}/historical/markets", params=params).json()
+        out.extend(data.get("markets", []))
+        cursor = data.get("cursor")
+        if not cursor or not data.get("markets"):
+            return out
+        time.sleep(THROTTLE_S)
+
+
+def candles_fetcher(session, historical):
+    def fetch(raw, start_ts, end_ts):
+        t = raw["ticker"]
+        url = (f"{KALSHI_BASE}/historical/markets/{t}/candlesticks" if historical
+               else f"{KALSHI_BASE}/series/{t.split('-')[0]}/markets/{t}/candlesticks")
+        time.sleep(THROTTLE_S)
+        return _get(session, url, params={"start_ts": start_ts, "end_ts": end_ts, "period_interval": 60}).json().get("candlesticks", [])
+    return fetch
+
+
+def tips_cache(session):
+    cache = {}
+    def tips_for(d):
+        if d not in cache:
+            cache[d] = fetch_tip_index(d, session)
+            time.sleep(THROTTLE_S)
+        return cache[d]
+    return tips_for
+
+
+def existing_tickers():
+    return {r["ticker"] for r in sb.select_all("kalshi_settled", "select=ticker&order=ticker")}
+
+
+def backfill(series_list=None, sources=("historical", "live"), session=None, log=print):
+    """Backfill kalshi_settled. Resumable (skips stored tickers). Raises if >20% of a
+    series is skipped for no tip-time match (team-code mapping is wrong)."""
+    sess = session or requests.Session()
+    existing = existing_tickers()
+    tips_for = tips_cache(sess)
+    total = BackfillStats()
+    for series in (series_list or list(INGEST_SERIES_STAT)):
+        for src in sources:
+            raws = list_historical(series, sess) if src == "historical" else fetch_markets(series, session=sess, status="settled")
+            stats = BackfillStats()
+            buf = []
+            for i in range(0, len(raws), 200):
+                buf += process_markets(raws[i:i + 200], tips_for, candles_fetcher(sess, src == "historical"), existing, stats)
+                if len(buf) >= 500:
+                    sb.upsert("kalshi_settled", buf, "ticker"); existing |= {r["ticker"] for r in buf}; buf = []
+                log(f"{series} {src}: {min(i + 200, len(raws))}/{len(raws)} {stats}")
+                if stats.ok + stats.no_tip >= 200 and stats.no_tip_share() > 0.2:
+                    raise RuntimeError(f"{series} {src}: {stats.no_tip_share():.0%} no tip match - fix team codes")
+            if buf:
+                sb.upsert("kalshi_settled", buf, "ticker"); existing |= {r["ticker"] for r in buf}
+            for k, v in vars(stats).items():
+                setattr(total, k, getattr(total, k) + v)
+    return total
