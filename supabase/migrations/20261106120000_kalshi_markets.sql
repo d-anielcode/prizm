@@ -36,6 +36,11 @@ DROP TRIGGER IF EXISTS kalshi_markets_keep_first ON kalshi_markets;
 CREATE TRIGGER kalshi_markets_keep_first BEFORE UPDATE ON kalshi_markets
   FOR EACH ROW EXECUTE FUNCTION kalshi_markets_keep_first();
 
+-- New tables on this project get no API grants by default (2026-11-06: service_role
+-- had only Dxtm), so grant explicitly: pipeline writes, public reads.
+GRANT SELECT, INSERT, UPDATE, DELETE ON kalshi_markets TO service_role;
+GRANT SELECT ON kalshi_markets TO anon, authenticated;
+
 ALTER TABLE kalshi_markets ENABLE ROW LEVEL SECURITY;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON kalshi_markets FROM anon, authenticated;
 DROP POLICY IF EXISTS "anon_read" ON kalshi_markets;

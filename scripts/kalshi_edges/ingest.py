@@ -87,17 +87,19 @@ def upsert_rows(rows):
 
 
 def apply_settlement(updates):
+    """PATCH results onto stored rows. Returns rows actually updated: Kalshi lists every
+    settled market, but only the ones we ingested exist in the table."""
     url, h = _sb()
     n = 0
     for (status, result), tickers in updates.items():
         for i in range(0, len(tickers), 100):
             chunk = tickers[i:i + 100]
             ids = ",".join(f'"{t}"' for t in chunk)
-            r = requests.patch(f"{url}/{TABLE}?ticker=in.({ids})",
-                               headers={**h, "Prefer": "return=minimal"},
+            r = requests.patch(f"{url}/{TABLE}?ticker=in.({ids})&select=ticker",
+                               headers={**h, "Prefer": "return=representation"},
                                json={"status": status, "result": result}, timeout=60)
             r.raise_for_status()
-            n += len(chunk)
+            n += len(r.json())
     return n
 
 
