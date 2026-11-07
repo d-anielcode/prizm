@@ -60,6 +60,7 @@ class KalshiProp:
     yes_ask: float   # 0..1
     volume: int
     series: str = field(default="", compare=False)
+    volume_fp: float | None = field(default=None, compare=False)   # unrounded volume_fp
     game_date: date | None = field(default=None, compare=False)
     away: str | None = field(default=None, compare=False)
     home: str | None = field(default=None, compare=False)
@@ -122,10 +123,12 @@ def _game_of(ticker):
 def _strike_from(raw):
     """Milestone N for an "N+" market. Kalshi's live props use strike_type='greater'
     with floor_strike = N - 0.5 (24.5 for "25+"), so N = floor(floor_strike) + 1.
-    Other strike types keep the structured value as N."""
+    A fractional floor always means "N+" (historical markets report
+    strike_type='structured' with the same x.5 floor). Integer floors of other strike
+    types keep the structured value as N."""
     if raw.get("floor_strike") is not None:
         fs = float(raw["floor_strike"])
-        return math.floor(fs) + 1 if raw.get("strike_type") == "greater" else int(fs)
+        return math.floor(fs) + 1 if raw.get("strike_type") == "greater" or fs != int(fs) else int(fs)
     if raw.get("cap_strike") is not None:
         return int(float(raw["cap_strike"]))
     text = f"{raw.get('yes_sub_title') or ''} {raw.get('title') or ''}"
@@ -152,10 +155,10 @@ def parse_market(raw, stat_map=None):
     if ask is None:
         return None
     bid = _dollars(raw.get("yes_bid_dollars")) or 0.0
-    volume = int(float(raw.get("volume_fp") or 0))
+    volume_fp = float(raw.get("volume_fp") or 0)
     gd, away, home = _game_of(ticker)
-    return KalshiProp(ticker, player, stat, strike, bid, ask, volume,
-                      series=series, game_date=gd, away=away, home=home)
+    return KalshiProp(ticker, player, stat, strike, bid, ask, int(volume_fp),
+                      series=series, game_date=gd, away=away, home=home, volume_fp=volume_fp)
 
 MAX_RETRIES = 4
 PAGE_PAUSE_S = 0.25

@@ -19,11 +19,22 @@ def target_dates(argv, today):
     return [today - timedelta(days=k) for k in range(1, CATCH_UP_DAYS + 1)]
 
 
+def record_history(dates):
+    """Add kalshi_settled study rows. Settlement already succeeded, so a failure here is
+    logged and swallowed (the step still exits 0); returns the stats or None."""
+    from kalshi_edges import history
+    try:
+        st = history.settle_history(dates)
+    except Exception as e:  # noqa: BLE001
+        print(f'kalshi_settled rows: FAILED ({type(e).__name__}: {e}); settlement unaffected')
+        return None
+    print(f'kalshi_settled rows: {st}')
+    return st
+
+
 if __name__ == '__main__':
     load_env_local()
     dates = target_dates(sys.argv, datetime.now(ZoneInfo('America/New_York')).date())
     for d, n in sorted(run_settle(dates).items()):
         print(f'kalshi_settle {d}: settled {n} markets')
-    from kalshi_edges.history import settle_history
-    st = settle_history(dates)
-    print(f'kalshi_settled rows: {st}')
+    record_history(dates)

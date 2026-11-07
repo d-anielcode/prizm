@@ -103,8 +103,10 @@ def build_trades(rows, require_result=True):
     kalshi_markets onto them). With require_result=False, unsettled rows give won/pnl None.
     Prices are rounded to PRICE_DP decimals before banding so 1 - bid never lands a
     hair below a band edge."""
-    rows = [r for r in rows if r.get("result") != "void"]
+    # Positions over every priced rung, void ones included: a voided rung was still part
+    # of the ladder the bettor saw before tip.
     pos = _positions([r for r in rows if r.get("pretip_yes_ask") is not None or r.get("pretip_yes_bid") is not None])
+    rows = [r for r in rows if r.get("result") != "void"]
     out = []
     for r in rows:
         res = r.get("result")

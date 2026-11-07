@@ -149,3 +149,13 @@ def test_scanner_map_ignores_double_double():
 def test_ingest_map_is_the_seven_phase1_series():
     assert set(INGEST_SERIES_STAT.values()) == {
         "points", "rebounds", "assists", "three_pointers", "pra", "double_double", "triple_double"}
+
+
+def test_structured_fractional_floor_means_n_plus():
+    # Historical markets use strike_type='structured' with floor_strike = N - 0.5
+    raw = {**_dd(), "strike_type": "structured", "floor_strike": 0.5}
+    assert parse_market(raw, INGEST_SERIES_STAT).strike == 1
+    raw = dict(sample_markets()[0]); raw.update(strike_type="structured", floor_strike=19.5)
+    assert parse_market(raw).strike == 20
+    raw.update(floor_strike=20)                     # integer structured floor stays as-is
+    assert parse_market(raw).strike == 20

@@ -4,7 +4,7 @@ Pure helpers first (tested); backfill orchestration + I/O below.
 """
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 
 import requests
 
@@ -87,8 +87,9 @@ class BackfillStats:
         return self.no_tip / seen if seen else 0.0
 
 
-def process_markets(raws, tips_for, candles_for, existing, stats):
-    """Build kalshi_settled rows. tips_for(date)->{teams: tip}; candles_for(raw, start_ts, end_ts)->candles."""
+def process_markets(raws, tips_for, candles_for, existing, stats, unmatched=None):
+    """Build kalshi_settled rows. tips_for(date)->{teams: tip}; candles_for(raw, start_ts, end_ts)->candles.
+    unmatched: optional list collecting distinct ticker team strings with no tip match."""
     rows = []
     for raw in raws:
         t = raw.get("ticker")
@@ -103,6 +104,8 @@ def process_markets(raws, tips_for, candles_for, existing, stats):
         tip = tips_for(gd).get(teams)
         if tip is None:
             stats.no_tip += 1
+            if unmatched is not None and teams not in unmatched:
+                unmatched.append(teams)
             continue
         opened = _dt(raw["open_time"])
         if opened >= tip:
@@ -162,8 +165,19 @@ def tips_cache(session):
     return tips_for
 
 
-def existing_tickers():
-    return {r["ticker"] for r in sb.select_all("kalshi_settled", "select=ticker&order=ticker")}
+def existing_tickers(game_dates=None):
+    """Stored tickers, optionally only for these game dates."""
+    f = f"&game_date=in.({','.join(sorted(d.isoformat() for d in game_dates))})" if game_dates else ""
+    return {r["ticker"] for r in sb.select_all("kalshi_settled", f"select=ticker{f}&order=ticker")}
+
+
+def dedupe_by_ticker(rows):
+    """Unique by ticker (last wins) so one upsert batch never repeats a key."""
+    by = {}
+    for r in rows:
+        by.pop(r["ticker"], None)
+        by[r["ticker"]] = r
+    return list(by.values())
 
 
 def backfill(series_list=None, sources=("historical", "live"), session=None, log=print):
@@ -177,16 +191,22 @@ def backfill(series_list=None, sources=("historical", "live"), session=None, log
         for src in sources:
             raws = list_historical(series, sess) if src == "historical" else fetch_markets(series, session=sess, status="settled")
             stats = BackfillStats()
-            buf = []
+            buf, unmatched = [], []
             for i in range(0, len(raws), 200):
-                buf += process_markets(raws[i:i + 200], tips_for, candles_fetcher(sess, src == "historical"), existing, stats)
+                buf += process_markets(raws[i:i + 200], tips_for, candles_fetcher(sess, src == "historical"),
+                                       existing, stats, unmatched)
                 if len(buf) >= 500:
+                    buf = dedupe_by_ticker(buf)
                     sb.upsert("kalshi_settled", buf, "ticker"); existing |= {r["ticker"] for r in buf}; buf = []
                 log(f"{series} {src}: {min(i + 200, len(raws))}/{len(raws)} {stats}")
                 if stats.ok + stats.no_tip >= 200 and stats.no_tip_share() > 0.2:
+                    log(f"{series} {src}: unmatched team strings (first 5): {unmatched[:5]}")
                     raise RuntimeError(f"{series} {src}: {stats.no_tip_share():.0%} no tip match - fix team codes")
             if buf:
+                buf = dedupe_by_ticker(buf)
                 sb.upsert("kalshi_settled", buf, "ticker"); existing |= {r["ticker"] for r in buf}
+            if stats.no_tip > 0:
+                log(f"{series} {src}: {stats.no_tip} no tip match; unmatched team strings (first 5): {unmatched[:5]}")
             for k, v in vars(stats).items():
                 setattr(total, k, getattr(total, k) + v)
     return total
@@ -199,7 +219,8 @@ def settle_history(game_dates, session=None):
     wanted = set(game_dates)
     raws = [r for r in fetch_settled(game_dates, session=sess) if _game_of(r.get("ticker"))[0] in wanted]
     stats = BackfillStats()
-    rows = process_markets(raws, tips_cache(sess), candles_fetcher(sess, historical=False), existing_tickers(), stats)
+    rows = process_markets(raws, tips_cache(sess), candles_fetcher(sess, historical=False),
+                           existing_tickers(game_dates), stats)
     if rows:
-        sb.upsert("kalshi_settled", rows, "ticker")
+        sb.upsert("kalshi_settled", dedupe_by_ticker(rows), "ticker")
     return stats

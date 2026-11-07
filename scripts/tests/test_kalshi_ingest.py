@@ -96,3 +96,29 @@ def test_settle_target_dates():
     import kalshi_settle
     assert kalshi_settle.target_dates(["x"], date(2026, 11, 6)) == [date(2026, 11, 5), date(2026, 11, 4), date(2026, 11, 3)]
     assert kalshi_settle.target_dates(["x", "2026-10-30"], date(2026, 11, 6)) == [date(2026, 10, 30)]
+
+
+def test_to_row_volume_rounds_fractional_up():
+    assert to_row(_kp(volume=0, volume_fp=0.5), status="active")["volume"] == 1
+    assert to_row(_kp(volume=12, volume_fp=12.0), status="active")["volume"] == 12
+    assert to_row(_kp(volume=0, volume_fp=0.0), status="active")["volume"] == 0
+
+
+def test_parse_market_keeps_float_volume():
+    from kalshi_edges.market_data import INGEST_SERIES_STAT, parse_market
+    raw = _raw("KXNBAPTS-26NOV06MINNOP-MINAEDWARDS5-25", "Anthony Edwards: 25+ points", "KXNBAPTS")
+    raw["volume_fp"] = "0.50"
+    row = to_row(parse_market(raw, INGEST_SERIES_STAT), status="active")
+    assert row["volume"] == 1
+
+
+def test_record_history_logs_and_swallows_errors(monkeypatch, capsys):
+    import kalshi_settle
+    import kalshi_edges.history as h
+    def boom(dates):
+        raise RuntimeError("kalshi down")
+    monkeypatch.setattr(h, "settle_history", boom)
+    assert kalshi_settle.record_history([date(2026, 11, 5)]) is None
+    assert "kalshi down" in capsys.readouterr().out
+    monkeypatch.setattr(h, "settle_history", lambda dates: "stats")
+    assert kalshi_settle.record_history([date(2026, 11, 5)]) == "stats"

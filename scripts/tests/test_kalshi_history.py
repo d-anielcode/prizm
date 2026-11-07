@@ -67,3 +67,32 @@ def test_process_markets_filters_and_counts():
 def test_no_tip_share_guard():
     s = BackfillStats(ok=7, no_tip=3)
     assert s.no_tip_share() == 0.3
+
+
+
+def test_existing_tickers_limited_to_dates(monkeypatch):
+    import kalshi_edges.history as h
+    from datetime import date
+    seen = []
+    monkeypatch.setattr(h.sb, "select_all", lambda table, q: seen.append((table, q)) or [{"ticker": "T"}])
+    assert h.existing_tickers([date(2026, 11, 5), date(2026, 11, 4)]) == {"T"}
+    assert seen[-1] == ("kalshi_settled", "select=ticker&game_date=in.(2026-11-04,2026-11-05)&order=ticker")
+    h.existing_tickers()
+    assert seen[-1] == ("kalshi_settled", "select=ticker&order=ticker")
+
+
+def test_process_markets_collects_unmatched_team_strings():
+    tip = datetime(2026, 6, 14, 0, 30, tzinfo=timezone.utc)
+    raws = [_raw("KXNBAPTS-26JUN13BOSLAL-C-40"), _raw("KXNBAPTS-26JUN13BOSLAL-D-40"),
+            _raw("KXNBAPTS-26JUN13NYKSAS-A-40")]
+    unmatched, stats = [], BackfillStats()
+    process_markets(raws, tips_for=lambda d: {"NYKSAS": tip},
+                    candles_for=lambda raw, s, e: [c_hist(TIP - 60, "0.14", "0.05", "2")],
+                    existing=set(), stats=stats, unmatched=unmatched)
+    assert stats.no_tip == 2 and unmatched == ["BOSLAL"]
+
+
+def test_dedupe_by_ticker_last_wins():
+    from kalshi_edges.history import dedupe_by_ticker
+    rows = [{"ticker": "a", "v": 1}, {"ticker": "b", "v": 2}, {"ticker": "a", "v": 3}]
+    assert dedupe_by_ticker(rows) == [{"ticker": "b", "v": 2}, {"ticker": "a", "v": 3}]

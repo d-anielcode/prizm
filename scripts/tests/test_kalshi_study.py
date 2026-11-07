@@ -194,3 +194,10 @@ def test_render_report_adds_fee_ceil_and_vol0_for_passed():
     t = [x for x in build_trades(DISC) if x.side == "no"]
     assert f"{fee_ceil_roi(t):+.1%}" in line and "0%" in line          # vol 50 -> no tier-0 trades
     assert "fee ceil" in md
+
+
+def test_ladder_position_counts_void_rungs():
+    # 15 is void but was a priced rung: 20 is interior, not the lowest rung
+    rows = [row("a", strike=15, result="void"), row("b", strike=20), row("c", strike=25)]
+    tr = {t.ticker: t for t in build_trades(rows) if t.side == "yes"}
+    assert "a" not in tr and tr["b"].pos == "interior" and tr["c"].pos == "top"

@@ -4,6 +4,7 @@ collect() + to_row() are pure (tested); upsert_rows() / apply_settlement() do th
 Supabase I/O with the service role. The table's BEFORE UPDATE trigger keeps
 first_yes_ask / first_seen_at from the first insert, so every upsert can send them.
 """
+import math
 import os
 from datetime import datetime, time as dtime, timedelta, timezone
 
@@ -33,7 +34,8 @@ def to_row(kp, status):
             "strike": kp.strike, "game_date": kp.game_date.isoformat(),
             "away": kp.away, "home": kp.home,
             "yes_bid": _price(kp.yes_bid, lambda v: v > 0), "yes_ask": ask, "first_yes_ask": ask,
-            "volume": kp.volume, "status": status}
+            "volume": math.ceil(kp.volume_fp) if kp.volume_fp is not None else kp.volume,
+            "status": status}
 
 
 def collect(fetch, series=None):
