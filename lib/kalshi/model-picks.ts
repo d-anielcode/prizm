@@ -135,3 +135,31 @@ export function groupPicksByGame(picks: ModelPick[]): PickGame[] {
   }
   return [...games.values()].sort((a, b) => a.key.localeCompare(b.key))
 }
+
+/** [start, end) of an ET calendar date as UTC ISO strings. Uses the offset at ET noon. */
+export function etDayWindow(date: string): { start: string; end: string } {
+  const noon = new Date(`${date}T12:00:00Z`)
+  const name = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'shortOffset' })
+    .formatToParts(noon).find((p) => p.type === 'timeZoneName')?.value ?? 'GMT-5'
+  const hours = Number(name.replace('GMT', '') || 0)
+  const start = new Date(Date.parse(`${date}T00:00:00Z`) - hours * 3_600_000)
+  return { start: start.toISOString(), end: new Date(start.getTime() + 86_400_000).toISOString() }
+}
+
+/** Picks whose game tips within the next `minutes` (and not already started). */
+export function dueForLogging(picks: ModelPick[], now: Date, minutes = 30): ModelPick[] {
+  const t = now.getTime()
+  return picks.filter((p) => {
+    const tip = Date.parse(p.commence_time)
+    return Number.isFinite(tip) && tip > t && tip - t <= minutes * 60_000
+  })
+}
+
+/** kalshi_model_picks insert row: price/model_p/edge at 4dp, fee at 6dp. */
+export function toLogRow(p: ModelPick) {
+  return {
+    ticker: p.ticker, side: p.side, player: p.player, stat: p.stat, strike: p.strike,
+    game_date: p.game_date, tier: p.tier,
+    model_p: round(p.modelP, 4), price: round(p.price, 4), fee: round(p.fee, 6), edge: round(p.edge, 4),
+  }
+}

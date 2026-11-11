@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('@/lib/calibration', () => ({ applyCalibration: (s: number) => s }))
 
 import {
-  matchPicks, summarizeRecord, rungLabel, groupPicksByGame, type ScoredLine, type ModelPick,
+  matchPicks, summarizeRecord, rungLabel, groupPicksByGame, etDayWindow, dueForLogging, toLogRow, type ScoredLine, type ModelPick,
 } from '@/lib/kalshi/model-picks'
 import { kalshiFee, type MarketRow } from '@/lib/kalshi/ladder'
 
@@ -133,5 +133,29 @@ describe('display helpers', () => {
     const g = groupPicksByGame([p('a', 'BOS', 0.05), p('b', 'ATL', 0.04), p('c', 'BOS', 0.03)])
     expect(g.map((x) => x.key)).toEqual(['ATL@NYK', 'BOS@NYK'])
     expect(g[1].picks.map((x) => x.ticker)).toEqual(['a', 'c'])
+  })
+})
+
+describe('etDayWindow', () => {
+  it('EST date', () => {
+    expect(etDayWindow('2026-11-11')).toEqual({ start: '2026-11-11T05:00:00.000Z', end: '2026-11-12T05:00:00.000Z' })
+  })
+  it('EDT date', () => {
+    expect(etDayWindow('2026-10-21')).toEqual({ start: '2026-10-21T04:00:00.000Z', end: '2026-10-22T04:00:00.000Z' })
+  })
+})
+
+describe('logging helpers', () => {
+  const base = matchPicks([mkt({})], [line({})])[0]
+  const now = new Date('2026-11-12T00:00:00Z')
+  it('dueForLogging keeps games tipping in (now, now+30m]', () => {
+    const at = (iso: string) => ({ ...base, commence_time: iso })
+    const due = dueForLogging([at('2026-11-12T00:30:00Z'), at('2026-11-12T00:31:00Z'), at('2026-11-12T00:00:00Z'), at('2026-11-11T23:50:00Z'), at('bad')], now)
+    expect(due.map((p) => p.commence_time)).toEqual(['2026-11-12T00:30:00Z'])
+  })
+  it('toLogRow rounds price/model_p/edge 4dp and fee 6dp', () => {
+    const r = toLogRow({ ...base, price: 0.58, fee: 0.0170520001, modelP: 0.651234, edge: 0.0541819 })
+    expect(r).toEqual({ ticker: base.ticker, side: 'yes', player: 'Jaylen Brown', stat: 'points', strike: 25,
+      game_date: '2026-11-11', tier: 'LOCK', model_p: 0.6512, price: 0.58, fee: 0.017052, edge: 0.0542 })
   })
 })
