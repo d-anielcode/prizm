@@ -47,7 +47,10 @@ New module `scripts/kalshi_edges/ladder_model.py`, pure functions:
 3. **Shift.** `solve_shift(dist, anchor_line, anchor_p)`. A clamped solve skips
    the player/stat.
 4. **Rungs.** For every Kalshi rung of that player/stat/game:
-   `model_p = prob_at_strike(dist, delta, strike)`; `exact = (strike == anchor_line + 0.5)`.
+   `model_p = prob_at_strike(dist, delta, strike)`; `exact = True` when ANY scored
+   line (main or alt, either direction) sits at `strike - 0.5`. Exact rungs are left
+   to the existing `matchPicks`, so a ticker is never both an exact and a stretched pick
+   (they share `UNIQUE(ticker, side)`).
 
 Skips (no games, clamped solve, no anchor) are counted by reason and logged, not
 raised.
@@ -60,7 +63,9 @@ raised.
   (any label, `confidence_score` not null) and `player_game_logs`; writes one row
   per ticker to `kalshi_model_rungs` (upsert on ticker).
 - Table `kalshi_model_rungs`: ticker PK, player, stat, strike, game_date,
-  model_p, anchor_line, anchor_p, delta, exact bool, computed_at. Index on
+  model_p, anchor_line, anchor_p, delta, exact bool, commence_time (from the
+  anchor props row, used by the 30-minute logging window), computed_at.
+  Player names join via `find_edges.normalize_name` on both sides. Index on
   game_date. Explicit grants (service_role select/insert/update/delete,
   anon/authenticated select), RLS, `anon_read` policy.
 - `kalshi_model_picks` gains `kind text not null default 'exact'`
