@@ -1,0 +1,71 @@
+{
+  "version": "v11.2",
+  "last_retrained": "2026-04-12T00:00:00Z",
+  "last_manual_retune": "2026-05-28T00:00:00Z",
+  "data_window": {
+    "start": "2025-12-01",
+    "end": "2026-04-10",
+    "game_days": 119,
+    "graded_props": 71074
+  },
+  "validation_accuracy": {
+    "lock": 0.587,
+    "play": 0.584,
+    "overall": 0.516
+  },
+  "previous_version": "v11.0",
+  "retune_notes": [
+    "trend zeroed across all stats — diagnostic AUC 0.490, corr -0.018, p=3e-6 over n=69,681 (anti-correlated)",
+    "restDays zeroed — diagnostic AUC 0.496, p=0.279 (pure noise)",
+    "freed weight redistributed to last20HitRate per stat",
+    "over-bias tightened: three_pointers -3 -> -7 (LOCK 48.9% on n=45 — broken)",
+    "over-bias tightened: steals -7 -> -10 (under hits 61.7% vs over 42.7%)",
+    "over-bias tightened: blocks -6 -> -8 (under 56.3% vs over 44.0%)"
+  ],
+  "retune_notes_v11_2": [
+    "v11.2 (2026-05-28): bias recalibrated to over/under asymmetry over n=85,511 graded props (model_diagnostic Module 3).",
+    "three_pointers over_bias -7 -> -4: asymmetry only +5.2pp (2nd smallest) but was 3rd-largest penalty; 3PM LOCK was inverted (48.0% < PLAY 61.9%, n=50).",
+    "blocks over_bias -8 -> -10 and under_bias +8 -> +9: largest asymmetry (+17.5pp) was the most underpenalized (net swing ratio 0.91).",
+    "steals under_bias +6 -> +7: asymmetry +12.8pp (net 16 -> 18).",
+    "assists over_bias -4 -> -5: asymmetry +7.2pp (net 8 -> 9).",
+    "under_bias block made explicit (previously fell back to UNDER_BIAS_DEFAULTS in lib/confidence.ts).",
+    "thresholds intentionally NOT changed: LOCK samples tiny (14-50) and polluted by the Mar-May stale-defense window; revisit on fresh-data history.",
+    "note: scores remain overconfident above 55 (Module 4) — ranking monotonic but absolute calibration off; separate recalibration follow-up."
+  ],
+  "weights": {
+    "points":         { "lineValue": 0.07, "matchupEdge": 0.02, "last20HitRate": 0.28, "trend": 0.00, "seasonCushion": 0.10, "pace": 0.17, "newsInjury": 0.13, "restDays": 0.00, "blowout": 0.08, "homeAway": 0.13, "vsOpponent": 0.02 },
+    "rebounds":       { "lineValue": 0.02, "matchupEdge": 0.03, "last20HitRate": 0.12, "trend": 0.00, "seasonCushion": 0.04, "pace": 0.08, "newsInjury": 0.13, "restDays": 0.00, "blowout": 0.04, "homeAway": 0.52, "vsOpponent": 0.02 },
+    "assists":        { "lineValue": 0.05, "matchupEdge": 0.04, "last20HitRate": 0.09, "trend": 0.00, "seasonCushion": 0.26, "pace": 0.13, "newsInjury": 0.09, "restDays": 0.00, "blowout": 0.06, "homeAway": 0.12, "vsOpponent": 0.16 },
+    "pra":            { "lineValue": 0.04, "matchupEdge": 0.07, "last20HitRate": 0.06, "trend": 0.00, "seasonCushion": 0.25, "pace": 0.02, "newsInjury": 0.06, "restDays": 0.00, "blowout": 0.13, "homeAway": 0.30, "vsOpponent": 0.07 },
+    "blocks":         { "lineValue": 0.02, "matchupEdge": 0.13, "last20HitRate": 0.19, "trend": 0.00, "seasonCushion": 0.25, "pace": 0.06, "newsInjury": 0.10, "restDays": 0.00, "blowout": 0.03, "homeAway": 0.15, "vsOpponent": 0.07 },
+    "steals":         { "lineValue": 0.11, "matchupEdge": 0.03, "last20HitRate": 0.16, "trend": 0.00, "seasonCushion": 0.29, "pace": 0.10, "newsInjury": 0.07, "restDays": 0.00, "blowout": 0.03, "homeAway": 0.04, "vsOpponent": 0.17 },
+    "three_pointers": { "lineValue": 0.07, "matchupEdge": 0.22, "last20HitRate": 0.16, "trend": 0.00, "seasonCushion": 0.09, "pace": 0.04, "newsInjury": 0.06, "restDays": 0.00, "blowout": 0.07, "homeAway": 0.25, "vsOpponent": 0.04 }
+  },
+  "lock_thresholds": {
+    "points": 74, "rebounds": 74, "assists": 78, "pra": 78,
+    "steals": 78, "blocks": 78, "three_pointers": 76
+  },
+  "play_thresholds": {
+    "points": 70, "rebounds": 72, "assists": 72, "pra": 76,
+    "steals": 72, "blocks": 74, "three_pointers": 70
+  },
+  "base_lock_threshold": 74,
+  "base_play_threshold": 68,
+  "over_bias": {
+    "points": -3, "rebounds": -4, "assists": -5,
+    "steals": -10, "blocks": -10, "three_pointers": -4, "pra": -4
+  },
+  "under_bias": {
+    "points": 2, "rebounds": 3, "assists": 4,
+    "steals": 7, "blocks": 9, "three_pointers": 2, "pra": 3
+  },
+  "previous_weights": {
+    "points":         { "lineValue": 0.07, "matchupEdge": 0.02, "last20HitRate": 0.24, "trend": 0.03, "seasonCushion": 0.10, "pace": 0.17, "newsInjury": 0.13, "restDays": 0.01, "blowout": 0.08, "homeAway": 0.13, "vsOpponent": 0.02 },
+    "rebounds":       { "lineValue": 0.02, "matchupEdge": 0.03, "last20HitRate": 0.10, "trend": 0.01, "seasonCushion": 0.04, "pace": 0.08, "newsInjury": 0.13, "restDays": 0.01, "blowout": 0.04, "homeAway": 0.52, "vsOpponent": 0.02 },
+    "assists":        { "lineValue": 0.05, "matchupEdge": 0.04, "last20HitRate": 0.06, "trend": 0.02, "seasonCushion": 0.26, "pace": 0.13, "newsInjury": 0.09, "restDays": 0.01, "blowout": 0.06, "homeAway": 0.12, "vsOpponent": 0.16 },
+    "pra":            { "lineValue": 0.04, "matchupEdge": 0.07, "last20HitRate": 0.02, "trend": 0.03, "seasonCushion": 0.25, "pace": 0.02, "newsInjury": 0.06, "restDays": 0.01, "blowout": 0.13, "homeAway": 0.30, "vsOpponent": 0.07 },
+    "blocks":         { "lineValue": 0.02, "matchupEdge": 0.13, "last20HitRate": 0.11, "trend": 0.07, "seasonCushion": 0.25, "pace": 0.06, "newsInjury": 0.10, "restDays": 0.01, "blowout": 0.03, "homeAway": 0.15, "vsOpponent": 0.07 },
+    "steals":         { "lineValue": 0.11, "matchupEdge": 0.03, "last20HitRate": 0.13, "trend": 0.02, "seasonCushion": 0.29, "pace": 0.10, "newsInjury": 0.07, "restDays": 0.01, "blowout": 0.03, "homeAway": 0.04, "vsOpponent": 0.17 },
+    "three_pointers": { "lineValue": 0.07, "matchupEdge": 0.22, "last20HitRate": 0.12, "trend": 0.03, "seasonCushion": 0.09, "pace": 0.04, "newsInjury": 0.06, "restDays": 0.01, "blowout": 0.07, "homeAway": 0.25, "vsOpponent": 0.04 }
+  }
+}

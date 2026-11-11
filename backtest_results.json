@@ -1,0 +1,381 @@
+{
+  "last_updated": "2026-03-21",
+  "versions": [
+    {
+      "version": "pre-v5",
+      "date": "2026-03-20",
+      "notes": "Early model — logistic regression on synthetic lines only, no lineValue factor, no date-windowing",
+      "mode": "synthetic (rolling avg proxy, 10+ prior games)",
+      "n_props": 9226,
+      "overall_hit_rate": 0.5503,
+      "baseline_accuracy": 0.528,
+      "weights": {
+        "last10HitRate": 0.154,
+        "matchupEdge": 0.329,
+        "seasonCushion": 0.121,
+        "vsOpponent": 0.001,
+        "homeAway": 0.029,
+        "trend": 0.132,
+        "last20HitRate": 0.234,
+        "consistency": 0.0,
+        "restDays": 0.0,
+        "blowout": 0.0,
+        "newsInjury": 0.0
+      },
+      "thresholds": { "high": null, "medium": null, "low": 38 },
+      "tier_results": null
+    },
+    {
+      "version": "v5.1",
+      "date": "2026-03-21",
+      "notes": "Added lineValue factor (20%), exponential weighting in hitRate, recency decay (dataFreshness), date-windowed factors (60-day lineValue, 90-day hitRate/trend), fixed UNDER reason text. HIGH threshold 73.",
+      "mode": "real (historical_prop_lines, Feb 4 – Mar 19 2026)",
+      "n_props_scored": 13472,
+      "overall_hit_rate": 46.9,
+      "weights": {
+        "lineValue":     0.20,
+        "matchupEdge":   0.22,
+        "last20HitRate": 0.15,
+        "trend":         0.12,
+        "pace":          0.07,
+        "seasonCushion": 0.07,
+        "newsInjury":    0.05,
+        "restDays":      0.05,
+        "blowout":       0.04,
+        "homeAway":      0.02,
+        "vsOpponent":    0.01,
+        "consistency":   0.00
+      },
+      "thresholds": { "high": 73, "medium": 50, "low_below": 50 },
+      "stat_thresholds": {},
+      "tier_results": {
+        "HIGH":   { "props": 22,   "hit_rate": 36.4 },
+        "MEDIUM": { "props": 4342, "hit_rate": 49.0 },
+        "LOW":    { "props": 9108, "hit_rate": 46.0 }
+      },
+      "score_distribution": {
+        "60-69": { "props": 1264, "hit_rate": 51.6 },
+        "70-79": { "props": 91,   "hit_rate": 57.1 }
+      },
+      "issues": [
+        "Only 22 HIGH picks — threshold 73 too high without live matchup/injury/spread factors",
+        "HIGH hit rate 36.4% — small sample dominated by noisy picks"
+      ]
+    },
+    {
+      "version": "v5.2",
+      "date": "2026-03-21",
+      "notes": "Weight rebalancing after backtest: lineValue 20%→24% (most validated), matchupEdge 22%→18% (less validated), trend 12%→13%. HIGH threshold lowered 73→70 (70-79 bucket showed 57.1% HR). Stat-specific HIGH thresholds: assists/pra require ≥78 (overconfident at 70 in backtest).",
+      "mode": "real (historical_prop_lines, Feb 4 – Mar 19 2026)",
+      "n_props_scored": 13472,
+      "overall_hit_rate": 46.9,
+      "weights": {
+        "lineValue":     0.24,
+        "matchupEdge":   0.18,
+        "last20HitRate": 0.15,
+        "trend":         0.13,
+        "pace":          0.06,
+        "seasonCushion": 0.07,
+        "newsInjury":    0.05,
+        "restDays":      0.05,
+        "blowout":       0.04,
+        "homeAway":      0.02,
+        "vsOpponent":    0.01,
+        "consistency":   0.00
+      },
+      "thresholds": { "high": 70, "medium": 50, "low_below": 50 },
+      "stat_thresholds": { "assists": 78, "pra": 78 },
+      "tier_results": {
+        "HIGH":   { "props": 122,  "hit_rate": 56.6 },
+        "MEDIUM": { "props": 4324, "hit_rate": 48.5 },
+        "LOW":    { "props": 9026, "hit_rate": 46.1 }
+      },
+      "score_distribution": {
+        "60-69": { "props": 1378, "hit_rate": 51.3 },
+        "70-79": { "props": 162,  "hit_rate": 52.5 }
+      },
+      "high_by_stat": {
+        "steals":         { "props": 18, "hit_rate": 66.7 },
+        "points":         { "props": 28, "hit_rate": 57.1 },
+        "blocks":         { "props": 9,  "hit_rate": 55.6 },
+        "rebounds":       { "props": 31, "hit_rate": 54.8 },
+        "three_pointers": { "props": 34, "hit_rate": 52.9 },
+        "assists":        { "props": 2,  "hit_rate": 50.0 },
+        "pra":            { "props": 0,  "hit_rate": null  }
+      },
+      "implied_roi_at_minus110": {
+        "HIGH":   "+7.7%",
+        "MEDIUM": "-3.6%",
+        "LOW":    "-7.4% (fade = +7.4%)"
+      },
+      "issues": [
+        "Backtest uses log-based factors only (38% of live weight defaults to neutral 0.50)",
+        "assists/pra HIGH thresholds raised to 78 — need more data to validate",
+        "steals HIGH sample (18 props) still small — watch for regression"
+      ],
+      "next_improvements": [
+        "Player consistency modifier — CV-based adjustment per player/stat",
+        "Star player factor — top-usage players get lower variance discount",
+        "Minutes stability — variable-minutes players should score lower",
+        "Per-player weight profiles based on player archetype"
+      ]
+    },
+    {
+      "version": "v5.3",
+      "date": "2026-03-21",
+      "notes": "Attempted consistency (CV-based) and minutes stability modifiers as score adjustments. Finding: variance is already priced into hitRate/lineValue — additive penalties caused false negatives (good picks pushed below threshold). Reverted adjustments to informational reason-text only. Added three_pointers to elevated HIGH threshold (76) since it's inherently volatile. Modifiers kept as user-facing warnings only.",
+      "mode": "real (historical_prop_lines, Feb 4 – Mar 19 2026)",
+      "n_props_scored": 13472,
+      "overall_hit_rate": 46.9,
+      "weights": {
+        "lineValue":     0.24,
+        "matchupEdge":   0.18,
+        "last20HitRate": 0.15,
+        "trend":         0.13,
+        "pace":          0.06,
+        "seasonCushion": 0.07,
+        "newsInjury":    0.05,
+        "restDays":      0.05,
+        "blowout":       0.04,
+        "homeAway":      0.02,
+        "vsOpponent":    0.01,
+        "consistency":   0.00
+      },
+      "thresholds": { "high": 70, "medium": 50, "low_below": 50 },
+      "stat_thresholds": { "assists": 78, "pra": 78, "three_pointers": 76 },
+      "tier_results": {
+        "HIGH":   { "props": 88,   "hit_rate": 58.0 },
+        "MEDIUM": { "props": 4358, "hit_rate": 48.5 },
+        "LOW":    { "props": 9026, "hit_rate": 46.1 }
+      },
+      "score_distribution": {
+        "60-69": { "props": 1378, "hit_rate": 51.3 },
+        "70-79": { "props": 162,  "hit_rate": 52.5 }
+      },
+      "high_by_stat": {
+        "steals":         { "props": 18, "hit_rate": 66.7 },
+        "points":         { "props": 28, "hit_rate": 57.1 },
+        "blocks":         { "props": 9,  "hit_rate": 55.6 },
+        "rebounds":       { "props": 31, "hit_rate": 54.8 },
+        "assists":        { "props": 2,  "hit_rate": 50.0 },
+        "three_pointers": { "props": 0,  "hit_rate": null  },
+        "pra":            { "props": 0,  "hit_rate": null  }
+      },
+      "implied_roi_at_minus110": {
+        "HIGH":   "+10.7%",
+        "MEDIUM": "-3.6%",
+        "LOW":    "-7.4% (fade = +7.4%)"
+      },
+      "key_learnings": [
+        "Stat-specific HIGH thresholds outperform blanket variance modifiers",
+        "hitRate + lineValue already price in normal variance — explicit CV penalty = double-counting",
+        "three_pointers elevated to 76: inherently high CV, showed 36.4% HR when included at 70",
+        "assists/pra at 78: script-dependent / combo stat, hard for model to call HIGH reliably",
+        "Consistency/minutes warnings useful for UX but not score-affecting"
+      ],
+      "next_improvements": [
+        "Star player factor — high-usage/star players might deserve different weight profiles",
+        "Per-player line bias — track if a player consistently beats/misses their L10 avg",
+        "Opponent-specific adjustments — some teams leak specific stats regardless of rank",
+        "Parlay correlation — when bundling HIGH picks, check stat correlation"
+      ]
+    },
+    {
+      "version": "v5.4",
+      "date": "2026-03-21",
+      "notes": "Removed dead/harmful factors: consistency (weight 0.00, no predictive power), statConsistencyAdj + minutesStabilityAdj (additive penalties caused false negatives — variance already priced by hitRate/lineValue), W_STAR/W_ROTATION weight profiles (caused regression — matchupEdge neutral in log-only backtest). Added star bonus: +3 pts for players averaging ≥36 min when both lineValue ≥0.58 AND hitRate ≥0.55. Additive-only, never penalizes. Stars are matchup-proof so log-based signals are more reliable for them.",
+      "mode": "real (historical_prop_lines, Feb 4 – Mar 19 2026)",
+      "weights": {
+        "lineValue":     0.24,
+        "matchupEdge":   0.18,
+        "last20HitRate": 0.15,
+        "trend":         0.13,
+        "seasonCushion": 0.07,
+        "pace":          0.06,
+        "newsInjury":    0.05,
+        "restDays":      0.05,
+        "blowout":       0.04,
+        "homeAway":      0.02,
+        "vsOpponent":    0.01
+      },
+      "thresholds": { "high": 70, "medium": 50, "low_below": 50 },
+      "stat_thresholds": { "assists": 78, "pra": 78, "three_pointers": 76 },
+      "star_bonus": {
+        "condition": "playerTier === 'star' (≥36 min avg) AND fLineValue ≥ 0.58 AND f7 (hitRate) ≥ 0.55",
+        "value": "+3 pts",
+        "rationale": "Stars are matchup-proof — log signals more reliable; additive-only"
+      },
+      "tier_results": "not recorded (superseded by v5.5 optimizer run)",
+      "next_improvements": [
+        "Run weight optimizer to find data-driven weight distribution",
+        "Per-player line bias — track actual/line ratio per player to detect book bias",
+        "Opponent-specific leaks — some teams give up specific stats vs their rank"
+      ]
+    },
+    {
+      "version": "v5.5",
+      "date": "2026-03-21",
+      "notes": "Weight optimizer: 5,000 Dirichlet random samples × 34,163 real props. Key finding: lineValue was overweighted at 24% — largely redundant with last20HitRate (both measure avg vs line). Shifting weight from lineValue → hitRate/trend/restDays improved HIGH hit rate from 58.0% to 63.8%, with fewer but more accurate HIGH picks. Star bonus gate relaxed from fLineValue ≥ 0.58 to f7 (hitRate) ≥ 0.60 to match new weight emphasis.",
+      "mode": "real (historical_prop_lines, Feb 4 – Mar 19 2026)",
+      "n_props_scored": 13472,
+      "overall_hit_rate": 46.9,
+      "weights": {
+        "lineValue":     0.08,
+        "matchupEdge":   0.18,
+        "last20HitRate": 0.25,
+        "trend":         0.15,
+        "seasonCushion": 0.05,
+        "pace":          0.06,
+        "newsInjury":    0.05,
+        "restDays":      0.11,
+        "blowout":       0.04,
+        "homeAway":      0.02,
+        "vsOpponent":    0.01
+      },
+      "thresholds": { "high": 70, "medium": 50, "low_below": 50 },
+      "stat_thresholds": { "assists": 78, "pra": 78, "three_pointers": 76 },
+      "star_bonus": {
+        "condition": "playerTier === 'star' (≥36 min avg) AND f7 (hitRate) ≥ 0.60",
+        "value": "+3 pts",
+        "rationale": "Gate switched from lineValue to hitRate to match new weight emphasis"
+      },
+      "tier_results": {
+        "HIGH":   { "props": 69,   "hit_rate": 63.8 },
+        "MEDIUM": { "props": 4256, "hit_rate": 48.5 },
+        "LOW":    { "props": 9147, "hit_rate": 46.0 }
+      },
+      "score_distribution": {
+        "60-69": { "props": 1394, "hit_rate": 51.3 },
+        "70-79": { "props": 117,  "hit_rate": 58.1 }
+      },
+      "high_by_stat": {
+        "steals":         { "props": 14, "hit_rate": 71.4 },
+        "blocks":         { "props": 7,  "hit_rate": 71.4 },
+        "rebounds":       { "props": 28, "hit_rate": 60.7 },
+        "points":         { "props": 20, "hit_rate": 60.0 },
+        "assists":        { "props": 0,  "hit_rate": null  },
+        "three_pointers": { "props": 0,  "hit_rate": null  },
+        "pra":            { "props": 0,  "hit_rate": null  }
+      },
+      "implied_roi_at_minus110": {
+        "HIGH":   "+21.8%",
+        "MEDIUM": "-3.6%",
+        "LOW":    "-7.4% (fade = +7.4%)"
+      },
+      "vs_v53": {
+        "HIGH_props":    "69 vs 88 (fewer, more selective)",
+        "HIGH_hit_rate": "63.8% vs 58.0% (+5.8pp)",
+        "implied_roi":   "+21.8% vs +10.7% (2x improvement)"
+      },
+      "key_learnings": [
+        "lineValue redundant with hitRate — both measure avg vs line; hitRate is more robust (handles variance implicitly)",
+        "restDays was significantly underweighted — back-to-back effect is meaningful",
+        "trend (L5 vs L20) consistently appears in top optimizer results — validated signal",
+        "Optimizer reduces HIGH count (69 vs 88) but raises hit rate enough to double ROI",
+        "Neutral backtest factors (matchupEdge, pace, injury) optimized at current weights — will become more meaningful with live data"
+      ],
+      "next_improvements": [
+        "Per-player line bias — track each player's actual/line ratio to detect systematic book mispricing",
+        "Opponent-specific leaks — some teams give up specific stats regardless of overall rank",
+        "Run optimizer on combined (real + synthetic) dataset for larger sample validation",
+        "Consider raising MIN_HIGH threshold further (80+) to filter to ultra-high-confidence only"
+      ]
+    },
+    {
+      "version": "v5.6",
+      "date": "2026-03-21",
+      "notes": "Second optimizer run (5,000 Dirichlet samples, MIN_HIGH=80 props floor for volume+quality balance). Key shifts: matchupEdge 0.18→0.04 (neutral in backtest — confirmed near-zero signal), last20HitRate 0.25→0.30 (dominant factor when volume floor applied), blowout 0.04→0.11 (consistently elevated across all optimizer runs), trend 0.15→0.09 (less standalone predictive than expected). Also introduced 4-tier labeling system (LOCK/PLAY/LEAN/FADE) replacing HIGH/MEDIUM/LOW.",
+      "mode": "real (historical_prop_lines, Feb 4 – Mar 19 2026)",
+      "n_props_scored": 13472,
+      "overall_hit_rate": 46.9,
+      "weights": {
+        "lineValue":     0.06,
+        "matchupEdge":   0.04,
+        "last20HitRate": 0.30,
+        "trend":         0.09,
+        "seasonCushion": 0.07,
+        "pace":          0.08,
+        "newsInjury":    0.08,
+        "restDays":      0.08,
+        "blowout":       0.11,
+        "homeAway":      0.07,
+        "vsOpponent":    0.02
+      },
+      "thresholds": {
+        "LOCK": 70, "PLAY": 62, "LEAN": 50, "FADE_below": 50,
+        "assists_LOCK": 76, "pra_LOCK": 76, "three_pointers_LOCK": 74,
+        "assists_PLAY": 68, "pra_PLAY": 68, "three_pointers_PLAY": 66
+      },
+      "tier_results": {
+        "LOCK": { "props": 58,   "hit_rate": 65.5 },
+        "PLAY": { "props": 541,  "hit_rate": 53.8 },
+        "LEAN": { "props": 3585, "hit_rate": 48.2 },
+        "FADE": { "props": 9288, "hit_rate": 45.9 }
+      },
+      "lock_by_stat": {
+        "points":         { "props": 23, "hit_rate": 65.2 },
+        "rebounds":       { "props": 19, "hit_rate": 68.4 },
+        "blocks":         { "props": 5,  "hit_rate": 80.0 },
+        "steals":         { "props": 9,  "hit_rate": 55.6 },
+        "assists":        { "props": 2,  "hit_rate": 50.0 },
+        "three_pointers": { "props": 0,  "hit_rate": null  },
+        "pra":            { "props": 0,  "hit_rate": null  }
+      },
+      "implied_roi_at_minus110": {
+        "LOCK": "+25.2%",
+        "PLAY": "+2.6%",
+        "LEAN": "-8.3%",
+        "FADE": "-12.9% (fade = +12.9%)"
+      },
+      "vs_v55": {
+        "top_tier_props":    "58 vs 69",
+        "top_tier_hit_rate": "65.5% vs 63.8% (+1.7pp)",
+        "implied_roi":       "+25.2% vs +21.8% (+3.4pp)"
+      },
+      "key_learnings": [
+        "matchupEdge confirmed near-zero signal in log-only backtest (0.18→0.04 has no regression cost)",
+        "blowout emerged as meaningful factor consistently across optimizer runs — was severely underweighted at 0.04",
+        "last20HitRate is the dominant predictive factor — 30% weight justified",
+        "4-tier system (LOCK/PLAY/LEAN/FADE) gives better granularity — LOCK is the premium bet tier",
+        "Score ceiling ~73 with current weights — thresholds must be calibrated to actual distribution, not arbitrary 80+"
+      ],
+      "next_improvements": [
+        "Per-player line bias — track each player's actual/line ratio to detect systematic book mispricing",
+        "Opponent-specific leaks — some teams give up specific stats regardless of overall rank",
+        "Increase LOCK volume: star bonus fires rarely — consider broader star bonus criteria"
+      ]
+    },
+    {
+      "version": "v5.7",
+      "date": "2026-03-21",
+      "notes": "Added player_line_bias and opponent_stat_leaks as additive score adjustments. player_line_bias: (hit_rate - 0.50) × min(n/20,1) × 10, capped ±5pts, min 6 samples (777 entries). opponent_stat_leaks: (over_hit_rate - 0.50) × min(n/40,1) × 8, capped ±4pts, min 10 samples (183 entries). Both adjustments feed into backtest scoring via ScoringContext.",
+      "mode": "real (historical_prop_lines, Feb 4 – Mar 19 2026)",
+      "n_props_scored": 13472,
+      "overall_hit_rate": 46.9,
+      "tier_results": {
+        "LOCK": { "props": 63,   "hit_rate": 63.5 },
+        "PLAY": { "props": 569,  "hit_rate": 57.6 },
+        "LEAN": { "props": 3518, "hit_rate": 49.5 },
+        "FADE": { "props": 9322, "hit_rate": 45.2 }
+      },
+      "lock_play_combined": { "props": 632, "hit_rate": 58.2 },
+      "vs_v56": {
+        "LOCK":            "63.5% vs 65.5% (-2pp, +5 props — promoted borderline props)",
+        "PLAY":            "57.6% vs 53.8% (+3.8pp)",
+        "LOCK_PLAY_combo": "58.2% vs 54.9% (+3.3pp, +33 props)"
+      },
+      "key_learnings": [
+        "Player bias adjustment meaningfully improves PLAY tier (+3.8pp hit rate)",
+        "Opponent leaks promote some borderline props into LOCK — dilutes LOCK hit rate slightly",
+        "Combined LOCK+PLAY tells the real story: +3.3pp improvement and +33 more picks",
+        "Bias/leak are retrospective signals in backtest (same data used to compute and test) — live performance may differ",
+        "Key leaks: SAC leaky across all stats, NY/LAL leak assists, CHI/DAL leak steals, MIN leaks 3PM"
+      ],
+      "next_improvements": [
+        "Re-run weight optimizer with bias+leak in scoring to find new optimal weights",
+        "Increase LOCK volume: star bonus rarely fires — broaden criteria or raise star bonus value",
+        "Consider time-decaying leak/bias data (recent games weighted more than old)"
+      ]
+    }
+  ]
+}

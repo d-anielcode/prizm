@@ -14,14 +14,17 @@ Or from anywhere:
     python C:/Users/dcho0/nbaiqproject/scripts/daily_refresh.py
 """
 
-import subprocess, sys, os, time
+import subprocess, sys, os, time, shutil
 
 import urllib.request, urllib.error
 
 BASE_URL = 'http://localhost:3000'
 
+# How many steps we have now
+TOTAL_STEPS = 4
+
 def step(n, label):
-    print(f'\n[{n}/3] {label}')
+    print(f'\n[{n}/4] {label}')
     print('─' * 50)
 
 def call_api(path, label):
@@ -37,22 +40,47 @@ def call_api(path, label):
         print(f'  Make sure your dev server is running: npm run dev')
         return False
 
+# ── Find the right Python executable ─────────────────────────────────────────
+def find_python():
+    # Try candidates in order
+    candidates = [
+        sys.executable,
+        shutil.which('py'),
+        shutil.which('python3'),
+        shutil.which('python'),
+        r'C:\Users\dcho0\AppData\Local\Python\bin\python3.exe',
+        r'C:\Users\dcho0\AppData\Local\Python\pythoncore-3.14-64\python.exe',
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
+    return sys.executable  # fallback
+
+PYTHON = find_python()
+print(f'Using Python: {PYTHON}')
+
 # ── Step 1: Fetch NBA stats ───────────────────────────────────────────────────
 step(1, 'Fetching NBA game logs + team defense stats...')
 script = os.path.join(os.path.dirname(__file__), 'fetch_nba_stats.py')
-result = subprocess.run([sys.executable, script], capture_output=False)
+result = subprocess.run([PYTHON, script], capture_output=False)
 if result.returncode != 0:
     print('\nERROR: Stats fetch failed. Continuing anyway (AI model will use book odds).')
 
-# ── Step 2: Refresh props ─────────────────────────────────────────────────────
-step(2, 'Refreshing props from odds-api.io...')
+# ── Step 2: Calculate results from yesterday's props (before we delete them) ──
+step(2, 'Calculating hit rates from yesterday\'s props...')
+ok2 = call_api('/api/results?force=true', 'results')
+if ok2:
+    print('  Yesterday\'s results saved to prop_results table.')
+
+# ── Step 3: Refresh props ─────────────────────────────────────────────────────
+step(3, 'Refreshing props from odds-api.io...')
 ok = call_api('/api/props?refresh=true', 'props')
 if ok:
-    print('  Waiting 3s for props to settle...')
-    time.sleep(3)
+    print('  Waiting 5s for props to settle...')
+    time.sleep(5)
 
-# ── Step 3: Run AI scoring ────────────────────────────────────────────────────
-step(3, 'Running AI confidence scoring model...')
+# ── Step 4: Run AI scoring ────────────────────────────────────────────────────
+step(4, 'Running AI confidence scoring model...')
 call_api('/api/enrich?force=true', 'enrich')
 
 print('\n' + '=' * 50)

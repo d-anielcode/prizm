@@ -43,15 +43,15 @@ export function StatChart({ games, line, statLabel, direction }: StatChartProps)
               color: '#fff',
               fontSize: 12,
             }}
-            formatter={(val: number) => [`${val} ${statLabel}`, 'Actual']}
+            formatter={(val) => [`${val} ${statLabel}`, 'Actual']}
           />
           <ReferenceLine
             y={line}
-            stroke="rgba(255,255,255,0.3)"
+            stroke="rgba(232,168,32,0.55)"
             strokeDasharray="4 4"
             label={{
               value: `Line: ${line}`,
-              fill: 'rgba(255,255,255,0.4)',
+              fill: 'rgba(232,168,32,0.7)',
               fontSize: 10,
               position: 'insideTopRight',
             }}
