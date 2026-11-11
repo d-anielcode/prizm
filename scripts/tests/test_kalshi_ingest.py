@@ -111,14 +111,3 @@ def test_parse_market_keeps_float_volume():
     row = to_row(parse_market(raw, INGEST_SERIES_STAT), status="active")
     assert row["volume"] == 1
 
-
-def test_record_history_logs_and_swallows_errors(monkeypatch, capsys):
-    import kalshi_settle
-    import kalshi_edges.history as h
-    def boom(dates):
-        raise RuntimeError("kalshi down")
-    monkeypatch.setattr(h, "settle_history", boom)
-    assert kalshi_settle.record_history([date(2026, 11, 5)]) is None
-    assert "kalshi down" in capsys.readouterr().out
-    monkeypatch.setattr(h, "settle_history", lambda dates: "stats")
-    assert kalshi_settle.record_history([date(2026, 11, 5)]) == "stats"

@@ -13,8 +13,20 @@ from pipeline.store import NullStore, Store
 SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+STEP_TIMEOUT_S = 900
+TIMEOUT_EXIT = 124
+
+
 def run_python(script):
-    return subprocess.run([sys.executable, os.path.join(SCRIPTS, script)], cwd=SCRIPTS, timeout=900).returncode
+    """Run a scripts/ step. A timeout fails that step (exit 124) instead of crashing the
+    whole phase: an uncaught TimeoutExpired on 2026-11-08..11 killed every overnight run
+    after kalshi_settle and left its job_runs row stuck at 'running'."""
+    try:
+        return subprocess.run([sys.executable, os.path.join(SCRIPTS, script)], cwd=SCRIPTS,
+                              timeout=STEP_TIMEOUT_S).returncode
+    except subprocess.TimeoutExpired:
+        print(f'[pipeline] {script} timed out after {STEP_TIMEOUT_S}s', flush=True)
+        return TIMEOUT_EXIT
 
 
 def main(argv=None):
