@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('@/lib/calibration', () => ({ applyCalibration: (s: number) => s }))
 
 import {
-  matchPicks, summarizeRecord, rungLabel, groupPicksByGame, etDayWindow, dueForLogging, toLogRow, type ScoredLine, type ModelPick,
+  matchPicks, summarizeRecord, rungLabel, groupPicksByGame, etDayWindow, dueForLogging, toLogRow, summarizeBy, type ScoredLine, type ModelPick,
 } from '@/lib/kalshi/model-picks'
 import { kalshiFee, type MarketRow } from '@/lib/kalshi/ladder'
 
@@ -157,5 +157,13 @@ describe('logging helpers', () => {
     const r = toLogRow({ ...base, price: 0.58, fee: 0.0170520001, modelP: 0.651234, edge: 0.0541819 })
     expect(r).toEqual({ ticker: base.ticker, side: 'yes', player: 'Jaylen Brown', stat: 'points', strike: 25,
       game_date: '2026-11-11', tier: 'LOCK', model_p: 0.6512, price: 0.58, fee: 0.017052, edge: 0.0542 })
+  })
+})
+
+describe('summarizeBy', () => {
+  it('groups and summarizes per key, sorted', () => {
+    const row = (tier: string, won: boolean) => ({ tier, result: won ? 'yes' : 'no', won, pnl: won ? 0.5 : -0.5, price: 0.48, fee: 0.02 })
+    const g = summarizeBy([row('PLAY', true), row('LOCK', false), row('LOCK', true)], (r) => r.tier)
+    expect(g.map((x) => [x.key, x.record.n, x.record.wins])).toEqual([['LOCK', 2, 1], ['PLAY', 1, 1]])
   })
 })

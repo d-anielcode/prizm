@@ -163,3 +163,16 @@ export function toLogRow(p: ModelPick) {
     model_p: round(p.modelP, 4), price: round(p.price, 4), fee: round(p.fee, 6), edge: round(p.edge, 4),
   }
 }
+
+/** summarizeRecord per group key, groups sorted by key. */
+export function summarizeBy<T extends GradedRow>(rows: T[], keyOf: (r: T) => string): { key: string; record: RecordSummary }[] {
+  const groups = new Map<string, T[]>()
+  for (const r of rows) {
+    const k = keyOf(r)
+    const list = groups.get(k)
+    if (list) list.push(r)
+    else groups.set(k, [r])
+  }
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, rs]) => ({ key, record: summarizeRecord(rs) }))
+}
