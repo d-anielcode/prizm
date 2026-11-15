@@ -133,7 +133,8 @@ for the 5 stats is complete and the strike-fix SQL has run.
 - Site ignores rung rows older than 45 minutes: a dead step means no stretched
   picks, not stale ones.
 - Replay refuses to run unless `kalshi_settled` 2025-26 has all 5 stats inside the
-  replay window, with an earliest date on or before 2026-04-02.
+  replay window, and each stat's earliest in-window date is on or before 2026-04-05
+  (allows for no games on the first days of the window).
 
 ## Testing
 
