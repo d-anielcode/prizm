@@ -146,9 +146,9 @@ function SharpMoneyBadge({ opening, current, direction }: { opening: number | nu
   return (
     <span
       className={`text-[9px] font-black px-1.5 py-0.5 rounded ${confirming ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/15 text-red-400'}`}
-      title={confirming ? 'Sharp money confirming this pick (line moved with direction)' : 'Sharp money against this pick (line moved opposite direction)'}
+      title={confirming ? 'The line moved toward this side since it opened (often a sign of sharp money)' : 'The line moved away from this side since it opened (often a sign of sharp money on the other side)'}
     >
-      {confirming ? 'STEAM' : 'COUNTER'}
+      {confirming ? 'LINE ↑ FOR' : 'LINE ↓ AGAINST'}
     </span>
   )
 }

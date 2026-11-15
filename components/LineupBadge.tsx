@@ -26,7 +26,7 @@ export function LineupBadge({ info }: { info: LineupBadgeInfo | null }) {
     return (
       <span
         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono font-semibold bg-red-500/10 text-red-300 border-red-500/25"
-        title={`${STATUS_LABEL[info.status] || ''} OUT — model penalizes this prop heavily (lineupAdj = -25)`}
+        title="Listed out tonight"
       >
         <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
           <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
@@ -45,12 +45,12 @@ export function LineupBadge({ info }: { info: LineupBadgeInfo | null }) {
           ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25'
           : 'bg-emerald-500/5 text-emerald-400/70 border-emerald-500/15'
       }`}
-      title={`${STATUS_LABEL[info.status] || 'Listed'} starter — model adds +2 pts to all this player's props (lineupAdj = +2)`}
+      title={isConfirmed ? 'Confirmed starter tonight' : `${STATUS_LABEL[info.status] || 'Listed'} starter — not confirmed yet`}
     >
       <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
       </svg>
-      {isConfirmed ? 'STARTER' : 'EXP'}
+      STARTER
     </span>
   )
 }

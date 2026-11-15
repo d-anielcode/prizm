@@ -10,6 +10,13 @@ const styles: Record<ConfidenceLabel, string> = {
   FADE: 'bg-[#FF4757]/10 text-[#FF4757]/70 border-[#FF4757]/15',
 }
 
+const TIER_MEANING: Record<ConfidenceLabel, string> = {
+  LOCK: "LOCK: one of the model's strongest picks.",
+  PLAY: 'PLAY: a model pick.',
+  LEAN: 'LEAN: retired tier.',
+  FADE: 'FADE: scored, but not a pick.',
+}
+
 export function ConfidenceBadge({
   label,
   score,
@@ -30,11 +37,12 @@ export function ConfidenceBadge({
           'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md border text-xs font-semibold tabular-nums font-mono',
           styles[label],
         )}
+        title={`${TIER_MEANING[label]} Props with this score have hit about ${calibratedPct(score, statType) ?? score}% of the time.`}
       >
         {/* Displayed score is isotonic-calibrated (historical hit rate %),
             not the raw model score. Per-stat curve when statType is provided.
             See lib/calibration.ts. */}
-        <span className="text-[10px] opacity-70">{calibratedPct(score, statType) ?? score}</span>
+        <span className="text-[10px] opacity-70">{calibratedPct(score, statType) ?? score}%</span>
         {label}
       </span>
       {showTooltip && <ConfidenceTooltip label={label} />}

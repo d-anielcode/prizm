@@ -11,15 +11,15 @@ import type { BiasSignal } from '@/lib/player-bias'
 export function PlayerBiasChip({ signal }: { signal: BiasSignal | null }) {
   if (!signal) return null
   const pct  = Math.round(signal.magnitude * 100)
-  const sign = signal.edge === 'over' ? '+' : '-'
-  const text = `Books ${signal.edge === 'over' ? 'underprice' : 'overprice'} ${sign}${pct}%`
+  // edge 'over' = this player's results have tended to land above the books' lines on this stat.
+  const text = signal.edge === 'over' ? `Tends to go over · ${pct}%` : `Tends to go under · ${pct}%`
   const cls  = signal.alignsWithPick
     ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25'
     : 'bg-amber-500/10 text-amber-300 border-amber-500/25'
   return (
     <span
       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono font-semibold ${cls}`}
-      title={`Historical bias from ${signal.sampleCount} graded props. ${signal.alignsWithPick ? 'Supports' : 'Contradicts'} this pick direction.`}
+      title={`Over ${signal.sampleCount} graded props, this player's results ran ${pct}% ${signal.edge === 'over' ? 'above' : 'below'} the books' lines on this stat. ${signal.alignsWithPick ? 'Supports' : 'Works against'} this pick.`}
     >
       <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}

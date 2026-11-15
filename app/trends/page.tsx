@@ -425,7 +425,7 @@ function StreakCard({ prop, streak, l10, hot }: { prop: Prop; streak: number; l1
         </div>
         {l10 != null && (
           <span className={`text-xs font-semibold ${hitRateColor(hot ? l10 : 1 - l10)}`}>
-            L10: {Math.round(l10 * 100)}%
+            Last 10: {Math.round(l10 * 100)}%
           </span>
         )}
       </div>

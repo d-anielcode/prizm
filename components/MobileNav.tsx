@@ -56,7 +56,7 @@ const TABS = [
     ),
   },
   {
-    label: 'Stats',
+    label: 'Performance',
     href: '/performance',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -92,8 +92,8 @@ function AltRow({ alt, mainLine, mainDir, statType }: { alt: AltLine; mainLine: 
         <span className={`font-semibold text-[10px] ${alt.direction === 'over' ? 'text-blue-400' : 'text-orange-400'}`}>
           {alt.direction.toUpperCase()}
         </span>
-        {safer  && <span className="text-[9px] text-emerald-400/60">safer</span>}
-        {riskier && <span className="text-[9px] text-red-400/60">riskier</span>}
+        {safer  && <span title="Alternate line that is easier to hit than the main line (lower payout)" className="text-[9px] text-emerald-400/60">safer</span>}
+        {riskier && <span title="Alternate line that is harder to hit than the main line (higher payout)" className="text-[9px] text-red-400/60">riskier</span>}
       </div>
       <div className="flex items-center gap-3">
         {alt.confidence_score != null && (

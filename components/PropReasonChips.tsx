@@ -94,14 +94,14 @@ function parseReason(reason: string): Chip[] {
   if (/Line value:/.test(reason)) {
     const lvMatch = reason.match(/line of ([\d.]+) sits ([\d.]+) (?:below|above) their L10 average of ([\d.]+)/)
     chips.push({
-      label: lvMatch ? `Generous Line (L10 Avg ${lvMatch[3]})` : 'Generous Line',
+      label: lvMatch ? `Generous Line (last-10 avg ${lvMatch[3]})` : 'Generous Line',
       explanation: EXPLANATIONS.lineValue,
       color: 'bg-emerald-500/15 text-emerald-400',
     })
   } else if (/Tight line:/.test(reason)) {
     const tlMatch = reason.match(/line of ([\d.]+) sits ([\d.]+) (?:above|below) their L10 average of ([\d.]+)/)
     chips.push({
-      label: tlMatch ? `Tight Line (L10 Avg ${tlMatch[3]})` : 'Tight Line',
+      label: tlMatch ? `Tight Line (last-10 avg ${tlMatch[3]})` : 'Tight Line',
       explanation: EXPLANATIONS.lineValue,
       color: 'bg-red-500/15 text-red-400',
     })
@@ -114,7 +114,7 @@ function parseReason(reason: string): Chip[] {
     const total = parseInt(hitMatch[2])
     const rate = hits / total
     chips.push({
-      label: `${hits}/${total} Last ${total} Games`,
+      label: `${hits} of last ${total} games`,
       explanation: EXPLANATIONS.hitRate,
       color: rate >= 0.65 ? 'bg-emerald-500/15 text-emerald-400' : rate >= 0.5 ? 'bg-amber-500/15 text-amber-400' : 'bg-red-500/15 text-red-400',
     })
@@ -128,7 +128,7 @@ function parseReason(reason: string): Chip[] {
     const hits = parseInt(h2hMatch[3])
     const rate = hits / total
     chips.push({
-      label: `${hits}/${total} H2H vs ${opp}`,
+      label: `${hits} of ${total} vs ${opp}`,
       explanation: EXPLANATIONS.h2h,
       color: rate >= 0.6 ? 'bg-emerald-500/15 text-emerald-400' : rate >= 0.4 ? 'bg-white/5 text-white/40' : 'bg-red-500/15 text-red-400',
     })

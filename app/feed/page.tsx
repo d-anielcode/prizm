@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { calibratedPct } from '@/lib/calibration'
+import { applyCalibration, calibratedPct } from '@/lib/calibration'
 import { loadLineupMap, lineupBadgeFor } from '@/lib/lineups'
 import { LineupBadge } from '@/components/LineupBadge'
 
@@ -125,6 +125,17 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+/** Product of each leg's calibrated hit rate, or null when a leg has no score. */
+function modelParlayProb(legs: FeedLeg[]): number | null {
+  if (!legs.length) return null
+  let p = 1
+  for (const l of legs) {
+    if (l.confidence_score == null) return null
+    p *= applyCalibration(l.confidence_score, l.stat_type) / 100
+  }
+  return p
+}
+
 function formatPostedAt(iso: string): string {
   const d = new Date(iso)
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET'
@@ -206,13 +217,13 @@ export default async function FeedPage() {
       {/* Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">Feed</h1>
-        <p className="text-[var(--text-tertiary)] text-sm">Daily streaks and curated parlays</p>
+        <p className="text-[var(--text-tertiary)] text-sm">The daily pick and model-built parlays, with the model&apos;s chance each one hits</p>
       </div>
 
       {/* Streak Tracker — compact single-row bar */}
       <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold text-[var(--text-secondary)]">Daily Streak</span>
+          <span className="text-sm font-semibold text-[var(--text-secondary)]" title="How many days in a row the daily pick has hit">Daily pick · hits in a row</span>
           <div className="flex items-center gap-1">
             {bars.map((state, i) => (
               <div
@@ -306,32 +317,26 @@ export default async function FeedPage() {
                 {/* Card header */}
                 <div className="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between">
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
-                    <p className="text-base font-black text-[var(--text-primary)]">{parlay.title}</p>
+                    <p className="text-base font-black text-[var(--text-primary)]">{parlay.legs.length}-leg parlay</p>
                     {resultBadge(parlay.result)}
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border
-                      ${parlay.parlay_type === 'sgp'     ? 'text-[#3B82F6] bg-[#3B82F6]/10 border-[#3B82F6]/25'
-                      : parlay.parlay_type === 'value'   ? 'text-[#00D68F] bg-[#00D68F]/10 border-[#00D68F]/25'
-                      : parlay.parlay_type === 'combo'   ? 'text-[#3B82F6] bg-[#3B82F6]/10 border-[#3B82F6]/25'
-                      : parlay.parlay_type === 'premium' ? 'text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/25'
-                      : parlay.parlay_type === 'jackpot' ? 'text-[#A29BFE] bg-[#A29BFE]/10 border-[#A29BFE]/25'
-                      :                                    'text-[var(--text-tertiary)] bg-[var(--bg-surface-2)] border-[var(--border-default)]'}`}>
-                      {parlay.parlay_type === 'sgp'     ? 'SGP'
-                        : parlay.parlay_type === 'value'   ? 'Safe Pick'
-                        : parlay.parlay_type === 'combo'   ? 'Combo'
-                        : parlay.parlay_type === 'premium' ? 'High Roller'
-                        : parlay.parlay_type === 'jackpot' ? 'Jackpot'
-                        : 'Multi'}
-                    </span>
+                    {(() => {
+                      const p = modelParlayProb(parlay.legs as FeedLeg[])
+                      return p != null && (
+                        <span
+                          className="text-[11px] text-[var(--text-secondary)] tabular-nums"
+                          title="Chance all legs hit, multiplying each leg's historical hit rate (assumes the legs are independent)."
+                        >
+                          Model: ~{Math.round(p * 100)}% to hit
+                        </span>
+                      )
+                    })()}
                     {parlay.est_multiplier != null && (
-                      <span className="bg-primary/15 text-[#A29BFE] px-2 py-0.5 rounded-md text-xs font-semibold font-mono">
-                        ~{parlay.est_multiplier.toFixed(1)}×
+                      <span className="bg-primary/15 text-[#A29BFE] px-2 py-0.5 rounded-md text-xs font-semibold font-mono" title="Approximate payout multiple at the listed odds">
+                        pays ~{parlay.est_multiplier.toFixed(1)}×
                       </span>
                     )}
                   </div>
                   <div className="shrink-0 text-right ml-3">
-                    {parlay.description && (
-                      <p className="text-[11px] text-[var(--text-tertiary)] leading-snug">{parlay.description}</p>
-                    )}
                     <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
                       Posted {formatPostedAt(parlay.created_at)}
                     </p>
@@ -369,7 +374,7 @@ export default async function FeedPage() {
                       <div className="flex items-center gap-1.5 shrink-0">
                         {leg.l10_hits != null && leg.l10_total != null && (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-[#00D68F] bg-[#00D68F]/10 border-[#00D68F]/20 whitespace-nowrap">
-                            {leg.l10_hits}/{leg.l10_total} L{leg.l10_total}
+                            {leg.l10_hits} of last {leg.l10_total}
                           </span>
                         )}
                         {leg.confidence_label && (

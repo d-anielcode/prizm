@@ -32,9 +32,9 @@ function SharpMoneyBadge({ opening, current, direction }: { opening: number | nu
   return (
     <span
       className={`text-[9px] font-black px-1 py-0.5 rounded ${confirming ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/15 text-red-400'}`}
-      title={confirming ? 'Sharp money confirming this pick (line moved with direction)' : 'Sharp money against this pick (line moved opposite direction)'}
+      title={confirming ? 'The line moved toward this side since it opened (often a sign of sharp money)' : 'The line moved away from this side since it opened (often a sign of sharp money on the other side)'}
     >
-      {confirming ? 'STEAM' : 'COUNTER'}
+      {confirming ? 'LINE ↑ FOR' : 'LINE ↓ AGAINST'}
     </span>
   )
 }
@@ -76,8 +76,8 @@ function AltLineChip({ alt, mainLine, mainDir, statType }: { alt: AltLine; mainL
       <span className={`font-semibold text-[10px] ${alt.direction === 'over' ? 'text-blue-400' : 'text-orange-400'}`}>
         {alt.direction.toUpperCase()}
       </span>
-      {safer   && <span className="text-[9px] text-emerald-400/60">safer</span>}
-      {riskier && <span className="text-[9px] text-red-400/60">riskier</span>}
+      {safer   && <span title="Alternate line that is easier to hit than the main line (lower payout)" className="text-[9px] text-emerald-400/60">safer</span>}
+      {riskier && <span title="Alternate line that is harder to hit than the main line (higher payout)" className="text-[9px] text-red-400/60">riskier</span>}
       {alt.confidence_score != null && (
         <span className={`text-[10px] font-semibold ${confColor}`}>
           {calibratedPct(alt.confidence_score, statType) ?? Math.round(alt.confidence_score)}
