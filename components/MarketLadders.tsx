@@ -27,12 +27,12 @@ export function MarketLadders({ games, ratesFor }: { games: GameLadders[]; rates
                 {p.stats.map((s) => (
                   <div key={s.stat} className="mt-3 overflow-x-auto">
                     <p className="mb-1 text-xs font-semibold text-[var(--text-secondary)]">{STAT_LABEL[s.stat]}</p>
-                    <table className="w-full min-w-[520px] text-xs tabular-nums">
+                    <table className="w-full sm:min-w-[520px] text-xs tabular-nums">
                       <thead className="text-[var(--text-tertiary)]">
                         <tr className="text-left">
                           <th className="py-1 pr-3">Rung</th><th className="pr-3">Bid / Ask</th>
-                          <th className="pr-3">Break-even</th><th className="pr-3">Move</th>
-                          <th className="pr-3">L5</th><th className="pr-3">L10</th><th>Season</th>
+                          <th className="pr-3">Break-even</th><th className="hidden sm:table-cell pr-3">Move</th>
+                          <th className="hidden sm:table-cell pr-3">L5</th><th className="pr-3">L10</th><th className="hidden sm:table-cell">Season</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -45,17 +45,21 @@ export function MarketLadders({ games, ratesFor }: { games: GameLadders[]; rates
                               <td className="py-1 pr-3 font-semibold text-[var(--text-primary)]">{rungLabel(s.stat, r.strike)}</td>
                               <td className="pr-3">{cents(r.yes_bid)} / {cents(r.yes_ask)}</td>
                               <td className="pr-3">{r.yes_ask == null ? '—' : pct(breakEven(r.yes_ask))}</td>
-                              <td className={`pr-3 ${move > 0 ? 'text-emerald-400' : move < 0 ? 'text-red-400' : 'text-[var(--text-tertiary)]'}`}>
+                              <td className={`hidden sm:table-cell pr-3 ${move > 0 ? 'text-emerald-400' : move < 0 ? 'text-red-400' : 'text-[var(--text-tertiary)]'}`}>
                                 {move > 0 ? '▲' : move < 0 ? '▼' : '·'}{move ? ` ${Math.abs(Math.round(move * 100))}¢` : ''}
                               </td>
                               {rates ? (
                                 <>
-                                  <td className="pr-3">{frac(rates.l5)}</td>
+                                  <td className="hidden sm:table-cell pr-3">{frac(rates.l5)}</td>
                                   <td className="pr-3">{frac(rates.l10)}</td>
-                                  <td>{frac(rates.season)}{rates.season.games ? ` (${pct(rates.season.hits / rates.season.games)})` : ''}</td>
+                                  <td className="hidden sm:table-cell">{frac(rates.season)}{rates.season.games ? ` (${pct(rates.season.hits / rates.season.games)})` : ''}</td>
                                 </>
                               ) : (
-                                <td colSpan={3} className="text-[var(--text-tertiary)]">no history</td>
+                                <>
+                                  <td className="hidden sm:table-cell" />
+                                  <td className="text-[var(--text-tertiary)]">no history</td>
+                                  <td className="hidden sm:table-cell" />
+                                </>
                               )}
                             </tr>
                           )

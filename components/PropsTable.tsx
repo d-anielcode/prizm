@@ -166,6 +166,8 @@ export function PropsTable({
   const [directionFilter, setDirectionFilter] = useState<'all' | 'over' | 'under'>('all')
   const [gameFilter, setGameFilter] = useState<string>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Phone: filters live in a bottom sheet behind one button (desktop keeps them inline).
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   // Derive unique games from props
   const games = useMemo(() => {
@@ -215,8 +217,64 @@ export function PropsTable({
         />
       </div>
 
-      {/* ── Filter rows ── */}
-      <div className="flex flex-col gap-3">
+      {/* ── Phone filter bar: one button + removable chips for what's applied ── */}
+      {(() => {
+        const chips: { key: string; label: string; clear: () => void }[] = []
+        if (directionFilter !== 'all') chips.push({ key: 'dir', label: directionFilter === 'over' ? 'Over' : 'Under', clear: () => setDirectionFilter('all') })
+        if (statFilter !== 'all') chips.push({ key: 'stat', label: STAT_LABELS[statFilter], clear: () => setStatFilter('all') })
+        if (labelFilter !== 'all') chips.push({ key: 'tier', label: labelFilter, clear: () => setLabelFilter('all') })
+        if (gameFilter !== 'all') chips.push({ key: 'game', label: games.find((g) => g.id === gameFilter)?.label ?? 'Game', clear: () => setGameFilter('all') })
+        return (
+          <div className="md:hidden flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface-2)] px-3 py-2 text-sm font-semibold text-foreground"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h18M6 12h12M10 19h4" />
+                </svg>
+                Filters{chips.length > 0 && <span className="rounded-full bg-primary px-1.5 text-[10px] text-white">{chips.length}</span>}
+              </button>
+              <span className="text-sm text-[var(--text-secondary)]">{filtered.length} prop{filtered.length === 1 ? '' : 's'}</span>
+            </div>
+            {chips.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {chips.map((c) => (
+                  <button key={c.key} type="button" onClick={c.clear}
+                    className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs text-foreground">
+                    {c.label} <span aria-hidden className="text-[var(--text-tertiary)]">×</span>
+                    <span className="sr-only">remove filter</span>
+                  </button>
+                ))}
+                <button type="button" className="px-1 text-xs text-[var(--text-tertiary)] underline"
+                  onClick={() => { setDirectionFilter('all'); setStatFilter('all'); setLabelFilter('all'); setGameFilter('all') }}>
+                  Clear all
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* Sheet backdrop (phone only, while open) */}
+      {filtersOpen && (
+        <div className="md:hidden fixed inset-0 z-[60] bg-black/60" onClick={() => setFiltersOpen(false)} aria-hidden />
+      )}
+
+      {/* ── Filter rows: inline on desktop, bottom sheet on phone ── */}
+      <div
+        className={filtersOpen
+          ? 'flex flex-col gap-3 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-[70] max-md:max-h-[80vh] max-md:overflow-y-auto max-md:rounded-t-2xl max-md:border-t max-md:border-[var(--border-default)] max-md:bg-[var(--bg-surface)] max-md:p-4 max-md:pb-[calc(env(safe-area-inset-bottom)+16px)]'
+          : 'hidden md:flex flex-col gap-3'}
+        role={filtersOpen ? 'dialog' : undefined}
+        aria-label={filtersOpen ? 'Filters' : undefined}
+      >
+        <div className="md:hidden flex items-center justify-between pb-1">
+          <span className="text-base font-bold text-foreground">Filters</span>
+          <button type="button" onClick={() => setFiltersOpen(false)} className="text-sm text-[var(--text-secondary)]">Close</button>
+        </div>
 
         {/* Direction */}
         <div className="flex flex-col gap-1.5">
@@ -263,10 +321,14 @@ export function PropsTable({
           </div>
         )}
 
-        {/* Prop count */}
-        <div className="flex items-center justify-end">
-          <span className="text-sm text-[var(--text-secondary)]">{filtered.length} props</span>
+        {/* Prop count (desktop) / apply button (phone sheet) */}
+        <div className="hidden md:flex items-center justify-end">
+          <span className="text-sm text-[var(--text-secondary)]">{filtered.length} prop{filtered.length === 1 ? '' : 's'}</span>
         </div>
+        <button type="button" onClick={() => setFiltersOpen(false)}
+          className="md:hidden mt-1 w-full rounded-xl bg-primary py-3 text-sm font-bold text-white">
+          Show {filtered.length} prop{filtered.length === 1 ? '' : 's'}
+        </button>
       </div>
 
       {/* Divider */}

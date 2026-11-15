@@ -128,6 +128,7 @@ export default async function MarketsProps({ searchParams }: { searchParams: Pro
         {asOf ? `Prices as of ${asOf} ET` : 'No prices yet today'}
         {stale && <span className="ml-2 text-[#FFB800]">Prices may be stale</span>}
         {' · '}Break-even includes Kalshi&apos;s fee. Hit rates count games played at or above the rung.
+        <span className="sm:hidden"> L10 = last 10 games; a wider screen also shows L5, season and price moves.</span>
       </p>
 
       <div className="mt-5 flex flex-wrap gap-1">

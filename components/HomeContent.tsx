@@ -102,7 +102,7 @@ export function HomeContent({
 
       {/* Game strip */}
       {games.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 sm:-mx-6 sm:px-6 scrollbar-none">
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 sm:-mx-6 sm:px-6 scrollbar-none [mask-image:linear-gradient(to_right,black_85%,transparent)] lg:[mask-image:none]">
           {games.map((game) => {
             const isActive = game.game_id === selectedGameId
             return (
