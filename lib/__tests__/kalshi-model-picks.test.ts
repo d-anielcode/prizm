@@ -4,7 +4,8 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('@/lib/calibration', () => ({ applyCalibration: (s: number) => s }))
 
 import {
-  matchPicks, summarizeRecord, rungLabel, groupPicksByGame, etDayWindow, dueForLogging, toLogRow, summarizeBy, type ScoredLine, type ModelPick,
+  matchPicks, matchStretched, visiblePicks, summarizeRecord, rungLabel, groupPicksByGame, etDayWindow, dueForLogging,
+  toLogRow, summarizeBy, type ScoredLine, type ModelPick, type ModelRung,
 } from '@/lib/kalshi/model-picks'
 import { kalshiFee, type MarketRow } from '@/lib/kalshi/ladder'
 
@@ -156,7 +157,7 @@ describe('logging helpers', () => {
   it('toLogRow rounds price/model_p/edge 4dp and fee 6dp', () => {
     const r = toLogRow({ ...base, price: 0.58, fee: 0.0170520001, modelP: 0.651234, edge: 0.0541819 })
     expect(r).toEqual({ ticker: base.ticker, side: 'yes', player: 'Jaylen Brown', stat: 'points', strike: 25,
-      game_date: '2026-11-11', tier: 'LOCK', model_p: 0.6512, price: 0.58, fee: 0.017052, edge: 0.0542 })
+      game_date: '2026-11-11', tier: 'LOCK', kind: 'exact', model_p: 0.6512, price: 0.58, fee: 0.017052, edge: 0.0542 })
   })
 })
 
@@ -165,5 +166,62 @@ describe('summarizeBy', () => {
     const row = (tier: string, won: boolean) => ({ tier, result: won ? 'yes' : 'no', won, pnl: won ? 0.5 : -0.5, price: 0.48, fee: 0.02 })
     const g = summarizeBy([row('PLAY', true), row('LOCK', false), row('LOCK', true)], (r) => r.tier)
     expect(g.map((x) => [x.key, x.record.n, x.record.wins])).toEqual([['LOCK', 2, 1], ['PLAY', 1, 1]])
+  })
+})
+
+describe('matchPicks kind', () => {
+  it('marks exact-line picks as exact', () => {
+    expect(matchPicks([mkt({})], [line({})])[0].kind).toBe('exact')
+  })
+})
+
+describe('matchStretched', () => {
+  const now = new Date('2026-11-11T23:00:00Z')
+  const rung = (o: Partial<ModelRung>): ModelRung => ({
+    ticker: mkt({}).ticker, model_p: 0.7, exact: false,
+    commence_time: '2026-11-12T00:30:00Z', computed_at: '2026-11-11T22:50:00Z', ...o,
+  })
+
+  it('picks YES when model_p beats ask + fee', () => {
+    const [p] = matchStretched([mkt({ yes_bid: 0.6, yes_ask: 0.62 })], [rung({})], now)
+    expect(p.side).toBe('yes')
+    expect(p.kind).toBe('stretched')
+    expect(p.tier).toBe('STRETCH')
+    expect(p.price).toBe(0.62)
+    expect(p.edge).toBeCloseTo(0.7 - 0.62 - kalshiFee(0.62))
+    expect(p.commence_time).toBe('2026-11-12T00:30:00Z')
+  })
+
+  it('picks NO at 1 - bid when the model is below the market', () => {
+    const [p] = matchStretched([mkt({ yes_bid: 0.40, yes_ask: 0.42 })], [rung({ model_p: 0.3 })], now)
+    expect(p.side).toBe('no')
+    expect(p.price).toBe(0.6)
+    expect(p.modelP).toBeCloseTo(0.7)
+    expect(p.edge).toBeCloseTo(0.7 - 0.6 - kalshiFee(0.6))
+  })
+
+  it('skips exact rungs, stale rungs, missing tip times, wide books and big gaps', () => {
+    const m = mkt({ yes_bid: 0.6, yes_ask: 0.62 })
+    expect(matchStretched([m], [rung({ exact: true })], now)).toHaveLength(0)
+    expect(matchStretched([m], [rung({ computed_at: '2026-11-11T22:14:00Z' })], now)).toHaveLength(0)
+    expect(matchStretched([m], [rung({ commence_time: null })], now)).toHaveLength(0)
+    expect(matchStretched([mkt({ yes_bid: 0.5, yes_ask: 0.62 })], [rung({})], now)).toHaveLength(0)
+    expect(matchStretched([m], [rung({ model_p: 0.9 })], now)).toHaveLength(0)   // gap > MAX_MODEL_MARKET_GAP
+  })
+
+  it('ignores DD/TD markets', () => {
+    const m = mkt({ stat: 'double_double', yes_bid: 0.6, yes_ask: 0.62 })
+    expect(matchStretched([m], [rung({})], now)).toHaveLength(0)
+  })
+})
+
+describe('visiblePicks', () => {
+  const ex = { ...matchPicks([mkt({})], [line({})])[0], edge: 0.02 }
+  const st = { ...ex, ticker: 'S', kind: 'stretched' as const, tier: 'STRETCH' as const, edge: 0.05 }
+  it('shows only exact picks while stretched are hidden', () => {
+    expect(visiblePicks([ex], [st], false).map((p) => p.ticker)).toEqual([ex.ticker])
+  })
+  it('merges and sorts by edge when stretched are visible', () => {
+    expect(visiblePicks([ex], [st], true).map((p) => p.ticker)).toEqual(['S', ex.ticker])
   })
 })

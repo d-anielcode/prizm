@@ -18,7 +18,8 @@ export interface ScoredLine {
   commence_time: string
 }
 
-export type PickTier = 'LOCK' | 'PLAY'
+export type PickTier = 'LOCK' | 'PLAY' | 'STRETCH'
+export type PickKind = 'exact' | 'stretched'
 export type PickSide = 'yes' | 'no'
 
 export interface ModelPick {
@@ -31,6 +32,7 @@ export interface ModelPick {
   away: string
   home: string
   tier: PickTier
+  kind: PickKind
   modelP: number
   price: number
   fee: number
@@ -43,6 +45,20 @@ const PICK_STATS = new Set<string>(['points', 'rebounds', 'assists', 'three_poin
 const MIN_PRICE = 0.05
 const MAX_PRICE = 0.95
 const MAX_SPREAD_CENTS = 10
+
+/** Stretched (full-ladder) picks show on Home/Feed only once the 2025-26 replay passes
+ *  (spec 2026-11-11). Until then they are logged and graded, visible on Performance only. */
+export const STRETCHED_VISIBLE = false
+/** kalshi_model_rungs rows older than this are ignored (a dead step means no picks, not stale ones). */
+export const RUNG_MAX_AGE_MIN = 45
+
+export interface ModelRung {
+  ticker: string
+  model_p: number
+  exact: boolean
+  commence_time: string | null
+  computed_at: string
+}
 
 const round = (x: number, dp: number) => Math.round(x * 10 ** dp) / 10 ** dp
 const key = (player: string, stat: string, strike: number) => `${player}|${stat}|${strike}`
@@ -85,12 +101,52 @@ export function matchPicks(markets: MarketRow[], scored: ScoredLine[]): ModelPic
       score: s.confidence_score,
       pick: {
         ticker: m.ticker, side, player: m.player, stat: m.stat, strike: Number(m.strike),
-        game_date: m.game_date, away: m.away, home: m.home, tier: s.confidence_label,
+        game_date: m.game_date, away: m.away, home: m.home, tier: s.confidence_label, kind: 'exact',
         modelP, price, fee, edge, commence_time: s.commence_time,
       },
     })
   }
   return [...best.values()].map((b) => b.pick).sort((a, b) => b.edge - a.edge)
+}
+
+/** Picks on rungs priced by the full-ladder bridge (kalshi_model_rungs), excluding exact
+ *  rungs (left to matchPicks). Same book/price/edge filters as exact picks; the better side wins. */
+export function matchStretched(markets: MarketRow[], rungs: ModelRung[], now: Date): ModelPick[] {
+  const byTicker = new Map(rungs.map((r) => [r.ticker, r]))
+  const out: ModelPick[] = []
+  for (const m of markets) {
+    if (!PICK_STATS.has(m.stat)) continue
+    const r = byTicker.get(m.ticker)
+    if (!r || r.exact || r.commence_time == null) continue
+    const age = now.getTime() - Date.parse(r.computed_at)
+    if (!Number.isFinite(age) || age > RUNG_MAX_AGE_MIN * 60_000) continue
+    const { yes_bid: bid, yes_ask: ask } = m
+    if (bid == null || ask == null || bid <= 0 || ask <= 0) continue
+    if (Math.round((ask - bid) * 100) > MAX_SPREAD_CENTS) continue
+
+    let best: ModelPick | null = null
+    for (const side of ['yes', 'no'] as const) {
+      const price = side === 'yes' ? ask : round(1 - bid, 4)
+      if (price < MIN_PRICE || price > MAX_PRICE) continue
+      const modelP = side === 'yes' ? Number(r.model_p) : 1 - Number(r.model_p)
+      const fee = kalshiFee(price)
+      const edge = modelP - (price + fee)
+      if (!(edge > 0 && edge <= MAX_MODEL_MARKET_GAP)) continue
+      if (best && best.edge >= edge) continue
+      best = {
+        ticker: m.ticker, side, player: m.player, stat: m.stat, strike: Number(m.strike),
+        game_date: m.game_date, away: m.away, home: m.home, tier: 'STRETCH', kind: 'stretched',
+        modelP, price, fee, edge, commence_time: r.commence_time,
+      }
+    }
+    if (best) out.push(best)
+  }
+  return out.sort((a, b) => b.edge - a.edge)
+}
+
+/** Picks shown on Home/Feed: exact only, or exact + stretched by edge once STRETCHED_VISIBLE. */
+export function visiblePicks(exact: ModelPick[], stretched: ModelPick[], showStretched = STRETCHED_VISIBLE): ModelPick[] {
+  return showStretched ? [...exact, ...stretched].sort((a, b) => b.edge - a.edge) : exact
 }
 
 // ── Record / display helpers ────────────────────────────────────────────────
@@ -159,7 +215,7 @@ export function dueForLogging(picks: ModelPick[], now: Date, minutes = 30): Mode
 export function toLogRow(p: ModelPick) {
   return {
     ticker: p.ticker, side: p.side, player: p.player, stat: p.stat, strike: p.strike,
-    game_date: p.game_date, tier: p.tier,
+    game_date: p.game_date, tier: p.tier, kind: p.kind,
     model_p: round(p.modelP, 4), price: round(p.price, 4), fee: round(p.fee, 6), edge: round(p.edge, 4),
   }
 }
