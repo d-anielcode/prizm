@@ -93,8 +93,9 @@ def run_phase(phase, *, now, http, store, sleep=time.sleep, python=None, dry_run
                 elif step.kind == 'check' and step.target == 'defense_fresh':
                     error = checks.defense_fresh(store.newest_defense(), now)
                     status = 'failed' if error else 'ok'
-            if status == 'ok' and step.coverage == 'enrich_coverage':
-                error = checks.enrich_coverage(body or {}, store.games_on(d))
+            if status == 'ok' and step.coverage in ('enrich_coverage', 'enrich_coverage_early'):
+                error = checks.enrich_coverage(body or {}, store.games_on(d),
+                                               require_spreads=step.coverage == 'enrich_coverage')
                 status = 'failed' if error else 'ok'
             if status == 'ok' and step.coverage == 'results_present':
                 error = checks.results_present(store.history_rows(d) > 0, store.grade_rows(d), store.result_rows(d))

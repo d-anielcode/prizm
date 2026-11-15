@@ -54,3 +54,10 @@ def test_logs_ready():
 def test_wnba_offseason():
     assert wnba_offseason(datetime(2026, 11, 3)) is True
     assert wnba_offseason(datetime(2026, 6, 3)) is False
+
+
+def test_enrich_early_run_does_not_require_spreads():
+    r = {'enriched': 400, 'teamSources': {'roster': 150, 'logs': 3, 'none': 2}, 'espnSpreadsLoaded': 0}
+    assert 'spread' in enrich_coverage(r, games_today=9)
+    assert enrich_coverage(r, games_today=9, require_spreads=False) is None
+    assert 'enriched' in enrich_coverage({'enriched': 0}, games_today=9, require_spreads=False)

@@ -11,8 +11,26 @@ Usage:
 """
 
 import os, sys, argparse, time, requests
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import numpy as np
+
+
+ET = ZoneInfo('America/New_York')
+
+
+def et_today():
+    """Today's NBA slate date (America/New_York) as YYYY-MM-DD."""
+    return datetime.now(ET).strftime('%Y-%m-%d')
+
+
+def et_day_bounds_utc(day):
+    """[start, end) of ET calendar date `day` (YYYY-MM-DD) as UTC 'YYYY-MM-DDTHH:MM:SSZ'."""
+    d = date.fromisoformat(day)
+    fmt = '%Y-%m-%dT%H:%M:%SZ'
+    start = datetime.combine(d, dtime(0), tzinfo=ET).astimezone(timezone.utc)
+    end = datetime.combine(d + timedelta(days=1), dtime(0), tzinfo=ET).astimezone(timezone.utc)
+    return start.strftime(fmt), end.strftime(fmt)
 
 try:
     from nba_api.stats.endpoints import shotchartdetail
@@ -104,11 +122,13 @@ def fetch_todays_3pm_props():
     own team is stored in the `team` column, so the opponent is whichever
     of home_team/away_team doesn't match the player's team.
     """
-    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    # props has no game_date column: select today's (ET) slate by commence_time.
+    today = et_today()
+    start, end = et_day_bounds_utc(today)
     params = (
         f'select=player_name,stat_type,line,direction,team,home_team,away_team'
         f'&stat_type=eq.three_pointers'
-        f'&game_date=eq.{today}'
+        f'&commence_time=gte.{start}&commence_time=lt.{end}'
         f'&direction=eq.over'
     )
     print(f'  Querying props table for {today} three_pointers...')
@@ -490,7 +510,7 @@ def simulate_player(player_name, opponent_abbr, line, zone_stats, fga_per_game,
 # ── Supabase upsert ───────────────────────────────────────────────────────────
 def upsert_sim_results(results):
     """Upsert simulation results to Supabase sim_3pm table."""
-    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    today = et_today()
     rows = []
     for r in results:
         rows.append({

@@ -15,7 +15,7 @@ PHASES = {
         Step('props_wnba', S, 'http', '/api/props/wnba?refresh=true', 0, skip_if='wnba_offseason'),
         Step('wnba_stats', S, 'python', 'fetch_wnba_stats.py', 0, skip_if='wnba_offseason'),
         Step('sim_3pm', S, 'python', 'sim_3pm.py', 0),
-        Step('enrich', S, 'http', '/api/enrich?force=true', 0, critical=True, coverage='enrich_coverage'),
+        Step('enrich', S, 'http', '/api/enrich?force=true', 0, critical=True, coverage='enrich_coverage_early'),
         Step('streak', S, 'http', '/api/feed/generate/streak', 0),
         Step('parlay', S, 'http', '/api/feed/generate/parlay', 0),
         Step('kalshi_settle', 'kalshi', 'python', 'kalshi_settle.py', -1),

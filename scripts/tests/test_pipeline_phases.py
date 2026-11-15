@@ -15,7 +15,7 @@ def test_chains_and_dates():
     assert by['gamelogs'].date_offset == -1 and by['props'].date_offset == 0
     assert by['grade'].readiness == 'logs_ready'
     assert by['results'].coverage == 'results_present'
-    assert by['enrich'].coverage == 'enrich_coverage'
+    assert by['enrich'].coverage == 'enrich_coverage_early'   # overnight: spreads not posted yet
 
 def test_critical_steps():
     crit = {s.name for p in PHASES.values() for s in p if s.critical}

@@ -8,7 +8,9 @@ DEFENSE_MAX_AGE = timedelta(hours=48)
 PRETIP_LEAD = timedelta(minutes=75)
 
 
-def enrich_coverage(resp, games_today):
+def enrich_coverage(resp, games_today, require_spreads=True):
+    """require_spreads=False for the overnight run: ESPN posts game odds later in the
+    morning, so spreads are only required from midday on."""
     if games_today <= 0:
         return None
     if (resp.get('enriched') or 0) <= 0:
@@ -18,7 +20,7 @@ def enrich_coverage(resp, games_today):
     if total and ts.get('none', 0) / total > MAX_UNRESOLVED_TEAM_SHARE:
         return f"team unresolved for {ts.get('none')}/{total} players"
     spreads = resp.get('espnSpreadsLoaded') or 0
-    if spreads < MIN_SPREAD_SHARE * games_today:
+    if require_spreads and spreads < MIN_SPREAD_SHARE * games_today:
         return f'spread loaded for {spreads}/{games_today} games'
     return None
 

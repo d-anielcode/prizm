@@ -1,7 +1,8 @@
 """Run the pre-registered Kalshi calibration study: update kalshi_pockets / kalshi_calibration.
 Usage: python kalshi_study.py [--report]   (--report also writes docs/kalshi-study/<date>-calibration.{md,json})
 
-Refuses (exit 1, nothing written) until the 2025-26 backfill is complete. Confirmation and
+Writes nothing until the 2025-26 backfill is complete: the weekly pipeline run then exits 0
+(waiting is not a failure); a manual --report run exits 1 so the gap is obvious. Confirmation and
 forward verdicts already stored in kalshi_pockets are carried over (frozen), never re-decided."""
 import json, os, sys
 from datetime import date, datetime, timezone
@@ -19,7 +20,7 @@ if __name__ == '__main__':
     ok, reason = discovery_complete(rows)
     if not ok:
         print(f"kalshi_study: backfill incomplete ({reason}); not writing pockets")
-        sys.exit(1)
+        sys.exit(1 if '--report' in sys.argv else 0)
     fwd = sb.select_all("kalshi_pocket_trades", "select=pocket_id,price,fee,pnl,won&won=not.is.null&order=id")
     previous = {p["id"]: p for p in sb.select_all("kalshi_pockets", f"select={PREV_COLS}&order=id")}
     now = datetime.now(timezone.utc).isoformat()

@@ -121,3 +121,13 @@ def test_dry_run_calls_nothing():
     http = FakeHttp()
     assert run(http=http, dry_run=True) == 0
     assert http.calls == []
+
+
+def test_overnight_enrich_ok_without_spreads_but_midday_needs_them():
+    body = {'enriched': 300, 'teamSources': {'roster': 100, 'logs': 0, 'none': 0}, 'espnSpreadsLoaded': 0}
+    store = FakeStore(games_on=8, newest_defense=NOW.isoformat())
+    run(http=FakeHttp({'/api/enrich': (200, body)}), store=store)
+    assert store.status('enrich') == ['ok']
+    store = FakeStore(games_on=8, newest_defense=NOW.isoformat())
+    assert run('midday', http=FakeHttp({'/api/enrich': (200, body)}), store=store) == 1
+    assert store.status('enrich') == ['failed']
