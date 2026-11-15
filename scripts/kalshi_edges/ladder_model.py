@@ -27,8 +27,10 @@ def anchor(scored, stat, calib):
     by_line = defaultdict(lambda: {"over": [], "under": []})
     for r in scored:
         d, s = r.get("direction"), r.get("confidence_score")
-        if d not in ("over", "under") or s is None:
+        if d not in ("over", "under") or s is None or r.get("line") is None:
             continue
+        if not (float(r["line"]) + 0.5).is_integer():
+            continue  # whole-number lines can push; only .5 lines give P(over)+P(under)=1
         by_line[float(r["line"])][d].append(apply_calibration(calib, stat, float(s)))
     cands = []
     for line, d in by_line.items():
@@ -47,7 +49,7 @@ def anchor(scored, stat, calib):
 
 def prior_logs(logs, before_date, n=LOG_WINDOW):
     """Up to n games strictly before before_date (YYYY-MM-DD), newest first."""
-    prior = [g for g in logs if str(g["game_date"])[:10] < before_date]
+    prior = [g for g in logs if g.get("game_date") and str(g["game_date"])[:10] < before_date]
     prior.sort(key=lambda g: str(g["game_date"])[:10], reverse=True)
     return prior[:n]
 
@@ -56,6 +58,9 @@ def exact_strikes(scored):
     """Strikes N where some scored .5 line sits at N - 0.5 (either direction)."""
     out = set()
     for r in scored:
+        if (r.get("line") is None or r.get("confidence_score") is None
+                or r.get("direction") not in ("over", "under")):
+            continue
         x = float(r["line"]) + 0.5
         if x.is_integer():
             out.add(int(x))
@@ -88,14 +93,16 @@ def build_rungs(markets, scored, logs, calib, game_date, computed_at):
     Names join on find_edges.normalize_name."""
     sc_idx = defaultdict(list)
     for r in scored:
-        if r.get("stat_type") in LADDER_STATS:
+        if r.get("stat_type") in LADDER_STATS and r.get("player_name"):
             sc_idx[(normalize_name(r["player_name"]), r["stat_type"])].append(r)
     log_idx = defaultdict(list)
     for g in logs:
+        if not g.get("player_name"):
+            continue
         log_idx[normalize_name(g["player_name"])].append(g)
     ladders = defaultdict(list)
     for m in markets:
-        if m["stat"] in LADDER_STATS:
+        if m.get("stat") in LADDER_STATS and m.get("player") and m.get("strike") is not None:
             ladders[(normalize_name(m["player"]), m["stat"])].append(m)
 
     rows, skips = [], Counter()

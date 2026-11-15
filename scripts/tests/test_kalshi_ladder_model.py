@@ -55,7 +55,6 @@ def test_exact_strikes_only_half_lines():
     assert exact_strikes(rows) == {25, 30}
 
 def test_ladder_probs_monotone_and_matches_anchor():
-    from kalshi_edges.prob_model import prob_over_line
     res, why = ladder_probs([sc(24.5, "over", 55), sc(24.5, "under", 45)], _logs(PTS),
                             "points", [15, 20, 25, 30, 35], "2026-02-01", CAL)
     assert why is None
@@ -104,3 +103,47 @@ def test_build_rungs_matches_names_loosely():
 def test_et_day_window_handles_dst():
     assert et_day_window(date(2026, 11, 11)) == ("2026-11-11T05:00:00+00:00", "2026-11-12T05:00:00+00:00")
     assert et_day_window(date(2026, 10, 21)) == ("2026-10-21T04:00:00+00:00", "2026-10-22T04:00:00+00:00")
+
+
+def test_build_rungs_dirty_rows_are_skipped_not_fatal():
+    markets = [
+        {"ticker": "T25", "player": "Jaylen Brown", "stat": "points", "strike": 25, "game_date": "2026-02-01"},
+        {"ticker": "T30", "player": "Jaylen Brown", "stat": "points", "strike": 30, "game_date": "2026-02-01"},
+        {"ticker": "B1", "player": None, "stat": "points", "strike": 25, "game_date": "2026-02-01"},
+        {"ticker": "B2", "player": "Jaylen Brown", "stat": None, "strike": 25, "game_date": "2026-02-01"},
+        {"ticker": "B3", "player": "Jaylen Brown", "stat": "points", "strike": None, "game_date": "2026-02-01"},
+        {"ticker": "B4", "stat": "points", "strike": 25, "game_date": "2026-02-01"},
+    ]
+    good = {"player_name": "Jaylen Brown", "stat_type": "points", "line": 24.5, "direction": "over",
+            "confidence_score": 55, "commence_time": "2026-02-02T00:30:00+00:00"}
+    scored = [good,
+              {**good, "line": None},
+              {**good, "player_name": None},
+              {**good, "stat_type": None},
+              {"stat_type": "points", "line": 24.5, "direction": "over", "confidence_score": 55}]
+    logs = _logs(PTS) + [{"game_date": None, "minutes": 30, "points": 9, "player_name": "Jaylen Brown"},
+                         {"minutes": 30, "points": 9, "player_name": "Jaylen Brown"},
+                         {"game_date": "2026-01-20", "minutes": 30, "points": 9, "player_name": None},
+                         {"game_date": "2026-01-21", "minutes": 30, "points": 9}]
+    rows, _ = build_rungs(markets, scored, logs, CAL, "2026-02-01", "now")
+    assert {r["ticker"] for r in rows} == {"T25", "T30"}
+
+
+def test_exact_strikes_counts_only_scored_rows():
+    rows = [sc(24.5, "over", 60), sc(29.5, "over", None), sc(34.5, "push", 50)]
+    assert exact_strikes(rows) == {25}
+
+
+def test_anchor_ignores_whole_number_lines():
+    line, p = anchor([sc(20.0, "over", 50), sc(24.5, "over", 70)], "points", CAL)
+    assert line == 24.5 and abs(p - 0.70) < 1e-9
+
+
+def test_ladder_probs_count_family_rebounds():
+    vals = [3, 9, 5, 12, 4, 8, 6, 10, 2, 7, 11, 5]
+    res, why = ladder_probs([sc(6.5, "over", 50)], _logs(vals, "rebounds"), "rebounds",
+                            [4, 6, 7, 8, 10], "2026-02-01", CAL)
+    assert why is None
+    ps = [res["probs"][s] for s in (4, 6, 7, 8, 10)]
+    assert all(a > b for a, b in zip(ps, ps[1:]))
+    assert abs(res["probs"][7] - 0.50) < 0.01
