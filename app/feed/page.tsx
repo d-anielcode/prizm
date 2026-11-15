@@ -125,6 +125,12 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+/** Older stored notices use the retired tier names; show them by leg count. */
+function legacyNames(text: string): string {
+  return text.replace(/Safe Pick/g, '2-leg').replace(/Combo/g, '3-leg')
+    .replace(/High Roller/g, '4-leg').replace(/Jackpot/g, '5-leg')
+}
+
 /** Product of each leg's calibrated hit rate, or null when a leg has no score. */
 function modelParlayProb(legs: FeedLeg[]): number | null {
   if (!legs.length) return null
@@ -281,7 +287,7 @@ export default async function FeedPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest font-semibold mb-1">Prizm Update</p>
-                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{[...new Set(ann.message.split('. '))].join('. ')}</p>
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{legacyNames([...new Set(ann.message.split('. '))].join('. '))}</p>
                   <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5">{formatPostedAt(ann.created_at)}</p>
                 </div>
               </div>
@@ -404,8 +410,7 @@ export default async function FeedPage() {
             <p className="font-bold text-[var(--text-secondary)] mb-0.5">5 AM ET &mdash; Morning Picks</p>
             <p>
               Our model scores every available prop using game logs, defense matchups,
-              and historical trends. The top picks become your daily Safe Pick, Combo,
-              High Roller, and Jackpot parlays.
+              and historical trends. The top picks become the daily 2-, 3-, 4- and 5-leg parlays.
             </p>
           </div>
           <div>

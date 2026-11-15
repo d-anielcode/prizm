@@ -358,10 +358,10 @@ function buildResult(
     const dir = l.direction === 'under' ? 'U' : 'O'
     return `${l.player_name} ${dir} ${l.line} ${stat}${l10str}`
   })
-  const title = tier === 'value'   ? `Safe Pick · ${gameDate}`
-    : tier === 'combo'             ? `Combo · ${gameDate}`
-    : tier === 'jackpot'           ? `Jackpot · ${gameDate}`
-    : `High Roller · ${gameDate}`
+  const title = tier === 'value'   ? `2-leg parlay · ${gameDate}`
+    : tier === 'combo'             ? `3-leg parlay · ${gameDate}`
+    : tier === 'jackpot'           ? `5-leg parlay · ${gameDate}`
+    : `4-leg parlay · ${gameDate}`
   const description = legStrs.join(' · ') + ` — ~${multiplier}x payout`
   return { legs, multiplier, title, description, tier }
 }
@@ -997,7 +997,7 @@ export async function POST(req: Request) {
         type: 'light_slate',
       })
     } else if (missingTiers.length > 0 && results.length < 4) {
-      const tierNames: Record<string, string> = { value: 'Safe Pick', combo: 'Combo', premium: 'High Roller', jackpot: 'Jackpot' }
+      const tierNames: Record<string, string> = { value: '2-leg', combo: '3-leg', premium: '4-leg', jackpot: '5-leg' }
       const missingNames = missingTiers.map((t) => tierNames[t])
       const filled = results.length
       announcements.push({

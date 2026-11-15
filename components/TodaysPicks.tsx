@@ -28,10 +28,10 @@ interface Parlay {
 }
 
 const TYPE_BADGE: Record<string, { label: string; style: string }> = {
-  value:   { label: 'Safe Pick',   style: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/25' },
-  combo:   { label: 'Combo',       style: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/25' },
-  premium: { label: 'High Roller', style: 'text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/25' },
-  jackpot: { label: 'Jackpot',     style: 'text-violet-400 bg-violet-400/10 border-violet-400/25' },
+  value:   { label: '2-leg',   style: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/25' },
+  combo:   { label: '3-leg',       style: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/25' },
+  premium: { label: '4-leg', style: 'text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/25' },
+  jackpot: { label: '5-leg',     style: 'text-violet-400 bg-violet-400/10 border-violet-400/25' },
 }
 
 function labelStyle(label: string | undefined) {

@@ -1082,10 +1082,10 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
       {/* ═══ PARLAYS TAB ═══ */}
       {tab === 'parlays' && ([
-        { label: 'Safe Picks',  sublabel: '2-leg · Safe stats · 24+ min · ~41% hit rate',           parlays: valueParlays,   accent: 'text-emerald-400', dot: 'bg-emerald-400', minHitPct: 35 },
-        { label: 'Combo',      sublabel: '3-leg · Best ROI tier · ~19% hit rate · ~4x payout',   parlays: comboParlays,   accent: 'text-cyan-400',    dot: 'bg-cyan-400',    minHitPct: 15 },
-        { label: 'High Roller', sublabel: '4-leg · 24+ min avg · ~16% hit rate · ~6x payout',    parlays: premiumParlays, accent: 'text-[#FFB800]',   dot: 'bg-[#FFB800]',   minHitPct: 12 },
-        { label: 'Jackpot',     sublabel: '5-leg · 24+ min avg · ~8% hit rate · ~11x payout',    parlays: jackpotParlays, accent: 'text-[#6C5CE7]', dot: 'bg-[#6C5CE7]', minHitPct: 5 },
+        { label: '2-leg',  sublabel: 'Safe stats · 24+ min · ~41% hit rate',           parlays: valueParlays,   accent: 'text-emerald-400', dot: 'bg-emerald-400', minHitPct: 35 },
+        { label: '3-leg',      sublabel: 'Best ROI tier · ~19% hit rate · ~4x payout',   parlays: comboParlays,   accent: 'text-cyan-400',    dot: 'bg-cyan-400',    minHitPct: 15 },
+        { label: '4-leg', sublabel: '24+ min avg · ~16% hit rate · ~6x payout',    parlays: premiumParlays, accent: 'text-[#FFB800]',   dot: 'bg-[#FFB800]',   minHitPct: 12 },
+        { label: '5-leg',     sublabel: '24+ min avg · ~8% hit rate · ~11x payout',    parlays: jackpotParlays, accent: 'text-[#6C5CE7]', dot: 'bg-[#6C5CE7]', minHitPct: 5 },
       ] as const).map(({ label, sublabel, parlays, accent, dot, minHitPct }) => {
         const settled   = parlays.filter((p) => p.hit !== null)
         const hits      = settled.filter((p) => p.hit === true)
