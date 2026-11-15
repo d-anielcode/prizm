@@ -270,7 +270,7 @@ export default async function FeedPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest font-semibold mb-1">Prizm Update</p>
-                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{ann.message}</p>
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{[...new Set(ann.message.split('. '))].join('. ')}</p>
                   <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5">{formatPostedAt(ann.created_at)}</p>
                 </div>
               </div>
@@ -297,7 +297,7 @@ export default async function FeedPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                     <p className="text-[11px] text-[#FFB800]/80 leading-snug">
-                      <span className="font-bold text-[#FFB800]">Updated at 11 AM ET</span>
+                      <span className="font-bold text-[#FFB800]">Updated</span>
                       {' \u2014 '}{parlay.change_summary}
                     </p>
                   </div>

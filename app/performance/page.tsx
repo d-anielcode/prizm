@@ -649,7 +649,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                     className={`rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 flex flex-col gap-1 ${c?.glow ?? ''}`}
                   >
                     <span className={`text-[10px] font-black uppercase tracking-wider ${c?.text ?? 'text-white/40'}`}>
-                      {label === 'ALL' ? 'Overall' : label}
+                      {label === 'ALL' ? 'Overall' : label === 'LEAN' ? 'LEAN (retired tier)' : label}
                     </span>
                     <div className="flex items-baseline gap-1.5 mt-1">
                       <span className={`text-3xl font-black ${c?.text ?? 'text-white'}`}>{pct}%</span>
@@ -668,7 +668,6 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             const overRate  = over.total  > 0 ? over.hits  / over.total  : null
             const underRate = under.total > 0 ? under.hits / under.total : null
             const gap = overRate != null && underRate != null ? Math.round((underRate - overRate) * 100) : null
-            const adjDiffers = calibration!.recommendedOverAdj !== calibration!.currentOverAdj
 
             return (
               <div className="flex flex-col gap-4">
@@ -695,12 +694,9 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
                 {/* Gap + model note */}
                 {gap != null && (
-                  <div className={`rounded-xl border px-4 py-3 flex flex-col gap-1 ${adjDiffers ? 'border-[#FFB800]/20 bg-[#FFB800]/[0.03]' : 'border-white/[0.06] bg-white/[0.01]'}`}>
+                  <div className="rounded-xl border px-4 py-3 flex flex-col gap-1 border-white/[0.06] bg-white/[0.01]">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-white/40">UNDER outperforms OVER by <span className="text-white/70 font-bold">{gap}pp</span></span>
-                      <span className={`text-[10px] font-black ${adjDiffers ? 'text-[#FFB800]' : 'text-white/25'}`}>
-                        {adjDiffers ? `Suggest ${calibration!.recommendedOverAdj > 0 ? '+' : ''}${calibration!.recommendedOverAdj}pt adj (current: ${calibration!.currentOverAdj})` : `Current ${calibration!.currentOverAdj}pt adj is calibrated ✓`}
-                      </span>
+                      <span className="text-xs text-white/40">{gap >= 0 ? 'UNDER outperforms OVER' : 'OVER outperforms UNDER'} by <span className="text-white/70 font-bold">{Math.abs(gap)}pp</span></span>
                     </div>
                   </div>
                 )}

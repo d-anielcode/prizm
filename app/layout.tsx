@@ -46,16 +46,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             {/* Mode toggle + search — right */}
             <div className="shrink-0 flex items-center gap-3">
-              <div className="hidden md:block"><ModeToggle /></div>
+              <div className="hidden lg:block"><ModeToggle /></div>
               <HeaderSearch />
             </div>
           </div>
         </header>
 
-        <main className="flex-1 pb-20 sm:pb-0">
-          <div className="md:hidden flex justify-center pt-3"><ModeToggle /></div>
+        <main className="flex-1 pb-20 md:pb-0">
+          <div className="lg:hidden flex justify-center pt-3"><ModeToggle /></div>
           {children}
         </main>
+
+        <footer className="pb-24 md:pb-6 pt-8 text-center text-xs text-[var(--text-tertiary)]">
+          <Link href="/status" className="hover:text-[var(--text-secondary)]">Data pipeline status</Link>
+        </footer>
 
         <MobileNav />
       </body>

@@ -96,7 +96,9 @@ async function getEdgePicks(): Promise<{ picks: EdgePick[]; hiddenImplausible: n
   return { picks: [...bestMap.values()].sort((a, b) => b.ev - a.ev), hiddenImplausible }
 }
 
-export default async function EdgePage() {
+export default async function EdgePage({ searchParams }: { searchParams: Promise<{ tiers?: string }> }) {
+  // Default: LOCK/PLAY only, so a "+EV" row never carries a FADE ("not a pick") badge.
+  const showAll = (await searchParams).tiers === 'all'
   const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
   const [{ picks, hiddenImplausible }, biasMap, lineupMap, roster] = await Promise.all([
     getEdgePicks(),
@@ -113,14 +115,15 @@ export default async function EdgePage() {
   const byTier: Record<string, number> = { LOCK: 0, PLAY: 0, FADE: 0 }
   for (const p of picks) byTier[p.confidence_label ?? 'FADE'] = (byTier[p.confidence_label ?? 'FADE'] ?? 0) + 1
 
-  const top = picks.slice(0, 30)
+  const shown = showAll ? picks : picks.filter((p) => p.confidence_label === 'LOCK' || p.confidence_label === 'PLAY')
+  const top = shown.slice(0, 30)
 
   return (
     <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 pb-24 sm:pb-8">
       {/* Header */}
       <div className="flex items-baseline justify-between mb-2">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Edge</h1>
-        <span className="text-xs text-white/40">{picks.length} model +EV picks</span>
+        <span className="text-xs text-white/40">{shown.length} model +EV {showAll ? 'props' : 'picks'}</span>
       </div>
       <p className="text-sm text-white/50 mb-6 max-w-2xl">
         Props where the model&apos;s probability beats the price, ranked by the model&apos;s{' '}
@@ -139,7 +142,17 @@ export default async function EdgePage() {
         ))}
       </div>
 
-      {picks.length === 0 ? (
+      <p className="-mt-5 mb-6 text-xs text-white/45">
+        {showAll ? (
+          <>Showing every tier. FADE-tier rows are props the model does not pick, even when its estimate beats the price.{' '}
+            <Link href="/edge" className="font-semibold text-primary">Show LOCK/PLAY only</Link></>
+        ) : (
+          <>Showing LOCK and PLAY picks.{' '}
+            <Link href="/edge?tiers=all" className="font-semibold text-primary">Include {byTier.FADE ?? 0} FADE-tier props</Link></>
+        )}
+      </p>
+
+      {shown.length === 0 ? (
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-8 text-center text-sm text-white/50">
           <p>No model +EV picks right now.</p>
           <p className="mt-2 text-xs text-white/35">Either the slate is small or the books are tight tonight.</p>

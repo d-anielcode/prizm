@@ -6,6 +6,7 @@ import { ConfidenceBadge } from './ConfidenceBadge'
 import { LineupBadge } from './LineupBadge'
 import { lineupBadgeFor } from '@/lib/lineups'
 import type { ConfidenceLabel } from '@/types'
+import { applyCalibration } from '@/lib/calibration'
 
 interface GameInfo {
   game_id: string
@@ -78,7 +79,10 @@ export function HomeContent({
   const selectedGame = games.find((g) => g.game_id === selectedGameId)
   const gameProps = allProps
     .filter((p) => p.game_id === selectedGameId && p.confidence_label !== 'FADE')
-    .sort((a, b) => (b.confidence_score ?? 0) - (a.confidence_score ?? 0))
+    // Tier first, then the calibrated number the badge shows (raw scores aren't comparable across stats).
+    .sort((a, b) =>
+      Number(b.confidence_label === 'LOCK') - Number(a.confidence_label === 'LOCK') ||
+      applyCalibration(b.confidence_score ?? 0, b.stat_type) - applyCalibration(a.confidence_score ?? 0, a.stat_type))
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">

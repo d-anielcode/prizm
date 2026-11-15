@@ -759,7 +759,8 @@ async function handlePass2(gameDate: string) {
 
   // 6. Insert Pass 2 announcement if changes were made
   if (updated > 0) {
-    const summaries = needsUpdate.filter((r) => r.summary).map((r) => r.summary)
+    // Several parlays often share one change; say each change once.
+    const summaries = [...new Set(needsUpdate.filter((r) => r.summary).map((r) => r.summary))]
     const { error: p2AnnErr } = await adminClient.from('feed_announcements').insert({
       game_date: gameDate,
       message: summaries.join('. ') || `${updated} parlay(s) updated after midday injury and line checks.`,

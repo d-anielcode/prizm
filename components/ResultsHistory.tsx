@@ -62,6 +62,11 @@ export default function ResultsHistory({ results }: Props) {
 
   if (sortedDates.length === 0) return null
 
+  // LEAN was retired (June 2026); only show it when a day in this window actually has it.
+  const tiers = sortedDates.some((d) => byDate.get(d)?.LEAN)
+    ? (['LOCK', 'PLAY', 'LEAN', 'FADE'] as const)
+    : (['LOCK', 'PLAY', 'FADE'] as const)
+
   const mostRecentDate  = sortedDates[0]
   const mostRecentAll   = allByDate.get(mostRecentDate)
   const mostRecentTiers = byDate.get(mostRecentDate) ?? {}
@@ -100,7 +105,7 @@ export default function ResultsHistory({ results }: Props) {
             {formatDate(mostRecentDate)}
           </p>
 
-          {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as const).map((label) => {
+          {tiers.map((label) => {
             const row = mostRecentTiers[label]
             if (!row) return null
             const c = TIER_COLORS[label]
@@ -128,23 +133,23 @@ export default function ResultsHistory({ results }: Props) {
             <div className="h-px bg-white/[0.06]" />
             <div className="px-5 py-4 flex flex-col gap-0">
               <p className="text-[11px] text-white/35 uppercase tracking-widest mb-3">7-Day History</p>
-              <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr_1fr] gap-x-2 sm:gap-x-4 gap-y-2 text-[11px]">
+              <div className={`grid ${tiers.length === 4 ? 'grid-cols-[auto_1fr_1fr_1fr_1fr_1fr]' : 'grid-cols-[auto_1fr_1fr_1fr_1fr]'} gap-x-2 sm:gap-x-4 gap-y-2 text-[11px]`}>
                 {/* Header */}
                 <div className="text-white/20 uppercase tracking-wider">Date</div>
                 <div className="text-violet-400/60 uppercase tracking-wider text-right">LOCK</div>
                 <div className="text-emerald-400/60 uppercase tracking-wider text-right">PLAY</div>
-                <div className="text-[#3B82F6]/60 uppercase tracking-wider text-right">LEAN</div>
+                {tiers.length === 4 && <div className="text-[#3B82F6]/60 uppercase tracking-wider text-right">LEAN</div>}
                 <div className="text-red-400/60 uppercase tracking-wider text-right">FADE</div>
                 <div className="text-white/20 uppercase tracking-wider text-right">ALL</div>
 
                 {sortedDates.map((date) => {
-                  const tiers = byDate.get(date) ?? {}
+                  const dayTiers = byDate.get(date) ?? {}
                   const all   = allByDate.get(date)
                   return (
                     <React.Fragment key={date}>
                       <div className="text-white/40">{formatDate(date)}</div>
-                      {(['LOCK', 'PLAY', 'LEAN', 'FADE'] as const).map((label) => {
-                        const row = tiers[label]
+                      {tiers.map((label) => {
+                        const row = dayTiers[label]
                         if (!row) return <div key={`${date}-${label}`} className="text-white/20 text-right">—</div>
                         const pct = Math.round(row.hit_rate * 100)
                         const c = TIER_COLORS[label]

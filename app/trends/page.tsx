@@ -338,7 +338,7 @@ export default async function TrendsPage() {
             </svg>
             <h1 className="text-2xl font-bold text-white">Hot Streaks</h1>
           </div>
-          <p className="text-white/40 text-sm">Players hitting their line in consecutive recent games</p>
+          <p className="text-white/40 text-sm">Players who cleared tonight&apos;s line in each of their most recent games. The badge is the model&apos;s tier for tonight — a streak on its own is not a pick.</p>
         </div>
 
         {hotEntries.length === 0 ? (
@@ -349,7 +349,7 @@ export default async function TrendsPage() {
           return (
             <div key={n} className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
-                <span className="text-xl font-bold text-white">{n} for {n}</span>
+                <span className="text-xl font-bold text-white">{n === STREAK_GROUPS[0] ? `${n}+` : n} games in a row</span>
                 <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-white/60 text-xs font-semibold">{group.length}</span>
               </div>
               <div className="flex flex-col gap-2">
@@ -382,7 +382,7 @@ export default async function TrendsPage() {
           return (
             <div key={n} className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
-                <span className="text-xl font-bold text-white">{n} for {n}</span>
+                <span className="text-xl font-bold text-white">{n === STREAK_GROUPS[0] ? `${n}+` : n} games in a row</span>
                 <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-white/60 text-xs font-semibold">{group.length}</span>
               </div>
               <div className="flex flex-col gap-2">
