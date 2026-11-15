@@ -110,7 +110,9 @@ export function matchPicks(markets: MarketRow[], scored: ScoredLine[]): ModelPic
 }
 
 /** Picks on rungs priced by the full-ladder bridge (kalshi_model_rungs), excluding exact
- *  rungs (left to matchPicks). Same book/price/edge filters as exact picks; the better side wins. */
+ *  rungs (left to matchPicks). Same book/price/edge filters as exact picks; the better side wins.
+ *  Rungs marked exact in kalshi_model_rungs (any scored book line, any label, incl. FADE) never get
+ *  a stretched pick: deliberate, so a FADE book line can't be bypassed. */
 export function matchStretched(markets: MarketRow[], rungs: ModelRung[], now: Date): ModelPick[] {
   const byTicker = new Map(rungs.map((r) => [r.ticker, r]))
   const out: ModelPick[] = []
@@ -142,6 +144,24 @@ export function matchStretched(markets: MarketRow[], rungs: ModelRung[], now: Da
     if (best) out.push(best)
   }
   return out.sort((a, b) => b.edge - a.edge)
+}
+
+/** Stretched picks minus any ticker that already has an exact pick (exact always wins). */
+export function dropExactOverlap(exact: ModelPick[], stretched: ModelPick[]): ModelPick[] {
+  const taken = new Set(exact.map((p) => p.ticker))
+  return stretched.filter((p) => !taken.has(p.ticker))
+}
+
+/** Combines exact and stretched picks for a day. Pure; `rungs` may be empty. */
+export function combinePicks(markets: MarketRow[], scored: ScoredLine[], rungs: ModelRung[], now: Date) {
+  const picks = matchPicks(markets, scored)
+  const stretched = dropExactOverlap(picks, matchStretched(markets, rungs, now))
+  return { picks, stretched, visible: visiblePicks(picks, stretched) }
+}
+
+/** Logged rows counted in the headline record: stretched ones only once STRETCHED_VISIBLE. */
+export function shownRows<T extends { kind?: string | null }>(rows: T[], showStretched = STRETCHED_VISIBLE): T[] {
+  return showStretched ? rows : rows.filter((r) => r.kind !== 'stretched')
 }
 
 /** Picks shown on Home/Feed: exact only, or exact + stretched by edge once STRETCHED_VISIBLE. */

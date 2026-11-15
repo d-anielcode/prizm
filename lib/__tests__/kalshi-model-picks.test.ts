@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('@/lib/calibration', () => ({ applyCalibration: (s: number) => s }))
 
 import {
-  matchPicks, matchStretched, visiblePicks, summarizeRecord, rungLabel, groupPicksByGame, etDayWindow, dueForLogging,
+  matchPicks, matchStretched, visiblePicks, dropExactOverlap, combinePicks, shownRows, summarizeRecord, rungLabel, groupPicksByGame, etDayWindow, dueForLogging,
   toLogRow, summarizeBy, type ScoredLine, type ModelPick, type ModelRung,
 } from '@/lib/kalshi/model-picks'
 import { kalshiFee, type MarketRow } from '@/lib/kalshi/ladder'
@@ -223,5 +223,45 @@ describe('visiblePicks', () => {
   })
   it('merges and sorts by edge when stretched are visible', () => {
     expect(visiblePicks([ex], [st], true).map((p) => p.ticker)).toEqual(['S', ex.ticker])
+  })
+})
+
+describe('matchStretched edge cases', () => {
+  const now = new Date('2026-11-11T23:00:00Z')
+  const m = mkt({ yes_bid: 0.6, yes_ask: 0.62 })
+  const rung = (o: Partial<ModelRung>): ModelRung => ({
+    ticker: m.ticker, model_p: 0.7, exact: false,
+    commence_time: '2026-11-12T00:30:00Z', computed_at: '2026-11-11T22:15:00Z', ...o,
+  })
+  it('age boundary: exactly 45 min passes, +1s fails, unparseable fails', () => {
+    expect(matchStretched([m], [rung({ computed_at: '2026-11-11T22:15:00Z' })], now)).toHaveLength(1)
+    expect(matchStretched([m], [rung({ computed_at: '2026-11-11T22:14:59Z' })], now)).toHaveLength(0)
+    expect(matchStretched([m], [rung({ computed_at: 'garbage' })], now)).toHaveLength(0)
+  })
+  it('skips a market with no rung', () => {
+    expect(matchStretched([m], [rung({ ticker: 'OTHER' })], now)).toHaveLength(0)
+  })
+  it('accepts model_p as a string', () => {
+    const [p] = matchStretched([m], [rung({ model_p: '0.7' as unknown as number })], now)
+    expect(p.modelP).toBeCloseTo(0.7)
+  })
+})
+
+describe('exact-wins helpers', () => {
+  const ex = matchPicks([mkt({})], [line({})])[0]
+  const st = (ticker: string) => ({ ...ex, ticker, kind: 'stretched' as const, tier: 'STRETCH' as const })
+  it('dropExactOverlap removes stretched picks sharing a ticker with an exact pick', () => {
+    expect(dropExactOverlap([ex], [st(ex.ticker), st('Z')]).map((p) => p.ticker)).toEqual(['Z'])
+  })
+  it('combinePicks with no rungs still returns exact picks', () => {
+    const r = combinePicks([mkt({})], [line({})], [], new Date('2026-11-11T23:00:00Z'))
+    expect(r.picks).toHaveLength(1)
+    expect(r.stretched).toEqual([])
+    expect(r.visible).toHaveLength(1)
+  })
+  it('shownRows hides stretched unless visible', () => {
+    const rows = [{ kind: 'exact' }, { kind: 'stretched' }, { kind: null }]
+    expect(shownRows(rows, false)).toHaveLength(2)
+    expect(shownRows(rows, true)).toHaveLength(3)
   })
 })

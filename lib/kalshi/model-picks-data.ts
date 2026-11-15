@@ -3,8 +3,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { MARKET_STATS, type MarketRow } from '@/lib/kalshi/ladder'
+import { logger } from '@/lib/logger'
 import {
-  etDayWindow, matchPicks, matchStretched, visiblePicks, type ModelPick, type ModelRung, type ScoredLine,
+  combinePicks, etDayWindow, type ModelPick, type ModelRung, type ScoredLine,
 } from '@/lib/kalshi/model-picks'
 
 const PAGE = 1000
@@ -87,11 +88,14 @@ export async function loadTodayPicks(client: SupabaseClient, now = new Date()): 
     loadMarkets(client, gameDate),
     loadScored(client, 'props', gameDate),
     loadScored(client, 'prop_alts', gameDate),
-    loadRungs(client, gameDate),
+    // Non-fatal: a rungs failure must never blank or block exact picks.
+    loadRungs(client, gameDate).catch((e: unknown): ModelRung[] => {
+      logger.error('[model-picks] kalshi_model_rungs load failed', { error: e instanceof Error ? e.message : String(e) })
+      return []
+    }),
   ])
-  const picks = matchPicks(markets, [...props, ...alts])
-  const stretched = matchStretched(markets, rungs, now)
-  return { gameDate, markets: markets.length, picks, stretched, visible: visiblePicks(picks, stretched) }
+  const { picks, stretched, visible } = combinePicks(markets, [...props, ...alts], rungs, now)
+  return { gameDate, markets: markets.length, picks, stretched, visible }
 }
 
 export interface ModelPickRow {

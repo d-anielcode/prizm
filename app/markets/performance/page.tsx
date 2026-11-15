@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { STAT_LABEL, type MarketStat } from '@/lib/kalshi/ladder'
 import { loadLoggedPicks, type ModelPickRow } from '@/lib/kalshi/model-picks-data'
-import { rungLabel, summarizeBy, summarizeRecord, type RecordSummary } from '@/lib/kalshi/model-picks'
+import { rungLabel, shownRows, summarizeBy, summarizeRecord, type RecordSummary } from '@/lib/kalshi/model-picks'
 import { cents, MarketsHeader, MIN_RECORD_N, pct0, RecordLine, SideBadge, signedPct, TierBadge } from '@/components/ModelPicks'
 
 export const dynamic = 'force-dynamic'
@@ -45,7 +45,7 @@ export default async function MarketsPerformance() {
   const logged = await loadLoggedPicks(supabase)
     .catch((e: Error): ModelPickRow[] => { console.error('[markets/performance]', e.message); return [] })
   const graded = logged.filter((r) => r.result === 'yes' || r.result === 'no')
-  const overall = summarizeRecord(graded)
+  const overall = summarizeRecord(shownRows(graded))
   const byTier = summarizeBy(graded, (r) => r.tier).map((g) => ({ ...g, label: g.key }))
   const KIND_LABEL: Record<string, string> = { exact: 'Exact line', stretched: 'Stretched (paper)' }
   const byKind = summarizeBy(graded, (r) => r.kind ?? 'exact')
@@ -77,7 +77,7 @@ export default async function MarketsPerformance() {
         </p>
       </MarketsHeader>
 
-      {overall.n === 0 ? (
+      {graded.length === 0 ? (
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
           <p className="text-sm text-[var(--text-secondary)]">
             Nothing graded yet. Picks are logged 30 minutes before tip and graded overnight once Kalshi settles.
