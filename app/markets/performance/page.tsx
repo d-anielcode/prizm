@@ -3,11 +3,13 @@ import { supabase } from '@/lib/supabase'
 import { STAT_LABEL, type MarketStat } from '@/lib/kalshi/ladder'
 import { loadLoggedPicks, type ModelPickRow } from '@/lib/kalshi/model-picks-data'
 import { rungLabel, summarizeBy, summarizeRecord, type RecordSummary } from '@/lib/kalshi/model-picks'
-import { cents, MarketsHeader, pct0, RecordLine, SideBadge, signedPct, TierBadge } from '@/components/ModelPicks'
+import { cents, MarketsHeader, MIN_RECORD_N, pct0, RecordLine, SideBadge, signedPct, TierBadge } from '@/components/ModelPicks'
 
 export const dynamic = 'force-dynamic'
 
-const roiClass = (v: number | null) => ((v ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400')
+// Small groups are noise: grey out their rates instead of coloring them as results.
+const roiClass = (v: number | null, n: number) =>
+  n < MIN_RECORD_N ? 'text-[var(--text-tertiary)]' : (v ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
 
 function RecordTable({ title, rows }: { title: string; rows: { key: string; label: string; record: RecordSummary }[] }) {
   return (
@@ -28,11 +30,12 @@ function RecordTable({ title, rows }: { title: string; rows: { key: string; labe
                 <td className="pr-3">{r.n}</td>
                 <td className="pr-3">{r.wins}-{r.n - r.wins}</td>
                 <td className="pr-3">{r.winRate == null ? '—' : pct0(r.winRate)}</td>
-                <td className={roiClass(r.roi)}>{r.roi == null ? '—' : signedPct(r.roi)}</td>
+                <td className={roiClass(r.roi, r.n)}>{r.roi == null ? '—' : signedPct(r.roi)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        <p className="mt-2 text-[10px] text-[var(--text-tertiary)]">Grey rates: fewer than {MIN_RECORD_N} graded, too few to judge.</p>
       </div>
     </section>
   )

@@ -116,7 +116,7 @@ export function HomeContent({
                     : 'bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] hover:border-primary/40',
                 ].join(' ')}
               >
-                <div className="text-sm font-bold">{teamAbbr(game.away_team)} vs {teamAbbr(game.home_team)}</div>
+                <div className="text-sm font-bold">{teamAbbr(game.away_team)} @ {teamAbbr(game.home_team)}</div>
                 <div className={`text-[10px] mt-0.5 ${isActive ? 'text-white/70' : 'text-[var(--text-tertiary)]'}`}>
                   {formatTime(game.commence_time)}
                 </div>
@@ -126,29 +126,30 @@ export function HomeContent({
         </div>
       )}
 
-      {/* KPI tier summary */}
-      <div className="flex gap-2">
-        {[
-          { count: lock, label: 'LOCK', color: '#00D68F' },
-          { count: play, label: 'PLAY', color: '#FFB800' },
-          { count: fade, label: 'FADE', color: '#FF4757' },
-        ].map(({ count, label, color }) => (
-          <div
-            key={label}
-            className="flex-1 rounded-lg py-2 text-center"
-            style={{ background: `${color}15` }}
-          >
-            <div className="text-lg font-bold font-mono" style={{ color }}>{count}</div>
-            <div className="text-[10px] text-[var(--text-secondary)] font-semibold">{label}</div>
-          </div>
-        ))}
+      {/* Today's picks: LOCK/PLAY lead; FADE (scored, not picked) is a quiet footnote */}
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          {[
+            { count: lock, label: 'LOCK', hint: 'strongest picks', color: '#00D68F' },
+            { count: play, label: 'PLAY', hint: 'picks', color: '#FFB800' },
+          ].map(({ count, label, hint, color }) => (
+            <div key={label} className="flex-1 rounded-lg py-2 text-center" style={{ background: `${color}15` }}>
+              <div className="text-lg font-bold font-mono" style={{ color }}>{count}</div>
+              <div className="text-[10px] text-[var(--text-secondary)] font-semibold">{label} <span className="font-normal text-[var(--text-tertiary)]">· {hint}</span></div>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-[var(--text-tertiary)]">
+          {fade} other props scored but not picked (FADE).{' '}
+          <Link href="/props" className="text-[var(--text-secondary)] hover:text-foreground">See all props →</Link>
+        </p>
       </div>
 
       {/* Props for selected game */}
       {selectedGame && gameProps.length > 0 && (
         <div>
           <div className="text-xs text-[var(--text-secondary)] uppercase tracking-wider font-semibold mb-3">
-            {teamAbbr(selectedGame.away_team)} vs {teamAbbr(selectedGame.home_team)} &middot; Top Props
+            {teamAbbr(selectedGame.away_team)} @ {teamAbbr(selectedGame.home_team)} &middot; Top picks
           </div>
           <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-xl overflow-hidden shadow-[var(--shadow-card)]">
             {gameProps.map((prop, i) => (

@@ -637,28 +637,34 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             <p className="text-[11px] text-white/35 uppercase tracking-widest">
               All-time ({days} day{days !== 1 ? 's' : ''} tracked · {totals!.ALL.total} props graded)
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {(['LOCK', 'PLAY', 'LEAN', 'FADE', 'ALL'] as const).map((label) => {
-                const t = totals![label]
-                if (!t || t.total === 0) return null
-                const pct = Math.round((t.hits / t.total) * 100)
-                const c   = label !== 'ALL' ? TIER_COLORS[label] : null
-                return (
-                  <div
-                    key={label}
-                    className={`rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 flex flex-col gap-1 ${c?.glow ?? ''}`}
-                  >
-                    <span className={`text-[10px] font-black uppercase tracking-wider ${c?.text ?? 'text-white/40'}`}>
-                      {label === 'ALL' ? 'Overall' : label === 'LEAN' ? 'LEAN (retired tier)' : label}
-                    </span>
-                    <div className="flex items-baseline gap-1.5 mt-1">
-                      <span className={`text-3xl font-black ${c?.text ?? 'text-white'}`}>{pct}%</span>
-                    </div>
-                    <span className="text-xs text-white/25">{t.hits}/{t.total} props hit</span>
+            {(() => {
+              // Lead with the picks (LOCK + PLAY); every-prop rates are context, not the record.
+              const lock = totals!.LOCK, play = totals!.PLAY
+              const picks = { hits: (lock?.hits ?? 0) + (play?.hits ?? 0), total: (lock?.total ?? 0) + (play?.total ?? 0) }
+              const card = (key: string, title: string, t: { hits: number; total: number } | undefined, color: string | null, muted = false) =>
+                !t || t.total === 0 ? null : (
+                  <div key={key} className={`rounded-2xl border border-white/[0.07] p-4 flex flex-col gap-1 ${muted ? 'bg-transparent' : 'bg-white/[0.02]'}`}>
+                    <span className={`text-[10px] font-black uppercase tracking-wider ${muted ? 'text-white/35' : color ?? 'text-white/60'}`}>{title}</span>
+                    <span className={`${muted ? 'text-xl text-white/50' : `text-3xl ${color ?? 'text-white'}`} font-black mt-1`}>{Math.round((t.hits / t.total) * 100)}%</span>
+                    <span className="text-xs text-white/25">{t.hits.toLocaleString()}/{t.total.toLocaleString()} hit</span>
                   </div>
                 )
-              })}
-            </div>
+              return (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {card('picks', 'All picks (LOCK + PLAY)', picks, null)}
+                    {card('lock', 'LOCK', lock, TIER_COLORS.LOCK.text)}
+                    {card('play', 'PLAY', play, TIER_COLORS.PLAY.text)}
+                  </div>
+                  <p className="text-[11px] text-white/30 mt-1">Not picks — shown for context:</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {card('fade', 'FADE (scored, not picked)', totals!.FADE, null, true)}
+                    {card('lean', 'LEAN (retired tier)', totals!.LEAN, null, true)}
+                    {card('all', 'Every scored prop', totals!.ALL, null, true)}
+                  </div>
+                </>
+              )
+            })()}
           </div>
 
           {/* ── OVER vs UNDER breakdown ── */}
@@ -796,15 +802,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                     <span className="text-right">Sample</span>
                   </div>
                   <div className="divide-y divide-white/[0.04]">
-                    {calibration!.buckets.map((b) => {
-                      if (b.total < 5) return (
-                        <div key={b.label} className="px-4 py-2.5 grid grid-cols-4 items-center">
-                          <span className="text-xs text-white/30">{b.label}</span>
-                          <span className="text-center text-xs text-white/15">—</span>
-                          <span className="text-center text-xs text-white/15">—</span>
-                          <span className="text-right text-[10px] text-white/15">{b.total} props</span>
-                        </div>
-                      )
+                    {filledBuckets.map((b) => {
                       const expected = Math.round((b.min + b.max) / 2)
                       const actual   = Math.round((b.hits / b.total) * 100)
                       const delta    = actual - expected
@@ -829,8 +827,10 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                   </div>
                 </div>
                 <p className="text-[10px] text-white/20 leading-relaxed">
-                  Delta = actual − expected. Green (≤5pp) = well calibrated. Yellow = slight overconfidence.
-                  Red (&gt;12pp) = model is overconfident at this score range and thresholds may need adjustment.
+                  The small number is actual minus expected. Green: within 5 points. Yellow: off by 6–12.
+                  Red: off by more than 12, so scores in that range overstate or understate the real odds.
+                  {calibration!.buckets.length > filledBuckets.length &&
+                    ` Score ranges with fewer than 5 graded props are hidden (${calibration!.buckets.length - filledBuckets.length} of ${calibration!.buckets.length}).`}
                 </p>
               </div>
             )

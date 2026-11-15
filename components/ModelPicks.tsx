@@ -40,8 +40,18 @@ export function ModelPicksDisclosure() {
   )
 }
 
+/** Below this many graded picks, RecordLine shows the count only. */
+export const MIN_RECORD_N = 30
+
 export function RecordLine({ r }: { r: RecordSummary }) {
   if (!r.n) return <p className="text-sm text-[var(--text-tertiary)]">No graded Kalshi model picks yet.</p>
+  // A handful of results says nothing about skill; don't headline a win rate or ROI off it.
+  if (r.n < MIN_RECORD_N) return (
+    <p className="text-sm text-[var(--text-secondary)] tabular-nums">
+      Kalshi record: <span className="font-semibold text-[var(--text-primary)]">{r.wins}-{r.n - r.wins}</span>
+      {' · '}too early to judge ({r.n} graded; win rate and ROI shown from {MIN_RECORD_N})
+    </p>
+  )
   return (
     <p className="text-sm text-[var(--text-secondary)] tabular-nums">
       Kalshi record: <span className="font-semibold text-[var(--text-primary)]">{r.wins}-{r.n - r.wins}</span>

@@ -51,12 +51,6 @@ export default function ResultsHistory({ results }: Props) {
     byDate.get(r.date)![r.confidence_label] = r
   }
 
-  // Get ALL rows for the summary line
-  const allByDate = new Map<string, ResultRow>()
-  for (const r of results) {
-    if (r.confidence_label === 'ALL') allByDate.set(r.date, r)
-  }
-
   // Sort dates newest first, take last 7 days
   const sortedDates = [...byDate.keys()].sort((a, b) => b.localeCompare(a)).slice(0, 7)
 
@@ -67,8 +61,16 @@ export default function ResultsHistory({ results }: Props) {
     ? (['LOCK', 'PLAY', 'LEAN', 'FADE'] as const)
     : (['LOCK', 'PLAY', 'FADE'] as const)
 
+  // The record that matters is the picks (LOCK + PLAY), not every scored prop incl. FADE.
+  const picksOn = (date: string) => {
+    const t = byDate.get(date) ?? {}
+    const hits  = (t.LOCK?.hits ?? 0) + (t.PLAY?.hits ?? 0)
+    const total = (t.LOCK?.total ?? 0) + (t.PLAY?.total ?? 0)
+    return total > 0 ? { hits, total, hit_rate: hits / total } : null
+  }
+
   const mostRecentDate  = sortedDates[0]
-  const mostRecentAll   = allByDate.get(mostRecentDate)
+  const mostRecentPicks = picksOn(mostRecentDate)
   const mostRecentTiers = byDate.get(mostRecentDate) ?? {}
 
   return (
@@ -81,15 +83,15 @@ export default function ResultsHistory({ results }: Props) {
             {sortedDates.length}-day history
           </span>
         </div>
-        {mostRecentAll && (
+        {mostRecentPicks && (
           <div className="text-right">
             <p className="text-[11px] text-white/35 uppercase tracking-wider">
-              {formatDate(mostRecentDate)} overall
+              {formatDate(mostRecentDate)} · LOCK + PLAY picks
             </p>
             <p className="text-lg font-black text-white">
-              {mostRecentAll.hits}/{mostRecentAll.total}
+              {Math.round(mostRecentPicks.hit_rate * 100)}%
               <span className="text-sm font-normal text-white/40 ml-1.5">
-                {Math.round(mostRecentAll.hit_rate * 100)}%
+                {mostRecentPicks.hits}/{mostRecentPicks.total} hit
               </span>
             </p>
           </div>
@@ -140,11 +142,11 @@ export default function ResultsHistory({ results }: Props) {
                 <div className="text-emerald-400/60 uppercase tracking-wider text-right">PLAY</div>
                 {tiers.length === 4 && <div className="text-[#3B82F6]/60 uppercase tracking-wider text-right">LEAN</div>}
                 <div className="text-red-400/60 uppercase tracking-wider text-right">FADE</div>
-                <div className="text-white/20 uppercase tracking-wider text-right">ALL</div>
+                <div className="text-white/20 uppercase tracking-wider text-right">Picks</div>
 
                 {sortedDates.map((date) => {
                   const dayTiers = byDate.get(date) ?? {}
-                  const all   = allByDate.get(date)
+                  const picks = picksOn(date)
                   return (
                     <React.Fragment key={date}>
                       <div className="text-white/40">{formatDate(date)}</div>
@@ -163,7 +165,7 @@ export default function ResultsHistory({ results }: Props) {
                         )
                       })}
                       <div className="text-white/50 font-bold text-right">
-                        {all ? `${Math.round(all.hit_rate * 100)}%` : '—'}
+                        {picks ? `${Math.round(picks.hit_rate * 100)}%` : '—'}
                       </div>
                     </React.Fragment>
                   )
