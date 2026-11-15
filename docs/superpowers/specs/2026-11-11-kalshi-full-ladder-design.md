@@ -89,6 +89,17 @@ raised.
 `scripts/kalshi_ladder_replay.py --report`, run once on the PC after the backfill
 for the 5 stats is complete and the strike-fix SQL has run.
 
+- **Window (amended 2026-11-15, before any replay result existed):** game dates
+  2026-04-02..2026-06-13 only. A DB check found every `prop_history` / `prop_grades`
+  score for 2025-12..2026-03-31 was written after the games (re-enrichment with
+  season aggregates that include later games), so those scores may carry hindsight;
+  from 2026-04-02 every snapshot was cached before tip. The window is 57 game days
+  (~15.7k graded rungs before PRA), late regular season plus playoffs.
+- Known population difference, recorded in the report: `prop_grades` holds main
+  lines only, while live `exact` also counts alt lines, so some replay "stretched"
+  rungs (mostly one step from the line) would be exact picks live. The per-distance
+  rows show how much of the result comes from them; the forward record is the test
+  of the live population.
 - For each `kalshi_settled` 2025-26 rung (non-void, one of the 5 stats) with
   `prop_grades` rows for that player/stat/date: bridge with those rows as the
   anchor and game logs before that date only.
@@ -121,8 +132,8 @@ for the 5 stats is complete and the strike-fix SQL has run.
   fails the step (non-critical, visible on `/status`).
 - Site ignores rung rows older than 45 minutes: a dead step means no stretched
   picks, not stale ones.
-- Replay refuses to run unless `kalshi_settled` 2025-26 has all 5 stats with an
-  earliest date on or before 2025-11-25.
+- Replay refuses to run unless `kalshi_settled` 2025-26 has all 5 stats inside the
+  replay window, with an earliest date on or before 2026-04-02.
 
 ## Testing
 
