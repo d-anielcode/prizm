@@ -2,7 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from kalshi_edges.fees import taker_fee
 from kalshi_edges.ladder_replay import (pick_side, replay, verdict, replay_complete, render_report,
-                                        brier, calibration_bins)
+                                        brier, calibration_bins, summarize)
 
 CAL = {"lookup": [float(i) for i in range(101)], "per_stat": {}}
 PTS = [18, 22, 25, 30, 21, 27, 24, 19, 26, 23, 28, 20, 25, 22, 31]
@@ -17,7 +17,7 @@ def test_pick_side_yes_no_and_filters():
     assert pick_side(0.99, 0.96, 0.97) is None        # price > 0.95
     assert pick_side(0.70, None, 0.62) is None        # one-sided book
 
-def _settled(strike, bid, ask, result, day="2026-02-01", player="Jaylen Brown"):
+def _settled(strike, bid, ask, result, day="2026-04-10", player="Jaylen Brown"):
     return {"ticker": f"T{strike}-{day}", "player": player, "stat": "points", "strike": strike,
             "game_date": day, "season": "2025-26", "pretip_yes_bid": bid, "pretip_yes_ask": ask, "result": result}
 
@@ -25,7 +25,7 @@ def _logs():
     return [{"game_date": f"2026-01-{1 + i:02d}", "minutes": 30, "points": v, "player_name": "Jaylen Brown"}
             for i, v in enumerate(PTS)]
 
-def _grade(line, direction, score, day="2026-02-01"):
+def _grade(line, direction, score, day="2026-04-10"):
     return {"game_date": day, "player_name": "Jaylen Brown", "stat_type": "points",
             "line": line, "direction": direction, "confidence_score": score}
 
@@ -34,7 +34,7 @@ def test_replay_skips_exact_rungs_and_voids():
                _settled(30, 0.05, 0.07, "no"),       # stretched
                _settled(35, 0.01, 0.03, "void")]     # void: ignored
     out = replay(settled, [_grade(24.5, "over", 55)], _logs(), CAL)
-    assert all(t.ticker != "T25-2026-02-01" for t in out["trades"])
+    assert all(t.ticker != "T25-2026-04-10" for t in out["trades"])
     assert all(not t.ticker.startswith("T35") for t in out["trades"])
     assert out["evals"] and all(e["strike"] != 25 for e in out["evals"])
 
@@ -65,12 +65,34 @@ def test_verdict_bar():
     assert verdict(flat)["pass"] is False                             # roi 0
 
 def test_replay_complete_guard():
-    rows = [{"season": "2025-26", "stat": s, "game_date": "2025-11-20"}
+    rows = [{"season": "2025-26", "stat": s, "game_date": "2026-04-03"}
             for s in ("points", "rebounds", "assists", "three_pointers", "pra")]
     assert replay_complete(rows) == (True, "")
     assert replay_complete(rows[:3])[0] is False
-    late = [{**r, "game_date": "2025-12-15"} for r in rows]
+    late = [{**r, "game_date": "2026-04-20"} for r in rows]
     assert replay_complete(late)[0] is False
+    out_of_window = [{**r, "game_date": "2026-03-01"} for r in rows]
+    assert replay_complete(out_of_window)[0] is False
+    one_late = rows[:4] + [{**rows[4], "game_date": "2026-04-20"}]   # pra starts too late
+    assert replay_complete(one_late)[0] is False
+
+def test_replay_ignores_rungs_before_window():
+    settled = [_settled(30, 0.03, 0.05, "yes", day="2026-03-31")]
+    out = replay(settled, [_grade(24.5, "over", 55, day="2026-03-31")], _logs(), CAL)
+    assert out["trades"] == [] and out["evals"] == [] and out["skips"] == {}
+
+def test_empty_book_not_in_evals():
+    settled = [_settled(30, 0.0, 1.0, "no")]
+    out = replay(settled, [_grade(24.5, "over", 55)], _logs(), CAL)
+    assert out["evals"] == [] and out["trades"] == []
+
+def test_summarize_distance_keys():
+    class TT(T):
+        def __init__(self, d):
+            super().__init__("2026-04-10", 0.1); self.distance = d; self.stat = "points"
+    out = {"trades": [TT(1.0), TT(-4.0), TT(8.0)], "evals": [], "skips": {}}
+    keys = [g["key"] for g in summarize(out, 3)["by_distance"]]
+    assert keys == ["3-5", "6+", "<=2"]
 
 def test_brier_and_bins():
     ev = [{"model_p": 0.8, "mid": 0.6, "y": 1, "stat": "points"},
@@ -85,3 +107,4 @@ def test_render_report_states_result():
                         "by_stat": [], "by_distance": [], "brier": {"n": 0, "model": None, "market": None},
                         "calibration": [], "skips": {}, "n_settled": 0})
     assert "FAIL" in md and "discovery" in md.lower()
+    assert "2026-04-02" in md and "alt" in md and "2025-12-01" in md

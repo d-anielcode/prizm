@@ -11,7 +11,10 @@ from kalshi_edges.ladder_model import LADDER_STATS, ladder_probs
 from kalshi_edges.study import pocket_stats
 
 SEASON = "2025-26"
-LATEST_START = "2025-11-25"
+# Scores before 2026-04-02 were re-enriched after the games (hindsight); from 2026-04-02 every
+# snapshot was cached pre-tip. See the spec's Replay section.
+WINDOW_START, WINDOW_END = "2026-04-02", "2026-06-13"
+LATEST_FIRST_DAY = "2026-04-05"   # every stat must have an in-window game on or before this date
 MIN_N, MIN_ROI, ALPHA = 300, 0.03, 0.05
 # Mirror of lib/kalshi/model-picks.ts matchStretched filters.
 MIN_PRICE, MAX_PRICE, MAX_SPREAD_CENTS, MAX_GAP = 0.05, 0.95, 10, 0.10
@@ -60,7 +63,8 @@ def replay(settled, grades, logs, calib):
     evals: every priced non-exact rung with a two-sided book (for Brier/calibration)."""
     ladders = defaultdict(list)
     for r in settled:
-        if r.get("season") == SEASON and r["stat"] in LADDER_STATS and r.get("result") in ("yes", "no"):
+        if (r.get("season") == SEASON and r["stat"] in LADDER_STATS and r.get("result") in ("yes", "no")
+                and WINDOW_START <= str(r["game_date"])[:10] <= WINDOW_END):
             ladders[(str(r["game_date"])[:10], normalize_name(r["player"]), r["stat"])].append(r)
     g_idx = defaultdict(list)
     for g in grades:
@@ -83,7 +87,7 @@ def replay(settled, grades, logs, calib):
             p = res["probs"][s]
             y = 1 if r["result"] == "yes" else 0
             bid, ask = _r4(r.get("pretip_yes_bid")), _r4(r.get("pretip_yes_ask"))
-            if bid is not None and ask is not None:
+            if bid is not None and ask is not None and bid > 0 and ask > 0:
                 evals.append({"model_p": p, "mid": (bid + ask) / 2, "y": y, "stat": stat, "strike": s})
             pick = pick_side(p, bid, ask)
             if pick is None:
@@ -106,14 +110,20 @@ def verdict(trades):
 
 
 def replay_complete(rows):
-    """(ok, reason): 2025-26 settled rows cover all ladder stats and start early enough."""
-    disc = [r for r in rows if r.get("season") == SEASON]
-    missing = [s for s in LADDER_STATS if s not in {r["stat"] for r in disc}]
+    """(ok, reason): every ladder stat has 2025-26 rows inside the window, starting by LATEST_FIRST_DAY."""
+    disc = [r for r in rows if r.get("season") == SEASON
+            and WINDOW_START <= str(r["game_date"])[:10] <= WINDOW_END]
+    first = {}
+    for r in disc:
+        d = str(r["game_date"])[:10]
+        if r["stat"] not in first or d < first[r["stat"]]:
+            first[r["stat"]] = d
+    missing = [s for s in LADDER_STATS if s not in first]
     if missing:
-        return False, f"{SEASON} rows missing stats: {', '.join(missing)}"
-    earliest = min(str(r["game_date"])[:10] for r in disc)
-    if earliest > LATEST_START:
-        return False, f"earliest {SEASON} game_date is {earliest} (> {LATEST_START})"
+        return False, f"{SEASON} rows in {WINDOW_START}..{WINDOW_END} missing stats: {', '.join(missing)}"
+    late = [f"{s} ({first[s]})" for s in LADDER_STATS if first[s] > LATEST_FIRST_DAY]
+    if late:
+        return False, f"earliest in-window game_date is after {LATEST_FIRST_DAY} for: {', '.join(late)}"
     return True, ""
 
 
@@ -144,8 +154,9 @@ def _group(trades, key):
 
 
 def _dist_bucket(d):
+    """Distance from anchor_line + 0.5 in stat units."""
     a = abs(d)
-    return "1 step" if a <= 2 else "2 steps" if a <= 5 else "3+ steps"
+    return "<=2" if a <= 2 else "3-5" if a <= 5 else "6+"
 
 
 def summarize(out, n_settled):
@@ -165,8 +176,12 @@ def render_report(s):
     lines = [
         "# Kalshi full-ladder replay (2025-26, discovery)", "",
         "Spec: `docs/superpowers/specs/2026-11-11-kalshi-full-ladder-design.md`.",
-        "Calibration table overlaps this season, so this is discovery only; the forward",
-        "2026-27 record is the real test.", "",
+        f"Window: game dates {WINDOW_START}..{WINDOW_END} only. Scores before {WINDOW_START} were",
+        "re-enriched after the games (possible hindsight); from then on every snapshot was cached pre-tip.",
+        "The calibration table (`lib/calibration-table.json`) was fit on 2025-12-01..2026-11-06, which",
+        "overlaps this window, so this is discovery only; the forward 2026-27 record is the real test.", "",
+        "Caveat: prop_grades holds main lines only; live treats alt-line rungs as exact, so some replay",
+        "'stretched' rungs (mostly <=2 units from the line) would be exact picks live; see the distance rows.", "",
         f"**Result: {'PASS' if v['pass'] else 'FAIL'}** — n={v['n']}, ROI {_pct(v['roi'])}, "
         f"halves {_pct(v['roi_h1'])} / {_pct(v['roi_h2'])}, p={v['p']:.4f} "
         f"(bar: n>=300, ROI>=+3%, both halves >0, p<0.05).", "",
