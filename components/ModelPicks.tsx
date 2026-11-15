@@ -13,6 +13,7 @@ export const team = (t: string) => normalizeTeamAbbr(t) ?? t
 const TIER_STYLE: Record<string, string> = {
   LOCK: 'bg-[#00D68F]/15 text-[#00D68F] border-[#00D68F]/25',
   PLAY: 'bg-[#FFB800]/15 text-[#FFB800] border-[#FFB800]/25',
+  STRETCH: 'bg-sky-400/15 text-sky-300 border-sky-400/25',
 }
 
 export function TierBadge({ tier }: { tier: string }) {

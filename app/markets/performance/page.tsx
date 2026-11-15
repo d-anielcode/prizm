@@ -47,6 +47,9 @@ export default async function MarketsPerformance() {
   const graded = logged.filter((r) => r.result === 'yes' || r.result === 'no')
   const overall = summarizeRecord(graded)
   const byTier = summarizeBy(graded, (r) => r.tier).map((g) => ({ ...g, label: g.key }))
+  const KIND_LABEL: Record<string, string> = { exact: 'Exact line', stretched: 'Stretched (paper)' }
+  const byKind = summarizeBy(graded, (r) => r.kind ?? 'exact')
+    .map((g) => ({ ...g, label: KIND_LABEL[g.key] ?? g.key }))
   const byStat = summarizeBy(graded, (r) => r.stat)
     .map((g) => ({ ...g, label: STAT_LABEL[g.key as MarketStat] ?? g.key }))
   const recent = graded.slice(0, 50)
@@ -57,6 +60,10 @@ export default async function MarketsPerformance() {
       <MarketsHeader title="Performance">
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
           Kalshi model picks graded from Kalshi settlement, at the logged price plus fee. Voided markets are left out.
+        </p>
+        <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+          Stretched picks price every Kalshi rung from the model&apos;s sportsbook line. They are paper-only until a
+          pre-registered replay on last season passes.
         </p>
         <div className="mt-3"><RecordLine r={overall} /></div>
         {pending > 0 && (
@@ -78,7 +85,8 @@ export default async function MarketsPerformance() {
         </div>
       ) : (
         <>
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid gap-6 md:grid-cols-3">
+            <RecordTable title="By kind" rows={byKind} />
             <RecordTable title="By tier" rows={byTier} />
             <RecordTable title="By stat" rows={byStat} />
           </div>

@@ -1,6 +1,6 @@
 // /api/markets/model-picks/log
 //
-// Logs today's Kalshi model picks for games tipping in the next 30 minutes into
+// Logs today's Kalshi model picks (exact and stretched) for games tipping in the next 30 minutes into
 // kalshi_model_picks (first price seen wins: UNIQUE(ticker, side), duplicates ignored).
 // Called every 15 min by the kalshi_live pipeline phase; graded overnight by
 // scripts/kalshi_model_grade.py.
@@ -20,8 +20,8 @@ export async function GET(req: Request) {
   if (authError) return authError
   try {
     const now = new Date()
-    const { gameDate, markets, picks } = await loadTodayPicks(supabase, now)
-    const due = dueForLogging(picks, now)
+    const { gameDate, markets, picks, stretched } = await loadTodayPicks(supabase, now)
+    const due = dueForLogging([...picks, ...stretched], now)
     let logged = 0
     if (due.length) {
       const { data, error } = await supabase.from('kalshi_model_picks')
@@ -30,7 +30,9 @@ export async function GET(req: Request) {
       if (error) throw new Error(`kalshi_model_picks insert: ${error.message}`)
       logged = data?.length ?? 0
     }
-    return NextResponse.json({ game_date: gameDate, markets, picks: picks.length, candidates: due.length, logged })
+    return NextResponse.json({
+      game_date: gameDate, markets, picks: picks.length, stretched: stretched.length, candidates: due.length, logged,
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('[/api/markets/model-picks/log] failed', { error: message })

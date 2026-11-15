@@ -6,7 +6,7 @@ import { MarketsHeader, ModelPicksDisclosure, PicksTable, team } from '@/compone
 export const dynamic = 'force-dynamic'
 
 export default async function MarketsFeed() {
-  const picks = await loadTodayPicks(supabase).then((r) => r.picks)
+  const picks = await loadTodayPicks(supabase).then((r) => r.visible)
     .catch((e: Error): ModelPick[] => { console.error('[markets/feed]', e.message); return [] })
   const games = groupPicksByGame(picks)
 
