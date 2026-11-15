@@ -40,6 +40,7 @@ PHASES = {
     # pocket scan must see every game in the 30 min before its own tip.
     'kalshi_live': [
         Step('kalshi_ingest', 'kalshi', 'python', 'kalshi_ingest.py', 0),
+        Step('kalshi_model_rungs', 'kalshi', 'python', 'kalshi_model_rungs.py', 0),
         Step('kalshi_model_log', 'kalshi', 'http', '/api/markets/model-picks/log', 0),
         Step('kalshi_pocket_scan', 'kalshi', 'python', 'kalshi_pocket_scan.py', 0),
     ],
