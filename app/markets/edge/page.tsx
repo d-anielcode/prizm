@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { CalibrationChart } from '@/components/CalibrationChart'
 import { pocketLabel, STATUS_LABEL, type CalibrationRow, type PocketRow } from '@/lib/kalshi/edge'
@@ -28,6 +29,21 @@ export default async function MarketsEdge() {
         </p>
       </header>
 
+      {!cal?.length && all.length === 0 ? (
+        // One clear empty state instead of three sections saying "not run yet".
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Waiting on last season&apos;s data</p>
+          <p className="mt-2 text-sm text-[var(--text-secondary)]">
+            The study runs automatically once every settled 2025-26 Kalshi player prop has loaded; that backfill is
+            still in progress. After that it updates weekly, and this page will show the calibration chart, any pockets
+            that pass, and their paper trades.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
+            <Link href="/markets" className="text-sm font-semibold text-primary">Today&apos;s model picks →</Link>
+            <Link href="/markets/props" className="text-sm font-semibold text-primary">Kalshi ladders →</Link>
+          </div>
+        </div>
+      ) : (<>
       <section>
         <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-[var(--text-tertiary)]">Calibration</h2>
         {cal?.length ? <CalibrationChart rows={cal as CalibrationRow[]} /> :
@@ -84,6 +100,7 @@ export default async function MarketsEdge() {
           </p>
         )}
       </section>
+      </>)}
     </div>
   )
 }

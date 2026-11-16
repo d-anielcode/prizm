@@ -125,6 +125,16 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+/** "No parlays posted Nov 9 – Nov 14" when whole days separate two posted dates, else null. */
+function gapLabel(older: string, newer: string): string | null {
+  const day = 86_400_000
+  const a = Date.parse(older + 'T12:00:00Z') + day
+  const b = Date.parse(newer + 'T12:00:00Z') - day
+  if (!(b >= a)) return null
+  const f = (t: number) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return a === b ? `No parlays posted ${f(a)}` : `No parlays posted ${f(a)} – ${f(b)}`
+}
+
 /** Older stored notices use the retired tier names; show them by leg count. */
 function legacyNames(text: string): string {
   return text.replace(/Safe Pick/g, '2-leg').replace(/Combo/g, '3-leg')
@@ -254,8 +264,13 @@ export default async function FeedPage() {
             Auto-curated parlays are generated daily after props are pulled. Check back soon.
           </p>
         </div>
-      ) : dates.map((date) => (
+      ) : dates.map((date, i) => (
         <div key={date} className="flex flex-col gap-3">
+
+          {/* Say so when days are missing between two posted dates (newest first) */}
+          {i > 0 && gapLabel(date, dates[i - 1]) && (
+            <p className="text-center text-[11px] text-[var(--text-tertiary)]">{gapLabel(date, dates[i - 1])}</p>
+          )}
 
           {/* Date header */}
           <div className="flex items-center gap-3">
