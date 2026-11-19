@@ -3,13 +3,16 @@
 Pure functions first (eligibility, queue, fill rule, scoring, bar); thin Kalshi I/O at
 the bottom. PAPER ONLY: nothing here, or in the scripts that use it, places an order.
 """
+import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from statistics import median
 
+import requests
 from scipy import stats
 
 from kalshi_edges.ledger import grade
+from kalshi_edges.market_data import KALSHI_BASE, INGEST_SERIES_STAT, _get
 from kalshi_edges.teams import spellings
 
 LO, HI = 0.60, 0.90                 # side price band, half-open [LO, HI)
@@ -192,3 +195,38 @@ def progress(rows):
                   "median_queue": median(float(r["queue_ahead"]) for r in mine) if mine else 0,
                   "n_filled": len(_filled(mine))}
     return out
+
+
+# --- Kalshi I/O (public reads only; never orders) ------------------------------------------------
+TOTALS_SERIES = "KXNBATOTAL"
+POST_SERIES = {**{s: "props" for s in INGEST_SERIES_STAT}, TOTALS_SERIES: "totals"}
+PAUSE_S = 0.1
+
+
+def fetch_orderbook(sess, ticker):
+    return _get(sess, f"{KALSHI_BASE}/markets/{ticker}/orderbook").json()
+
+
+def fetch_trades(sess, ticker, min_ts, max_ts):
+    """Every trade on ticker in [min_ts, max_ts] (unix s). Live endpoint first, then historical.
+    Raises on rate limit / server errors so the caller leaves the order unscored."""
+    for path in ("/markets/trades", "/historical/trades"):
+        out, cursor = [], None
+        while True:
+            params = {"ticker": ticker, "limit": 1000, "min_ts": int(min_ts), "max_ts": int(max_ts)}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                d = _get(sess, KALSHI_BASE + path, params=params).json()
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 404:
+                    break
+                raise
+            out += d.get("trades") or []
+            cursor = d.get("cursor")
+            time.sleep(PAUSE_S)
+            if not cursor or not d.get("trades"):
+                break
+        if out:
+            return out
+    return []
