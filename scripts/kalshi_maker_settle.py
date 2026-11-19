@@ -20,7 +20,10 @@ if __name__ == '__main__':
     rows = sb.select_all("kalshi_maker_quotes", "select=*&scored_at=is.null&order=id")
     sess = requests.Session()
     results, trades = {}, {}
-    done = waiting = voided = 0
+    done = waiting = voided = errors = 0
+    last_tip = {}
+    for r in rows:
+        last_tip[r["ticker"]] = max(last_tip.get(r["ticker"], _ts(r["tip_time"])), _ts(r["tip_time"]))
     for q in rows:
         tip = _ts(q["tip_time"])
         if now - tip < GRACE:
@@ -31,20 +34,23 @@ if __name__ == '__main__':
                 results[t] = settled_result(fetch_market(t, session=sess))
             if results[t] is not None and t not in trades:
                 lo = min(_ts(r["posted_at"]) for r in rows if r["ticker"] == t)
-                trades[t] = fetch_trades(sess, t, lo.timestamp(), tip.timestamp())
+                trades[t] = fetch_trades(sess, t, lo.timestamp(), last_tip[t].timestamp())
         except Exception as e:  # noqa: BLE001  rate limit / transient: retry next night
             print("kalshi_maker_settle:", t, type(e).__name__)
             results.setdefault(t, None)
-        if results.get(t) is None or t not in trades:
-            if now - tip > GIVE_UP:
-                sb.patch("kalshi_maker_quotes", f"id=eq.{q['id']}",
-                         {"result": "void", "filled": None, "scored_at": now.isoformat()})
-                voided += 1
-            else:
-                waiting += 1
-            continue
-        fields = score(q, fill_time(q, trades[t]), results[t])
-        fields["scored_at"] = now.isoformat()
-        sb.patch("kalshi_maker_quotes", f"id=eq.{q['id']}", fields)
-        done += 1
-    print(f"kalshi_maker_settle: scored {done}, waiting {waiting}, voided {voided}")
+        try:
+            if results.get(t) is None or t not in trades:
+                if now - tip > GIVE_UP:
+                    sb.patch("kalshi_maker_quotes", f"id=eq.{q['id']}",
+                             {"result": "void", "filled": None, "scored_at": now.isoformat()})
+                    voided += 1
+                else:
+                    waiting += 1
+                continue
+            fields = score(q, fill_time(q, trades[t]), results[t])
+            fields["scored_at"] = now.isoformat()
+            sb.patch("kalshi_maker_quotes", f"id=eq.{q['id']}", fields)
+            done += 1
+        except Exception as e:  # noqa: BLE001  a bad row must not block later rows
+            print("kalshi_maker_settle: row error", t, type(e).__name__); errors += 1
+    print(f"kalshi_maker_settle: scored {done}, waiting {waiting}, voided {voided}, {errors} errors")

@@ -204,3 +204,41 @@ def test_progress_hides_roi():
     p = progress(rows)["totals"]
     assert p == {"orders": 4, "scored": 3, "void": 1, "fill_rate": 1 / 3, "median_queue": 5, "n_filled": 1}
     assert "roi" not in p
+
+
+# --- review fixes ---------------------------------------------------------------------------------
+import pytest, requests
+from kalshi_edges import maker_quotes as mq
+
+
+
+def _patch_get(monkeypatch, script):
+    calls = []
+    def fake(sess, url, params=None):
+        calls.append((url.rsplit("/", 2)[-2] + "/" + url.rsplit("/", 1)[-1], params.get("cursor")))
+        code, payload = script[len(calls) - 1]
+        if code != 200:
+            r = requests.Response(); r.status_code = code
+            raise requests.HTTPError(response=r)
+        return type("R", (), {"json": lambda self: payload})()
+    monkeypatch.setattr(mq, "_get", fake)
+    monkeypatch.setattr(mq, "PAUSE_S", 0)
+    return calls
+
+
+def test_fetch_trades_first_page_404_falls_through_to_historical(monkeypatch):
+    calls = _patch_get(monkeypatch, [(404, None), (200, {"trades": [{"id": 1}], "cursor": ""})])
+    assert mq.fetch_trades(None, "T", 0, 1) == [{"id": 1}]
+    assert [c[0] for c in calls] == ["markets/trades", "historical/trades"]
+
+
+def test_fetch_trades_later_page_404_raises(monkeypatch):
+    _patch_get(monkeypatch, [(200, {"trades": [{"id": 1}], "cursor": "c2"}), (404, None)])
+    with pytest.raises(requests.HTTPError):
+        mq.fetch_trades(None, "T", 0, 1)
+
+
+def test_date_window_uses_et_date():
+    # 2026-11-20 03:00 UTC is still Nov 19 in New York
+    w = mq.date_window(datetime(2026, 11, 20, 3, 0, tzinfo=timezone.utc))
+    assert w == {date(2026, 11, 18), date(2026, 11, 19), date(2026, 11, 20)}

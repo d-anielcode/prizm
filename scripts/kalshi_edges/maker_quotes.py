@@ -73,6 +73,14 @@ def tip_for(tips, away, home):
     return None
 
 
+def date_window(now):
+    """{ET today - 1, ET today, ET today + 1} for an aware datetime: the only game dates worth an
+    ESPN lookup (America/New_York calendar date)."""
+    from zoneinfo import ZoneInfo
+    d = now.astimezone(ZoneInfo("America/New_York")).date()
+    return {d - timedelta(days=1), d, d + timedelta(days=1)}
+
+
 def _ts(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
@@ -219,7 +227,9 @@ def fetch_trades(sess, ticker, min_ts, max_ts):
             try:
                 d = _get(sess, KALSHI_BASE + path, params=params).json()
             except requests.HTTPError as e:
-                if e.response is not None and e.response.status_code == 404:
+                # 404 = "endpoint doesn't have it" only on the first page; a 404 mid-pagination
+                # means a partial result, so re-raise and leave the order unscored.
+                if cursor is None and e.response is not None and e.response.status_code == 404:
                     break
                 raise
             out += d.get("trades") or []

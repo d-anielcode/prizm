@@ -35,16 +35,19 @@ def upsert(table, rows, on_conflict, page=500):
     return len(rows)
 
 
-def insert_ignore(table, rows, on_conflict):
+def insert_ignore(table, rows, on_conflict, page=500):
     """Insert, skipping rows that hit the unique key. Returns rows actually inserted."""
     if not rows:
         return 0
     url, h = _sb()
-    r = requests.post(f"{url}/{table}?on_conflict={on_conflict}&select=id",
-                      headers={**h, "Prefer": "resolution=ignore-duplicates,return=representation"},
-                      json=rows, timeout=60)
-    r.raise_for_status()
-    return len(r.json())
+    n = 0
+    for i in range(0, len(rows), page):
+        r = requests.post(f"{url}/{table}?on_conflict={on_conflict}&select=id",
+                          headers={**h, "Prefer": "resolution=ignore-duplicates,return=representation"},
+                          json=rows[i:i + page], timeout=60)
+        r.raise_for_status()
+        n += len(r.json())
+    return n
 
 
 def patch(table, query, fields):
