@@ -1,6 +1,7 @@
-"""Pipeline step (kalshi_live, every 15 min): post PAPER resting bids for the Kalshi maker test
+"""PC scheduled task "Prizm Kalshi maker post" (every 15 min, 1pm-11pm PT): post PAPER resting bids for the Kalshi maker test
 (spec 2026-11-19-kalshi-maker-paper-test-design.md). Public reads + Supabase writes only:
-this never places a Kalshi order."""
+this never places a Kalshi order. Runs on the user's PC, not GitHub: the GitHub 15-min cron
+fires only ~2x/day, which misses most 3h pre-tip windows."""
 import os, sys, time
 from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +16,11 @@ from kalshi_edges.maker_quotes import (END_DATE, PAUSE_S, POST_SERIES, eligible_
 DEADLINE_S = 600
 
 if __name__ == '__main__':
+    if sys.stdout is None:  # pythonw (scheduled task): append output to .logs\kalshi-maker.log
+        logs = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.logs')
+        os.makedirs(logs, exist_ok=True)
+        sys.stdout = sys.stderr = open(os.path.join(logs, 'kalshi-maker.log'), 'a', encoding='utf-8')
+        print(datetime.now(timezone.utc).isoformat(), end=' ')
     load_env_local()
     now = datetime.now(timezone.utc)
     if now.date() > END_DATE + timedelta(days=1):

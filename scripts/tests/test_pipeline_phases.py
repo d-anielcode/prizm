@@ -24,13 +24,12 @@ def test_critical_steps():
 def test_other_phases():
     assert names('midday') == ['props', 'enrich', 'parlay_pass2', 'kalshi_ingest']
     assert names('pretip') == ['lineups', 'props', 'enrich', 'snapshot', 'kalshi_ingest']
-    assert names('kalshi_live') == ['kalshi_ingest', 'kalshi_model_rungs', 'kalshi_model_log', 'kalshi_pocket_scan',
-                                    'kalshi_maker_post']
+    assert names('kalshi_live') == ['kalshi_ingest', 'kalshi_model_rungs', 'kalshi_model_log', 'kalshi_pocket_scan']
     assert names('weekly') == ['player_bias', 'opponent_leaks', 'kalshi_study']
 
 def test_kalshi_steps_own_chain_not_critical():
     ks = [s for p in PHASES.values() for s in p if s.name.startswith('kalshi_')]
-    assert len(ks) == 12
+    assert len(ks) == 11
     assert all(s.chain == 'kalshi' and not s.critical for s in ks)
     assert {s.name for s in ks if s.kind != 'python'} == {'kalshi_model_log'}
     log = next(s for s in PHASES['kalshi_live'] if s.name == 'kalshi_model_log')

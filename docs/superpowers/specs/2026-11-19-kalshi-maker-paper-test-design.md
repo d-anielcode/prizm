@@ -31,7 +31,12 @@ bars fixed before any data comes in.
 
 Each hypothesis is judged on its own; one passing says nothing about the other.
 
-## 1. Posting (step `kalshi_maker_post`, in `kalshi_live`, every ~15 min)
+## 1. Posting (`kalshi_maker_post.py`, PC scheduled task every 15 min, 1pm–11pm PT)
+
+This runs on the user's PC, not GitHub. The GitHub 15-min `kalshi_live` cron
+actually fires about twice a day (Nov 2026), which would miss most 3 h pre-tip
+windows. Settling stays in the GitHub `overnight` phase, since it runs once a day
+and retries itself.
 
 For every open rung, on each side (YES and NO) independently:
 
