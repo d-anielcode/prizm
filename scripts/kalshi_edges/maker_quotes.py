@@ -63,3 +63,41 @@ def tip_for(tips, away, home):
             if a + h in tips:
                 return tips[a + h]
     return None
+
+
+def _ts(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _hit_price(side, trade):
+    """Our-side price of a trade where the taker sold into `side`'s bids, else None.
+    YES bid is hit when the taker buys NO (taker_side 'no'); NO bid when the taker buys YES."""
+    y = float(trade["yes_price_dollars"])
+    if side == "yes" and trade.get("taker_side") == "no":
+        return _r(y)
+    if side == "no" and trade.get("taker_side") == "yes":
+        return _r(1 - y)
+    return None
+
+
+def fill_time(quote, trades):
+    """Queue-aware fill (spec section 3). Walk non-block trades in (posted_at, tip_time] oldest first:
+    a hit below our price fills us; a hit at our price first uses up queue_ahead (we fill once
+    it goes negative); hits above our price and other-side trades are ignored. Unseen
+    cancellations ahead of us are assumed not to happen (undercounts fills). Returns the
+    filling trade's created_time, or None."""
+    side, price = quote["side"], _r(quote["price"])
+    start, end = _ts(quote["posted_at"]), _ts(quote["tip_time"])
+    remaining = float(quote["queue_ahead"])
+    for t in sorted(trades, key=lambda t: _ts(t["created_time"])):
+        if t.get("is_block_trade") or not (start < _ts(t["created_time"]) <= end):
+            continue
+        px = _hit_price(side, t)
+        if px is None or px > price:
+            continue
+        if px < price:
+            return t["created_time"]
+        remaining -= float(t.get("count_fp") or 0)
+        if remaining < 0:
+            return t["created_time"]
+    return None
