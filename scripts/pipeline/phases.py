@@ -21,6 +21,7 @@ PHASES = {
         Step('kalshi_settle', 'kalshi', 'python', 'kalshi_settle.py', -1),
         Step('kalshi_pocket_grade', 'kalshi', 'python', 'kalshi_pocket_grade.py', -1),
         Step('kalshi_model_grade', 'kalshi', 'python', 'kalshi_model_grade.py', -1),
+        Step('kalshi_maker_settle', 'kalshi', 'python', 'kalshi_maker_settle.py', -1),
         Step('defense_fresh', 'checks', 'check', 'defense_fresh', 0),
     ],
     'midday': [
@@ -43,6 +44,7 @@ PHASES = {
         Step('kalshi_model_rungs', 'kalshi', 'python', 'kalshi_model_rungs.py', 0),
         Step('kalshi_model_log', 'kalshi', 'http', '/api/markets/model-picks/log', 0),
         Step('kalshi_pocket_scan', 'kalshi', 'python', 'kalshi_pocket_scan.py', 0),
+        Step('kalshi_maker_post', 'kalshi', 'python', 'kalshi_maker_post.py', 0),
     ],
     'weekly': [
         Step('player_bias', 'weekly', 'http', '/api/player-bias?action=analyze', 0),

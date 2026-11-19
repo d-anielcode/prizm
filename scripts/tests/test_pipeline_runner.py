@@ -113,7 +113,8 @@ def test_kalshi_live_not_gated_by_pretip_window():
     store = FakeStore(first_tip=(NOW + timedelta(hours=5)).isoformat(), phase_ok_on=True)
     assert run_phase('kalshi_live', now=NOW, http=FakeHttp(), store=store, sleep=lambda s: None,
                      python=lambda script: ran.append(script) or 0) == 0
-    assert ran == ['kalshi_ingest.py', 'kalshi_model_rungs.py', 'kalshi_pocket_scan.py']
+    assert ran == ['kalshi_ingest.py', 'kalshi_model_rungs.py', 'kalshi_pocket_scan.py',
+                   'kalshi_maker_post.py']
     assert store.status('gate') == [] and store.status('kalshi_pocket_scan') == ['ok']
 
 
