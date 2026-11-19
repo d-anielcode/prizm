@@ -16,7 +16,7 @@ from kalshi_edges.maker_quotes import (END_DATE, PAUSE_S, POST_SERIES, eligible_
 DEADLINE_S = 600
 
 if __name__ == '__main__':
-    if sys.stdout is None:  # pythonw (scheduled task): append output to .logs\kalshi-maker.log
+    if not (sys.stdout and sys.stdout.isatty()):  # scheduled task / no console (scheduled task): append output to .logs\kalshi-maker.log
         logs = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.logs')
         os.makedirs(logs, exist_ok=True)
         sys.stdout = sys.stderr = open(os.path.join(logs, 'kalshi-maker.log'), 'a', encoding='utf-8')
