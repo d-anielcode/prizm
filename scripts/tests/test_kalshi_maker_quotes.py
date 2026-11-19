@@ -126,3 +126,81 @@ def test_no_side_mirrors_prices():
 def test_unsorted_trades_processed_in_time_order():
     trades = [tr(9, 0.70, 1, "no"), tr(5, 0.70, 100, "no")]
     assert fill_time(quote(queue=100), trades) == trades[0]["created_time"]
+
+
+from kalshi_edges.maker_quotes import (settled_result, score, maker_fee, stop_sample, bar_check,
+                                       final_ready, progress, MAKER_BAR, END_DATE)
+
+
+def test_settled_result():
+    assert settled_result({"status": "finalized", "result": "yes"}) == "yes"
+    assert settled_result({"status": "settled", "result": "no"}) == "no"
+    assert settled_result({"status": "finalized", "result": "scalar"}) == "void"
+    assert settled_result({"status": "closed", "result": ""}) is None
+    assert settled_result({"status": "finalized", "result": "weird"}) is None
+
+
+def test_score_filled_win_and_loss():
+    q = {"side": "no", "price": 0.75}
+    fee = maker_fee(0.75)
+    assert fee == round(0.0175 * 0.75 * 0.25, 4)
+    win = score(q, "2026-11-20T00:10:00Z", "no")
+    assert win["filled"] is True and win["fee"] == fee
+    assert abs(win["pnl"] - (1 - 0.75 - fee)) < 1e-9
+    loss = score(q, "2026-11-20T00:10:00Z", "yes")
+    assert abs(loss["pnl"] + (0.75 + fee)) < 1e-9
+
+
+def test_score_unfilled_and_void():
+    assert score({"side": "yes", "price": 0.7}, None, "yes") == \
+        {"filled": False, "fill_ts": None, "result": "yes", "fee": None, "pnl": None}
+    v = score({"side": "yes", "price": 0.7}, "2026-11-20T00:10:00Z", "void")
+    assert v["filled"] is True and v["pnl"] == 0.0
+
+
+def row(i, day, pnl, price=0.75, fee=0.0033, market="totals"):
+    return {"ticker": f"T{i}", "side": "yes", "market": market, "game_date": day,
+            "tip_time": f"{day}T23:30:00+00:00", "price": price, "fee": fee, "pnl": pnl,
+            "filled": True, "result": "yes" if pnl > 0 else "no", "scored_at": "x", "queue_ahead": 5}
+
+
+def test_stop_sample_cuts_at_day_of_nth_fill():
+    rows = [row(i, f"2026-12-{1 + i // 100:02d}", 0.2) for i in range(350)]   # 100 fills per day
+    s = stop_sample(rows, n=300)
+    assert len(s) == 300                       # 300th fill lands on Dec 3, the cut keeps all of Dec 3 (= 300)
+    rows2 = [row(i, f"2026-12-{1 + i // 120:02d}", 0.2) for i in range(350)]  # 120/day: 300th on Dec 3
+    assert len(stop_sample(rows2, n=300)) == 350   # Dec 1-3 = 350 rows (Dec 3 has 110)
+
+
+def test_stop_sample_end_date_cap():
+    rows = [row(1, "2027-04-10", 0.2), row(2, "2027-04-12", 0.2)]
+    assert [r["ticker"] for r in stop_sample(rows, n=300)] == ["T1"]
+
+
+def test_bar_check_pass_and_fail():
+    days = [f"2026-12-{d:02d}" for d in range(1, 31)] + [f"2027-01-{d:02d}" for d in range(1, 31)]
+    good = []
+    for k, d in enumerate(days):           # 5 fills/day at 0.75: every 3rd day 5 wins, else 4 wins 1 loss
+        for j in range(5):                 # (days must differ, or the t-test has zero variance)
+            win = j > 0 or k % 3 == 0
+            good.append(row(k * 5 + j, d, 0.2467 if win else -0.7533))
+    rep = bar_check(good)
+    assert rep["n"] == 300 and rep["roi"] > 0.02 and rep["p"] < 0.025 and rep["passes"] is True
+    bad = [dict(r, pnl=-0.7533 if i % 4 == 0 else 0.2467) for i, r in enumerate(good)]  # 75% hit at 0.75 -> ~-0.4%
+    assert bar_check(bad)["passes"] is False
+    assert bar_check(good[:200])["passes"] is False          # under min_n
+
+
+def test_final_ready():
+    assert final_ready(300, date(2026, 12, 1)) is True
+    assert final_ready(10, date(2027, 4, 12)) is True
+    assert final_ready(299, date(2027, 4, 11)) is False
+
+
+def test_progress_hides_roi():
+    rows = [row(1, "2026-12-01", 0.2), dict(row(2, "2026-12-01", 0.0), filled=False, pnl=None),
+            dict(row(3, "2026-12-01", 0.0), scored_at=None, filled=None, pnl=None),
+            dict(row(4, "2026-12-01", 0.0), result="void", filled=None, pnl=None)]
+    p = progress(rows)["totals"]
+    assert p == {"orders": 4, "scored": 3, "void": 1, "fill_rate": 1 / 3, "median_queue": 5, "n_filled": 1}
+    assert "roi" not in p

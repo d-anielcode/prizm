@@ -3,8 +3,13 @@
 Pure functions first (eligibility, queue, fill rule, scoring, bar); thin Kalshi I/O at
 the bottom. PAPER ONLY: nothing here, or in the scripts that use it, places an order.
 """
+from collections import defaultdict
 from datetime import date, datetime, timedelta
+from statistics import median
 
+from scipy import stats
+
+from kalshi_edges.ledger import grade
 from kalshi_edges.teams import spellings
 
 LO, HI = 0.60, 0.90                 # side price band, half-open [LO, HI)
@@ -101,3 +106,89 @@ def fill_time(quote, trades):
         if remaining < 0:
             return t["created_time"]
     return None
+
+
+# --- pre-registered (spec section 5): do not tune after the test starts ---------------------------
+MAKER_K = 0.0175
+MAKER_BAR = {"min_n": 300, "min_roi": 0.02, "alpha": 0.025}
+END_DATE = date(2027, 4, 11)        # last day of the 2026-27 regular season
+MARKETS = ("totals", "props")       # H1 primary, H2 secondary
+_RESULTS = {"yes": "yes", "no": "no", "scalar": "void"}   # same mapping as ingest._RESULTS
+
+
+def settled_result(raw):
+    """'yes' / 'no' / 'void' for a finalized Kalshi market dict, else None (not settled yet)."""
+    if raw.get("status") not in ("finalized", "settled"):
+        return None
+    return _RESULTS.get(raw.get("result"))
+
+
+def maker_fee(p):
+    return _r(MAKER_K * p * (1 - p))
+
+
+def score(quote, fill_ts, result):
+    """Outcome columns for one paper order. P&L only when filled (void -> 0)."""
+    out = {"filled": fill_ts is not None, "fill_ts": fill_ts, "result": result, "fee": None, "pnl": None}
+    if fill_ts is not None:
+        p = float(quote["price"])
+        fee = maker_fee(p)
+        _, pnl = grade(quote["side"], p, fee, result)
+        out.update(fee=fee, pnl=round(pnl, 6))
+    return out
+
+
+def _filled(rows):
+    return [r for r in rows if r.get("filled") and r.get("result") in ("yes", "no")]
+
+
+def stop_sample(filled, n=MAKER_BAR["min_n"]):
+    """Pre-registered sample: through the game date of the n-th fill (by tip time), else
+    everything up to END_DATE."""
+    rows = sorted([r for r in filled if r["game_date"] <= END_DATE.isoformat()],
+                  key=lambda r: (r["tip_time"], r["ticker"], r["side"]))
+    if len(rows) >= n:
+        cut = rows[n - 1]["game_date"]
+        rows = [r for r in rows if r["game_date"] <= cut]
+    return rows
+
+
+def _roi(rows):
+    staked = sum(float(r["price"]) + float(r["fee"]) for r in rows)
+    return sum(float(r["pnl"]) for r in rows) / staked if staked else 0.0
+
+
+def bar_check(filled):
+    """Pre-registered verdict on one market's stop_sample."""
+    rows = stop_sample(_filled(filled))
+    n, half = len(rows), len(rows) // 2
+    days = defaultdict(list)
+    for r in rows:
+        days[r["game_date"]].append(float(r["pnl"]))
+    means = [sum(v) / len(v) for v in days.values()]
+    p = stats.ttest_1samp(means, 0, alternative="greater").pvalue if len(means) > 2 else 1.0
+    p = 1.0 if p != p else float(p)   # NaN (zero variance) -> fail
+    rep = {"n": n, "days": len(means), "roi": _roi(rows), "roi_first_half": _roi(rows[:half]),
+           "roi_second_half": _roi(rows[half:]), "p": p}
+    rep["passes"] = bool(n >= MAKER_BAR["min_n"] and rep["roi"] >= MAKER_BAR["min_roi"]
+                         and rep["roi_first_half"] > 0 and rep["roi_second_half"] > 0
+                         and p < MAKER_BAR["alpha"])
+    return rep
+
+
+def final_ready(n_filled, today):
+    return n_filled >= MAKER_BAR["min_n"] or today > END_DATE
+
+
+def progress(rows):
+    """Per market counts only: no ROI before the end point (spec: no peeking)."""
+    out = {}
+    for m in MARKETS:
+        mine = [r for r in rows if r["market"] == m]
+        scored = [r for r in mine if r.get("scored_at")]
+        out[m] = {"orders": len(mine), "scored": len(scored),
+                  "void": sum(r.get("result") == "void" for r in scored),
+                  "fill_rate": sum(bool(r.get("filled")) for r in scored) / len(scored) if scored else 0.0,
+                  "median_queue": median(float(r["queue_ahead"]) for r in mine) if mine else 0,
+                  "n_filled": len(_filled(mine))}
+    return out
