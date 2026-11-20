@@ -1,0 +1,56 @@
+name: CI
+
+# Runs on every push and PR. master auto-deploys to production on Vercel, so
+# Vercel's "wait for checks" setting (or branch protection) should require the
+# `app` and `python` jobs before a deploy is promoted.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Placeholders: lib/supabase.ts throws at import without these. The build
+      # never needs the real database (pages that prerender handle failed fetches).
+      NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-anon
+      SUPABASE_SERVICE_KEY: ci-service
+      CRON_SECRET: ci
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit -p .
+      - name: Lint (app code; errors fail, warnings don't)
+        # scripts/ holds one-off research utilities, linted separately if ever revived
+        run: npx eslint app components lib types middleware.ts
+      - name: Unit tests
+        run: npx vitest run
+      - name: Build
+        run: npx next build
+
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install pytest requests numpy scipy nba_api
+      - name: Python tests
+        working-directory: scripts
+        run: python -m pytest tests -q

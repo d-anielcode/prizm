@@ -1,0 +1,153 @@
+{
+  "generated_at": "2026-03-31T00:03:34.624714",
+  "n_props": 34585,
+  "old": {
+    "label": "OLD (universal W)",
+    "overall": {
+      "n": 34585,
+      "dir_correct": 17958,
+      "high_n": 7,
+      "high_hits": 2
+    },
+    "by_stat": {
+      "assists": {
+        "n": 5161,
+        "dir_correct": 2695,
+        "high_n": 0,
+        "high_hits": 0
+      },
+      "points": {
+        "n": 9048,
+        "dir_correct": 4550,
+        "high_n": 1,
+        "high_hits": 1
+      },
+      "pra": {
+        "n": 4317,
+        "dir_correct": 2159,
+        "high_n": 0,
+        "high_hits": 0
+      },
+      "rebounds": {
+        "n": 7815,
+        "dir_correct": 4057,
+        "high_n": 6,
+        "high_hits": 1
+      },
+      "steals": {
+        "n": 1279,
+        "dir_correct": 768,
+        "high_n": 0,
+        "high_hits": 0
+      },
+      "three_pointers": {
+        "n": 6565,
+        "dir_correct": 3502,
+        "high_n": 0,
+        "high_hits": 0
+      },
+      "blocks": {
+        "n": 400,
+        "dir_correct": 227,
+        "high_n": 0,
+        "high_hits": 0
+      }
+    },
+    "calibration": {
+      "50": {
+        "n": 33150,
+        "hits": 15533,
+        "hit_rate": 0.469
+      },
+      "60": {
+        "n": 1432,
+        "hits": 749,
+        "hit_rate": 0.523
+      },
+      "70": {
+        "n": 3,
+        "hits": 0,
+        "hit_rate": 0.0
+      }
+    }
+  },
+  "new": {
+    "label": "NEW (per-stat optimized)",
+    "overall": {
+      "n": 34585,
+      "dir_correct": 18025,
+      "high_n": 120,
+      "high_hits": 71
+    },
+    "by_stat": {
+      "assists": {
+        "n": 5161,
+        "dir_correct": 2749,
+        "high_n": 15,
+        "high_hits": 7
+      },
+      "points": {
+        "n": 9048,
+        "dir_correct": 4553,
+        "high_n": 7,
+        "high_hits": 5
+      },
+      "pra": {
+        "n": 4317,
+        "dir_correct": 2159,
+        "high_n": 0,
+        "high_hits": 0
+      },
+      "rebounds": {
+        "n": 7815,
+        "dir_correct": 4031,
+        "high_n": 27,
+        "high_hits": 18
+      },
+      "steals": {
+        "n": 1279,
+        "dir_correct": 738,
+        "high_n": 18,
+        "high_hits": 9
+      },
+      "three_pointers": {
+        "n": 6565,
+        "dir_correct": 3555,
+        "high_n": 11,
+        "high_hits": 6
+      },
+      "blocks": {
+        "n": 400,
+        "dir_correct": 240,
+        "high_n": 42,
+        "high_hits": 26
+      }
+    },
+    "calibration": {
+      "50": {
+        "n": 31837,
+        "hits": 14877,
+        "hit_rate": 0.467
+      },
+      "60": {
+        "n": 2464,
+        "hits": 1268,
+        "hit_rate": 0.515
+      },
+      "70": {
+        "n": 268,
+        "hits": 125,
+        "hit_rate": 0.466
+      },
+      "80": {
+        "n": 16,
+        "hits": 12,
+        "hit_rate": 0.75
+      }
+    }
+  },
+  "delta": {
+    "directional_pp": 0.19,
+    "high_confidence_pp": 30.6
+  }
+}
