@@ -7,7 +7,7 @@ def test_overnight_order():
     assert names('overnight') == [
         'gamelogs', 'grade', 'grade_wnba', 'feed_grade', 'results', 'seasonstats', 'perf_snapshot',
         'props', 'props_wnba', 'wnba_stats', 'sim_3pm', 'enrich', 'streak', 'parlay',
-        'kalshi_settle', 'kalshi_pocket_grade', 'kalshi_model_grade', 'defense_fresh']
+        'kalshi_settle', 'kalshi_pocket_grade', 'kalshi_model_grade', 'kalshi_maker_settle', 'defense_fresh']
 
 def test_chains_and_dates():
     by = {s.name: s for s in PHASES['overnight']}
@@ -29,7 +29,7 @@ def test_other_phases():
 
 def test_kalshi_steps_own_chain_not_critical():
     ks = [s for p in PHASES.values() for s in p if s.name.startswith('kalshi_')]
-    assert len(ks) == 10
+    assert len(ks) == 11
     assert all(s.chain == 'kalshi' and not s.critical for s in ks)
     assert {s.name for s in ks if s.kind != 'python'} == {'kalshi_model_log'}
     log = next(s for s in PHASES['kalshi_live'] if s.name == 'kalshi_model_log')
